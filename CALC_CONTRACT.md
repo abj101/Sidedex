@@ -1,8 +1,86 @@
-# Calc interface contract v1 (legacy)
+# Calc interface contract
 
-This describes the current Python Calc model. The ROM-backed implementation
-must first freeze the v2 interface specified in `CALC_IMPLEMENTATION_PLAN.md`;
-do not treat this v1 exact-only result shape as the new engine contract.
+## v2 ROM-backed interface (implementation target)
+
+This section is the shared interface for the workstreams in
+`CALC_IMPLEMENTATION_PLAN.md`. The v1 section below describes the existing
+Python model only. The current Calc must not label v1 output as ROM-verified.
+
+The UI builds a `BattleSnapshot` with `schema_version: 2` by extending the v1
+shape below. It retains `source_sha`, difficulty, progress, parties, field,
+history, and planned action. New fields are:
+
+```python
+{
+  "schema_version": 2,
+  "state_origin": "battle-start" | "manual-scenario",
+  "rng": {"main": None | [u32, u32, u32, u32],
+          "secondary": None | [u32, u32, u32, u32]},
+  "history": {"turns": [OBSERVED_TURN, ...]},
+}
+```
+
+`None` means unknown, including current HP and either RNG stream. The UI only
+uses `state_origin: "battle-start"` after the user explicitly starts a battle
+at full HP; observed turns replay from that setup. Direct midbattle edits use
+`manual-scenario` and are labelled as such. Focused roster cards do not change
+the snapshot's active indexes. The worker may reject either origin with
+`incomplete-state` when it cannot reconstruct consequential volatile state.
+
+The local worker exchanges one JSON object per line with `rom_bridge.py`:
+
+```python
+BattleRequest = {
+  "protocol_version": 1, "request_id": str,
+  "source_sha": str, "rom_sha256": str,
+  "snapshot": BattleSnapshot, "player_action": ACTION,
+  "rng_main": [u32, u32, u32, u32],
+  "rng_secondary": [u32, u32, u32, u32],
+  "deadline_ms": int,
+}
+TurnTrace = {
+  "protocol_version": 1, "request_id": str,
+  "rom_sha256": str, "enemy_action": ACTION,
+  "events": [EVENT, ...], "resulting_state": dict,
+  "rng_main": [u32, u32, u32, u32],
+  "rng_secondary": [u32, u32, u32, u32],
+  "terminal": None | "player-win" | "enemy-win",
+}
+```
+
+The adapter validates source and ROM identity and returns a structured error
+if an ID or required state cannot be mapped. The ROM worker runs the complete
+turn and emits ordered events, including choices, switches, item use, damage,
+status, ability activation, field changes, and the resulting state. A fixed
+seed may be called verified only after its full trace matches the ROM oracle.
+
+`calc_service.py` keeps the existing top-level card names (`player_moves`,
+`enemy_moves`, `ai_actions`, `recommendation`) and serves cards independently.
+Each card or move entry has one of these statuses:
+
+```python
+{"status": "verified-fixed-seed", "rom_sha256": str, ...}
+{"status": "estimated", "rom_sha256": str,
+ "sampler_id": str, "num": int, "den": int,
+ "effective_samples": int,
+ "interval_95": {"low": float, "high": float}, ...}
+{"status": "unavailable", "reason": str,
+ "detail": str, "missing": [str, ...], ...}
+```
+
+`num/den` is an observed scenario frequency; `interval_95` bounds the
+estimated proportion between 0 and 1. The UI shows the sample count, interval,
+and sampler description and calls it a **model-based estimate**. It never calls
+an unknown-seed frequency exact or a calibrated probability of the user's
+next action. `incomplete-state`, `insufficient-samples`, `timeout`,
+`source-mismatch`, and `engine-error` are required unavailable reasons.
+The cache key includes the normalized snapshot, source SHA, ROM hash, worker
+and sampler versions, and planned action. A later edit cannot display an older
+request's cards. Recommendations have a 10-second execution limit and require
+at least 400 valid trajectories per candidate plus a resolved paired 95% score
+difference; otherwise their ranking is uncertain or unavailable.
+
+## v1 Python interface (legacy)
 
 Owned by the orchestrator. Agents read this; only the orchestrator edits it.
 Source of truth for the source pin: `data/source_lock.json`
