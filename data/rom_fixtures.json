@@ -1,0 +1,509 @@
+{
+  "source": {
+    "repo": "https://github.com/iriv24/pokeemerald-expansion.git",
+    "commit": "2576d0f3f4c861c760f0c55198e37e6d7b91683e",
+    "note": "Hand-derived from the pinned checkout; no ROM build product is stored in Sidedex."
+  },
+  "oracle": {
+    "available": false,
+    "reason": "no C/ARM toolchain, no GBA emulator, and no ../pokeemerald-expansion-ref/test directory; fixtures are the only evidence"
+  },
+  "fixtures": [
+    {
+      "id": "rng-sfc32-next-first6",
+      "kind": "rng",
+      "provenance": "include/random.h:51",
+      "provenance_token": "state->a + state->b + state->ctr++;",
+      "inputs": {
+        "state": {
+          "a": 305419896,
+          "b": 2596069104,
+          "c": 4275878552,
+          "ctr": 1
+        },
+        "steps": 6
+      },
+      "expected": {
+        "outputs": [
+          2901489001,
+          2427719673,
+          4132570914,
+          921598147,
+          1045992299,
+          1328565821
+        ]
+      },
+      "derivation": "_SFC32_Next: result = a + b + ctr (pre-increment, wraps u32); then a = b ^ (b >> 9); b = c * 9; c = result + rol(c, 21). Starting from a=0x12345678 b=0x9ABCDEF0 c=0xFEDCBA98 ctr=1 the six results are 0xACF13569 0x90B40FF9 0xF6520722 0x36EE78C3 0x3E58936B 0x4F304E3D (decimal values in expected.outputs), ctr ends at 7."
+    },
+    {
+      "id": "rng-sfc32-stream29-first6",
+      "kind": "rng",
+      "provenance": "include/random.h:35",
+      "provenance_token": "const u32 result = state->a + state->b + state->ctr;",
+      "inputs": {
+        "state": {
+          "a": 305419896,
+          "b": 2596069104,
+          "c": 4275878552,
+          "ctr": 1
+        },
+        "stream": 29,
+        "steps": 6
+      },
+      "expected": {
+        "outputs": [
+          2901489001,
+          2427719701,
+          4132570970,
+          921598483,
+          1574475503,
+          2915173522
+        ]
+      },
+      "derivation": "_SFC32_Next_Stream uses the same body but adds `stream` instead of 1: ctr += 29 each step. Same start state gives 0xACF13569 0x90B41015 0xF652075A 0x36EE7A13 0x5DD896EF 0xADC20492 (decimal values in expected.outputs), ctr ends at 175 = 1 + 6*29."
+    },
+    {
+      "id": "rng-seedrng-first-random32",
+      "kind": "rng",
+      "provenance": "src/random.c:24",
+      "provenance_token": "for(i = 0; i < 16; i++)",
+      "inputs": {
+        "seed": 0,
+        "stream": 1
+      },
+      "expected": {
+        "random32": 947923937,
+        "random": 14464,
+        "state_after_seed": {
+          "a": 1180554615,
+          "b": 4062336601,
+          "c": 4120024018,
+          "ctr": 17
+        }
+      },
+      "derivation": "SFC32_Seed sets a=b=0, c=seed=0, ctr=1 and burns 16 _SFC32_Next_Stream steps, leaving a=0x465DD577 b=0xF2225659 c=0xF59293D2 ctr=0x11. Random32() (Random32 is _SFC32_Next with STREAM1) then returns 0x38802BE1 = 947923937; Random() = Random32() >> 16 = 0x3880 = 14464."
+    },
+    {
+      "id": "rng-uniform-damage-roll",
+      "kind": "rng",
+      "provenance": "src/random.c:164",
+      "provenance_token": "return lo + (((hi - lo + 1) * Random()) >> 16);",
+      "inputs": {
+        "lo": 0,
+        "hi": 15,
+        "random": 32768
+      },
+      "expected": {
+        "value": 8
+      },
+      "derivation": "RandomUniformDefault(0, 15) with Random() = 0x8000 = 32768: (15 - 0 + 1) * 32768 = 524288; 524288 >> 16 = 8. This is the damage roll index; index 0 is the 100% roll and index 15 is the 85% roll."
+    },
+    {
+      "id": "rng-crit-chance-stage0-hit",
+      "kind": "rng",
+      "provenance": "src/random.c:179",
+      "provenance_token": "u32 RandomWeightedArrayDefault",
+      "inputs": {
+        "successes": 1,
+        "total": 24,
+        "random": 62806,
+        "crit_odds_stage0_gen7plus": 24
+      },
+      "expected": {
+        "is_critical_hit": true
+      },
+      "derivation": "GetCriticalHitOdds stage 0 = sGen7CriticalHitOdds[0] = 24 because B_CRIT_CHANCE = GEN_LATEST = GEN_9 >= GEN_7. RandomChance(1, 24) = RandomWeightedArray(sum=24, weights {23, 1}) and returns index 1 (= TRUE = critical hit) when targetSum >= 23. targetSum = (24 * 62806) >> 16 = (1507344) >> 16 = 23; 23 - 23 = 0 is not < 0, so the function returns n-1 = 1. The boundary is Random() >= 62806: Random() = 62805 gives (1507320) >> 16 = 22, 22 - 23 = -1 < 0, so it returns 0 (no critical hit)."
+    },
+    {
+      "id": "accuracy-75-percent-hit",
+      "kind": "accuracy",
+      "provenance": "src/random.c:179",
+      "provenance_token": "u32 RandomWeightedArrayDefault",
+      "inputs": {
+        "accuracy_percent": 75,
+        "random": 16384
+      },
+      "expected": {
+        "hits": true
+      },
+      "derivation": "RandomPercentage(tag, 75) builds weights {25, 75} with sum 100 and returns TRUE when the weighted index is 1. targetSum = (100 * 16384) >> 16 = 25; i=0: 25 - 25 = 0, not < 0, loop ends and returns n-1 = 1 -> TRUE. So Random() = 0x4000 is the first hit."
+    },
+    {
+      "id": "accuracy-75-percent-miss",
+      "kind": "accuracy",
+      "provenance": "src/random.c:179",
+      "provenance_token": "u32 RandomWeightedArrayDefault",
+      "inputs": {
+        "accuracy_percent": 75,
+        "random": 16383
+      },
+      "expected": {
+        "hits": false
+      },
+      "derivation": "RandomPercentage(tag, 75), weights {25, 75}, sum 100. targetSum = (100 * 16383) >> 16 = 24; i=0: 24 - 25 = -1 < 0 -> returns 0 -> FALSE (miss)."
+    },
+    {
+      "id": "damage-base-rounding",
+      "kind": "damage",
+      "provenance": "src/battle_util.c:9897",
+      "provenance_token": "return power * userFinalAttack * (2 * level / 5 + 2) / targetFinalDefense / 50 + 2;",
+      "inputs": {
+        "power": 90,
+        "level": 100,
+        "attack": 150,
+        "defense": 100,
+        "is_crit": false,
+        "stab": 1.0,
+        "type_effectiveness": 1.0,
+        "burned_physical": false,
+        "roll_index": 0
+      },
+      "expected": {
+        "base_damage": 115,
+        "final_damage": 115
+      },
+      "derivation": "CalculateBaseDamage with integer truncation at each step: 2*100/5+2 = 42; 90*150*42 = 567000; 567000/100 = 5670; 5670/50 = 113; +2 = 115. No crit and roll_index 0 leave the base alone: 115*100/100 = 115. STAB 1.0 and type 1.0 each run DAMAGE_APPLY_MODIFIER = uq4_12_multiply_by_int_half_down = ((m*v) + UQ_4_12_ROUND - 1) >> 12 = ((4096*115) + 2047) >> 12 = 473087 >> 12 = 115."
+    },
+    {
+      "id": "damage-roll-85",
+      "kind": "damage",
+      "provenance": "src/battle_util.c:10284",
+      "provenance_token": "dmg *= DMG_ROLL_PERCENT_HI - RandomUniform",
+      "inputs": {
+        "power": 90,
+        "level": 100,
+        "attack": 150,
+        "defense": 100,
+        "is_crit": false,
+        "stab": 1.0,
+        "type_effectiveness": 1.0,
+        "burned_physical": false,
+        "roll_index": 15
+      },
+      "expected": {
+        "base_damage": 115,
+        "final_damage": 97
+      },
+      "derivation": "base = 115 (see damage-base-rounding). Roll index 15 means RandomUniform(0,15) = 15, so dmg *= 100 - 15 = 85, then dmg /= 100 with truncation: 115 * 85 = 9775; 9775 / 100 = 97 (floor). The roll is applied after the crit modifier and before STAB/type; STAB and type are both 1.0 here, so ((4096*97) + 2047) >> 12 = 399359 >> 12 = 97."
+    },
+    {
+      "id": "damage-critical-hit-gen6-plus",
+      "kind": "damage",
+      "provenance": "src/battle_util.c:9982",
+      "provenance_token": "static inline uq4_12_t GetCriticalModifier(bool32 isCrit)",
+      "inputs": {
+        "power": 90,
+        "level": 100,
+        "attack": 150,
+        "defense": 100,
+        "is_crit": true,
+        "crit_multiplier": 1.5,
+        "stab": 1.0,
+        "type_effectiveness": 1.0,
+        "burned_physical": false,
+        "roll_index": 0
+      },
+      "expected": {
+        "base_damage": 115,
+        "final_damage": 172
+      },
+      "derivation": "B_CRIT_MULTIPLIER = GEN_LATEST = GEN_9 >= GEN_6, so GetCriticalModifier returns UQ_4_12(1.5) = 6144. include/fpmath.h:70 DAMAGE_APPLY_MODIFIER = uq4_12_multiply_by_int_half_down(m,v) = ((m*v) + UQ_4_12_ROUND - 1) >> 12 with UQ_4_12_ROUND = 2048: (6144*115 + 2047) >> 12 = 708607 >> 12 = 172 (708608 would be 173, so this rounds down). Roll index 0 gives 172*100/100 = 172."
+    },
+    {
+      "id": "damage-stab",
+      "kind": "damage",
+      "provenance": "src/battle_util.c:9922",
+      "provenance_token": "static inline uq4_12_t GetSameTypeAttackBonusModifier",
+      "inputs": {
+        "power": 90,
+        "level": 100,
+        "attack": 150,
+        "defense": 100,
+        "is_crit": false,
+        "stab": 1.5,
+        "type_effectiveness": 1.0,
+        "burned_physical": false,
+        "roll_index": 0
+      },
+      "expected": {
+        "base_damage": 115,
+        "final_damage": 172
+      },
+      "derivation": "STAB applies after the damage roll: uq4_12_multiply_by_int_half_down(6144, 115) = (6144*115 + 2047) >> 12 = 708607 >> 12 = 172. GetSameTypeAttackBonusModifier returns 1.5 when the battler's type matches the move type and the ability is not Adaptability; the type modifier is 1.0 here, so ((4096*172) + 2047) >> 12 = 706599 >> 12 = 172."
+    },
+    {
+      "id": "damage-super-effective-4x",
+      "kind": "damage",
+      "provenance": "src/battle_util.c:10307",
+      "provenance_token": "DAMAGE_APPLY_MODIFIER(typeEffectivenessModifier);",
+      "inputs": {
+        "power": 90,
+        "level": 100,
+        "attack": 150,
+        "defense": 100,
+        "is_crit": false,
+        "stab": 1.0,
+        "type_effectiveness": 4.0,
+        "type_effectiveness_uq4_12": 16384,
+        "burned_physical": false,
+        "roll_index": 0
+      },
+      "expected": {
+        "base_damage": 115,
+        "final_damage": 460
+      },
+      "derivation": "A 2x x 2x dual type matchup multiplies in uq4_12 with uq4_12_multiply(8192, 8192) = (8192*8192 + 2048) >> 12 = 16384 (= 4.0). The type modifier is applied after STAB (1.0 here, identity 115): (16384*115 + 2047) >> 12 = 1886207 >> 12 = 460."
+    },
+    {
+      "id": "damage-immune-0x",
+      "kind": "damage",
+      "provenance": "src/battle_util.c:10319",
+      "provenance_token": "if (typeEffectivenessModifier == UQ_4_12(0.0))",
+      "inputs": {
+        "power": 90,
+        "level": 100,
+        "attack": 150,
+        "defense": 100,
+        "is_crit": false,
+        "stab": 1.0,
+        "type_effectiveness": 0.0,
+        "type_effectiveness_uq4_12": 0,
+        "burned_physical": false,
+        "roll_index": 0
+      },
+      "expected": {
+        "base_damage": 115,
+        "final_damage": 0
+      },
+      "derivation": "DoMoveDamageCalc returns 0 immediately when CalcTypeEffectivenessMultiplier resolves to UQ_4_12(0.0); no base damage or roll is applied. A 0x matchup (e.g. Electric vs Ground) therefore deals exactly 0."
+    },
+    {
+      "id": "damage-burn-physical-halving",
+      "kind": "damage",
+      "provenance": "src/battle_util.c:9965",
+      "provenance_token": "static inline uq4_12_t GetBurnOrFrostBiteModifier",
+      "inputs": {
+        "power": 90,
+        "level": 100,
+        "attack": 150,
+        "defense": 100,
+        "is_crit": false,
+        "stab": 1.0,
+        "type_effectiveness": 1.0,
+        "burned_physical": true,
+        "roll_index": 0
+      },
+      "expected": {
+        "base_damage": 115,
+        "final_damage": 57
+      },
+      "derivation": "A burned attacker using a physical move gets UQ_4_12(0.5) = 2048 (B_BURN_FACADE_DMG = GEN_LATEST >= GEN_6 only exempts Facade; the ability is not Guts). Applied after STAB/type: (2048*115 + 2047) >> 12 = 237567 >> 12 = 57 (237568 would be 58, so this rounds down)."
+    },
+    {
+      "id": "damage-order-stab-4x-burn",
+      "kind": "damage",
+      "provenance": "src/battle_util.c:10307",
+      "provenance_token": "DAMAGE_APPLY_MODIFIER(typeEffectivenessModifier);",
+      "inputs": {
+        "power": 90,
+        "level": 100,
+        "attack": 150,
+        "defense": 100,
+        "is_crit": false,
+        "stab": 1.5,
+        "type_effectiveness": 4.0,
+        "type_effectiveness_uq4_12": 16384,
+        "burned_physical": true,
+        "roll_index": 0
+      },
+      "expected": {
+        "base_damage": 115,
+        "final_damage": 344
+      },
+      "derivation": "ApplyModifiersAfterDmgRoll order is STAB, type effectiveness, burn, each through uq4_12_multiply_by_int_half_down = ((m*v) + 2047) >> 12. 115 -> STAB 6144: (6144*115+2047)>>12 = 708607>>12 = 172 -> 4x 16384: (16384*172+2047)>>12 = 2820095>>12 = 688 -> burn 2048: (2048*688+2047)>>12 = 1411071>>12 = 344. Each step truncates, so applying burn earlier would give a different number."
+    },
+    {
+      "id": "stats-bulbasaur-lv100-neutral",
+      "kind": "stats",
+      "provenance": "src/pokemon.c:2059",
+      "provenance_token": "n = ModifyStatByNature(nature, n, statIndex);",
+      "inputs": {
+        "species": "SPECIES_BULBASAUR",
+        "base_stats": {
+          "hp": 45,
+          "attack": 49,
+          "defense": 49,
+          "sp_attack": 65,
+          "sp_defense": 65,
+          "speed": 45
+        },
+        "level": 100,
+        "ivs": {
+          "hp": 31,
+          "attack": 31,
+          "defense": 31,
+          "sp_attack": 31,
+          "sp_defense": 31,
+          "speed": 31
+        },
+        "evs": {
+          "hp": 0,
+          "attack": 0,
+          "defense": 0,
+          "sp_attack": 0,
+          "sp_defense": 0,
+          "speed": 0
+        },
+        "nature": "NATURE_HARDY"
+      },
+      "expected": {
+        "hp": 231,
+        "attack": 134,
+        "defense": 134,
+        "sp_attack": 166,
+        "sp_defense": 166,
+        "speed": 126
+      },
+      "derivation": "CalculateMonStats. HP = ((2*45 + 31 + 0)*100)/100 + 100 + 10 = 121 + 110 = 231. Other stats = ((2*base + iv + ev/4)*100)/100 + 5: attack/defense 129+5 = 134; sp_attack/sp_defense 161+5 = 166; speed 121+5 = 126. Hardy has statUp == statDown so ModifyStatByNature returns the value unchanged. B_FRIENDSHIP_BOOST is FALSE, so no friendship term."
+    },
+    {
+      "id": "stats-bulbasaur-lv100-adamant",
+      "kind": "stats",
+      "provenance": "src/pokemon.c:2059",
+      "provenance_token": "n = ModifyStatByNature(nature, n, statIndex);",
+      "inputs": {
+        "species": "SPECIES_BULBASAUR",
+        "base_stats": {
+          "hp": 45,
+          "attack": 49,
+          "defense": 49,
+          "sp_attack": 65,
+          "sp_defense": 65,
+          "speed": 45
+        },
+        "level": 100,
+        "ivs": {
+          "hp": 31,
+          "attack": 31,
+          "defense": 31,
+          "sp_attack": 31,
+          "sp_defense": 31,
+          "speed": 31
+        },
+        "evs": {
+          "hp": 0,
+          "attack": 0,
+          "defense": 0,
+          "sp_attack": 0,
+          "sp_defense": 0,
+          "speed": 0
+        },
+        "nature": "NATURE_ADAMANT"
+      },
+      "expected": {
+        "hp": 231,
+        "attack": 147,
+        "defense": 134,
+        "sp_attack": 149,
+        "sp_defense": 166,
+        "speed": 126
+      },
+      "derivation": "Same as the neutral fixture before nature: attack 134, sp_attack 166. Adamant raises attack by 110/100 and lowers sp_attack by 90/100 with truncation: 134*110/100 = 147, 166*90/100 = 149. HP is never nature-modified (statIndex <= STAT_HP returns early)."
+    },
+    {
+      "id": "stats-bulbasaur-lv50-attack-ev252",
+      "kind": "stats",
+      "provenance": "src/pokemon.c:2100",
+      "provenance_token": "newMaxHP = (((n + hpEV / 4) * level) / 100) + level + 10;",
+      "inputs": {
+        "species": "SPECIES_BULBASAUR",
+        "base_stats": {
+          "hp": 45,
+          "attack": 49,
+          "defense": 49,
+          "sp_attack": 65,
+          "sp_defense": 65,
+          "speed": 45
+        },
+        "level": 50,
+        "ivs": {
+          "hp": 31,
+          "attack": 31,
+          "defense": 31,
+          "sp_attack": 31,
+          "sp_defense": 31,
+          "speed": 31
+        },
+        "evs": {
+          "hp": 0,
+          "attack": 252,
+          "defense": 0,
+          "sp_attack": 0,
+          "sp_defense": 0,
+          "speed": 0
+        },
+        "nature": "NATURE_HARDY"
+      },
+      "expected": {
+        "hp": 120,
+        "attack": 101,
+        "defense": 69,
+        "sp_attack": 85,
+        "sp_defense": 85,
+        "speed": 65
+      },
+      "derivation": "HP = ((2*45 + 31 + 0)*50)/100 + 50 + 10 = 6050/100 + 60 = 60 + 60 = 120. Attack = ((2*49 + 31 + 252/4)*50)/100 + 5 = ((98+31+63)*50)/100 + 5 = 9600/100 + 5 = 96 + 5 = 101. Defense = (98+31+0)*50/100 + 5 = 64 + 5 = 69; sp_attack/sp_defense = (130+31)*50/100 + 5 = 80 + 5 = 85; speed = (90+31)*50/100 + 5 = 60 + 5 = 65."
+    },
+    {
+      "id": "ai-prefer-strongest-ohko",
+      "kind": "ai-score",
+      "provenance": "src/battle_ai_main.c:5178",
+      "provenance_token": "ADJUST_SCORE(BEST_EFFECT);",
+      "inputs": {
+        "function": "AI_PreferStrongestMove",
+        "hits_to_ko": 1,
+        "score_before": 100
+      },
+      "expected": {
+        "score_after": 104,
+        "delta": 4
+      },
+      "derivation": "AI_PreferStrongestMove adds BEST_EFFECT = 4 when GetNoOfHitsToKOBattler returns 1 (include/battle_ai_main.h defines BEST_EFFECT 4). ADJUST_SCORE(4) does score += 4, so 100 -> 104."
+    },
+    {
+      "id": "ai-hp-aware-high-hp-explosion",
+      "kind": "ai-score",
+      "provenance": "src/battle_ai_main.c:5285",
+      "provenance_token": "ADJUST_SCORE(-2);",
+      "inputs": {
+        "function": "AI_HPAware",
+        "hp_percent": 100,
+        "effect": "EFFECT_EXPLOSION",
+        "score_before": 100
+      },
+      "expected": {
+        "score_after": 98,
+        "delta": -2
+      },
+      "derivation": "AI_HPAware's else branch for a non-partner target: hpPercents[battlerAtk] > 70 selects the high-HP switch, whose EFFECT_EXPLOSION case runs ADJUST_SCORE(-2). 100 -> 98."
+    },
+    {
+      "id": "ai-hp-aware-mid-hp-stat-raise",
+      "kind": "ai-score",
+      "provenance": "src/battle_ai_main.c:5295",
+      "provenance_token": "ADJUST_SCORE(-2);",
+      "inputs": {
+        "function": "AI_HPAware",
+        "hp_percent": 50,
+        "effect": "EFFECT_ATTACK_UP",
+        "is_stat_raising_effect": true,
+        "score_before": 100
+      },
+      "expected": {
+        "score_after": 98,
+        "delta": -2
+      },
+      "derivation": "hpPercents[battlerAtk] = 50 is not > 70 and is > 30, so the med-HP branch applies ADJUST_SCORE(-2) when IsStatRaisingEffect(effect) is true (EFFECT_ATTACK_UP is a stat-raising effect). 100 -> 98."
+    }
+  ]
+}

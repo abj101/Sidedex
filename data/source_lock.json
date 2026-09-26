@@ -1,0 +1,11 @@
+{
+  "repo": "https://github.com/iriv24/pokeemerald-expansion.git",
+  "commit": "2576d0f3f4c861c760f0c55198e37e6d7b91683e",
+  "active_config": {
+    "COMPETITIVE_PARTY_SYNTAX": false,
+    "B_UPDATED_TYPE_MATCHUPS": "GEN_LATEST",
+    "B_TRAINER_MON_RANDOM_ABILITY": false,
+    "P_UPDATED_TYPES": "GEN_LATEST"
+  },
+  "license_status": "No root LICENSE or COPYING file exists at the pinned commit; repository README and docs do not state a license. Confirm inherited terms before redistribution."
+}

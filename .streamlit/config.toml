@@ -1,0 +1,19 @@
+[theme]
+base = "dark"
+primaryColor = "#73d49b"
+backgroundColor = "#102c33"
+secondaryBackgroundColor = "#1a444d"
+textColor = "#f5f5e6"
+borderColor = "#79a99d"
+font = "sans-serif"
+headingFont = "monospace"
+baseRadius = "none"
+buttonRadius = "none"
+showWidgetBorder = true
+
+[client]
+toolbarMode = "minimal"
+
+[server]
+runOnSave = true
+fileWatcherType = "poll"

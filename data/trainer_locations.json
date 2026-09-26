@@ -1,0 +1,7810 @@
+{
+  "source": "https://github.com/iriv24/pokeemerald-expansion",
+  "commit": "2576d0f3f4c861c760f0c55198e37e6d7b91683e",
+  "references": "data/maps/*/scripts.inc trainerbattle commands; variant IDs inherit map only from a uniquely referenced _1 base",
+  "trainers": {
+    "TRAINER_SAWYER_1": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_CHIMNEY",
+          "map_name": "MtChimney",
+          "label": "Mt Chimney"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_AQUA_HIDEOUT_1": {
+      "maps": [
+        {
+          "map_id": "MAP_AQUA_HIDEOUT_1F",
+          "map_name": "AquaHideout_1F",
+          "label": "Aqua Hideout 1F"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_AQUA_HIDEOUT_2": {
+      "maps": [
+        {
+          "map_id": "MAP_AQUA_HIDEOUT_B1F",
+          "map_name": "AquaHideout_B1F",
+          "label": "Aqua Hideout B 1F"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_AQUA_HIDEOUT_3": {
+      "maps": [
+        {
+          "map_id": "MAP_AQUA_HIDEOUT_B1F",
+          "map_name": "AquaHideout_B1F",
+          "label": "Aqua Hideout B 1F"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_AQUA_HIDEOUT_4": {
+      "maps": [
+        {
+          "map_id": "MAP_AQUA_HIDEOUT_B2F",
+          "map_name": "AquaHideout_B2F",
+          "label": "Aqua Hideout B 2F"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_SEAFLOOR_CAVERN_1": {
+      "maps": [
+        {
+          "map_id": "MAP_SEAFLOOR_CAVERN_ROOM1",
+          "map_name": "SeafloorCavern_Room1",
+          "label": "Seafloor Cavern Room 1"
+        }
+      ]
+    },
+    "TRAINER_MATT_SEAFLOOR_CAVERN": {
+      "maps": [
+        {
+          "map_id": "MAP_SEAFLOOR_CAVERN_ROOM9",
+          "map_name": "SeafloorCavern_Room9",
+          "label": "Seafloor Cavern Room 9"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_SEAFLOOR_CAVERN_3": {
+      "maps": [
+        {
+          "map_id": "MAP_SEAFLOOR_CAVERN_ROOM4",
+          "map_name": "SeafloorCavern_Room4",
+          "label": "Seafloor Cavern Room 4"
+        }
+      ]
+    },
+    "TRAINER_GABRIELLE_1": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_PYRE_3F",
+          "map_name": "MtPyre_3F",
+          "label": "Mt Pyre 3F"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_PETALBURG_WOODS": {
+      "maps": [
+        {
+          "map_id": "MAP_PETALBURG_WOODS",
+          "map_name": "PetalburgWoods",
+          "label": "Petalburg Woods"
+        }
+      ]
+    },
+    "TRAINER_MARCEL": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ]
+    },
+    "TRAINER_ALBERTO": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ]
+    },
+    "TRAINER_ED": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_SEAFLOOR_CAVERN_4": {
+      "maps": [
+        {
+          "map_id": "MAP_SEAFLOOR_CAVERN_ROOM4",
+          "map_name": "SeafloorCavern_Room4",
+          "label": "Seafloor Cavern Room 4"
+        }
+      ]
+    },
+    "TRAINER_DECLAN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE124",
+          "map_name": "Route124",
+          "label": "Route 124"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_RUSTURF_TUNNEL": {
+      "maps": [
+        {
+          "map_id": "MAP_RUSTURF_TUNNEL",
+          "map_name": "RusturfTunnel",
+          "label": "Rusturf Tunnel"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_WEATHER_INST_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119_WEATHER_INSTITUTE_1F",
+          "map_name": "Route119_WeatherInstitute_1F",
+          "label": "Route 119 Weather Institute 1F"
+        }
+      ]
+    },
+    "TRAINER_MATT_WEATHER_INST": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119_WEATHER_INSTITUTE_2F",
+          "map_name": "Route119_WeatherInstitute_2F",
+          "label": "Route 119 Weather Institute 2F"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_WEATHER_INST_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119_WEATHER_INSTITUTE_2F",
+          "map_name": "Route119_WeatherInstitute_2F",
+          "label": "Route 119 Weather Institute 2F"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_MUSEUM_1": {
+      "maps": [
+        {
+          "map_id": "MAP_SLATEPORT_CITY_OCEANIC_MUSEUM_2F",
+          "map_name": "SlateportCity_OceanicMuseum_2F",
+          "label": "Slateport City Oceanic Museum 2F"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_MUSEUM_2": {
+      "maps": [
+        {
+          "map_id": "MAP_SLATEPORT_CITY_OCEANIC_MUSEUM_2F",
+          "map_name": "SlateportCity_OceanicMuseum_2F",
+          "label": "Slateport City Oceanic Museum 2F"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_WEATHER_INST_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119_WEATHER_INSTITUTE_1F",
+          "map_name": "Route119_WeatherInstitute_1F",
+          "label": "Route 119 Weather Institute 1F"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_AQUA_HIDEOUT_5": {
+      "maps": [
+        {
+          "map_id": "MAP_AQUA_HIDEOUT_B1F",
+          "map_name": "AquaHideout_B1F",
+          "label": "Aqua Hideout B 1F"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_AQUA_HIDEOUT_6": {
+      "maps": [
+        {
+          "map_id": "MAP_AQUA_HIDEOUT_B2F",
+          "map_name": "AquaHideout_B2F",
+          "label": "Aqua Hideout B 2F"
+        }
+      ]
+    },
+    "TRAINER_FREDRICK": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ]
+    },
+    "TRAINER_ARCHIE_HIDEOUT": {
+      "maps": [
+        {
+          "map_id": "MAP_AQUA_HIDEOUT_B2F",
+          "map_name": "AquaHideout_B2F",
+          "label": "Aqua Hideout B 2F"
+        }
+      ]
+    },
+    "TRAINER_ZANDER": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_PYRE_2F",
+          "map_name": "MtPyre_2F",
+          "label": "Mt Pyre 2F"
+        }
+      ]
+    },
+    "TRAINER_SHELLY_WEATHER_INSTITUTE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119_WEATHER_INSTITUTE_2F",
+          "map_name": "Route119_WeatherInstitute_2F",
+          "label": "Route 119 Weather Institute 2F"
+        }
+      ]
+    },
+    "TRAINER_SHELLY_SEAFLOOR_CAVERN": {
+      "maps": [
+        {
+          "map_id": "MAP_SEAFLOOR_CAVERN_ROOM9",
+          "map_name": "SeafloorCavern_Room9",
+          "label": "Seafloor Cavern Room 9"
+        }
+      ]
+    },
+    "TRAINER_ARCHIE": {
+      "maps": [
+        {
+          "map_id": "MAP_SEAFLOOR_CAVERN_ROOM9",
+          "map_name": "SeafloorCavern_Room9",
+          "label": "Seafloor Cavern Room 9"
+        }
+      ]
+    },
+    "TRAINER_LEAH": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_PYRE_2F",
+          "map_name": "MtPyre_2F",
+          "label": "Mt Pyre 2F"
+        }
+      ]
+    },
+    "TRAINER_DAISY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ]
+    },
+    "TRAINER_ROSE_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE118",
+          "map_name": "Route118",
+          "label": "Route 118"
+        }
+      ]
+    },
+    "TRAINER_FELIX": {
+      "maps": [
+        {
+          "map_id": "MAP_VICTORY_ROAD_B2F",
+          "map_name": "VictoryRoad_B2F",
+          "label": "Victory Road B 2F"
+        }
+      ]
+    },
+    "TRAINER_VIOLET": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ]
+    },
+    "TRAINER_ROSE_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE118",
+          "map_name": "Route118",
+          "label": "Route 118"
+        }
+      ],
+      "derived_from": "TRAINER_ROSE_1"
+    },
+    "TRAINER_ROSE_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE118",
+          "map_name": "Route118",
+          "label": "Route 118"
+        }
+      ],
+      "derived_from": "TRAINER_ROSE_1"
+    },
+    "TRAINER_ROSE_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE118",
+          "map_name": "Route118",
+          "label": "Route 118"
+        }
+      ],
+      "derived_from": "TRAINER_ROSE_1"
+    },
+    "TRAINER_ROSE_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE118",
+          "map_name": "Route118",
+          "label": "Route 118"
+        }
+      ],
+      "derived_from": "TRAINER_ROSE_1"
+    },
+    "TRAINER_DUSTY_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ]
+    },
+    "TRAINER_FOSTER": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE105",
+          "map_name": "Route105",
+          "label": "Route 105"
+        }
+      ]
+    },
+    "TRAINER_DUSTY_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ],
+      "derived_from": "TRAINER_DUSTY_1"
+    },
+    "TRAINER_DUSTY_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ],
+      "derived_from": "TRAINER_DUSTY_1"
+    },
+    "TRAINER_DUSTY_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ],
+      "derived_from": "TRAINER_DUSTY_1"
+    },
+    "TRAINER_DUSTY_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ],
+      "derived_from": "TRAINER_DUSTY_1"
+    },
+    "TRAINER_LOLA_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109",
+          "map_name": "Route109",
+          "label": "Route 109"
+        }
+      ]
+    },
+    "TRAINER_AUSTINA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109",
+          "map_name": "Route109",
+          "label": "Route 109"
+        }
+      ]
+    },
+    "TRAINER_GWEN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109",
+          "map_name": "Route109",
+          "label": "Route 109"
+        }
+      ]
+    },
+    "TRAINER_LOLA_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109",
+          "map_name": "Route109",
+          "label": "Route 109"
+        }
+      ],
+      "derived_from": "TRAINER_LOLA_1"
+    },
+    "TRAINER_LOLA_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109",
+          "map_name": "Route109",
+          "label": "Route 109"
+        }
+      ],
+      "derived_from": "TRAINER_LOLA_1"
+    },
+    "TRAINER_LOLA_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109",
+          "map_name": "Route109",
+          "label": "Route 109"
+        }
+      ],
+      "derived_from": "TRAINER_LOLA_1"
+    },
+    "TRAINER_LOLA_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109",
+          "map_name": "Route109",
+          "label": "Route 109"
+        }
+      ],
+      "derived_from": "TRAINER_LOLA_1"
+    },
+    "TRAINER_RICKY_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109",
+          "map_name": "Route109",
+          "label": "Route 109"
+        }
+      ]
+    },
+    "TRAINER_BRIAN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109_SEASHORE_HOUSE",
+          "map_name": "Route109_SeashoreHouse",
+          "label": "Route 109 Seashore House"
+        }
+      ]
+    },
+    "TRAINER_BRIAN_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109_SEASHORE_HOUSE",
+          "map_name": "Route109_SeashoreHouse",
+          "label": "Route 109 Seashore House"
+        }
+      ]
+    },
+    "TRAINER_CHARLIE": {
+      "maps": [
+        {
+          "map_id": "MAP_ABANDONED_SHIP_CORRIDORS_1F",
+          "map_name": "AbandonedShip_Corridors_1F",
+          "label": "Abandoned Ship Corridors 1F"
+        }
+      ]
+    },
+    "TRAINER_RICKY_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109",
+          "map_name": "Route109",
+          "label": "Route 109"
+        }
+      ],
+      "derived_from": "TRAINER_RICKY_1"
+    },
+    "TRAINER_RICKY_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109",
+          "map_name": "Route109",
+          "label": "Route 109"
+        }
+      ],
+      "derived_from": "TRAINER_RICKY_1"
+    },
+    "TRAINER_RICKY_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109",
+          "map_name": "Route109",
+          "label": "Route 109"
+        }
+      ],
+      "derived_from": "TRAINER_RICKY_1"
+    },
+    "TRAINER_RICKY_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109",
+          "map_name": "Route109",
+          "label": "Route 109"
+        }
+      ],
+      "derived_from": "TRAINER_RICKY_1"
+    },
+    "TRAINER_BRAXTON": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ]
+    },
+    "TRAINER_VINCENT": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE8",
+          "map_name": "Route110_TrickHousePuzzle8",
+          "label": "Route 110 Trick House Puzzle 8"
+        }
+      ]
+    },
+    "TRAINER_LEROY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE8",
+          "map_name": "Route110_TrickHousePuzzle8",
+          "label": "Route 110 Trick House Puzzle 8"
+        }
+      ]
+    },
+    "TRAINER_WILTON_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ]
+    },
+    "TRAINER_EDGAR": {
+      "maps": [
+        {
+          "map_id": "MAP_VICTORY_ROAD_1F",
+          "map_name": "VictoryRoad_1F",
+          "label": "Victory Road 1F"
+        }
+      ]
+    },
+    "TRAINER_ALBERT": {
+      "maps": [
+        {
+          "map_id": "MAP_VICTORY_ROAD_1F",
+          "map_name": "VictoryRoad_1F",
+          "label": "Victory Road 1F"
+        }
+      ]
+    },
+    "TRAINER_SAMUEL": {
+      "maps": [
+        {
+          "map_id": "MAP_VICTORY_ROAD_B1F",
+          "map_name": "VictoryRoad_B1F",
+          "label": "Victory Road B 1F"
+        }
+      ]
+    },
+    "TRAINER_VITO": {
+      "maps": [
+        {
+          "map_id": "MAP_VICTORY_ROAD_B2F",
+          "map_name": "VictoryRoad_B2F",
+          "label": "Victory Road B 2F"
+        }
+      ]
+    },
+    "TRAINER_OWEN": {
+      "maps": [
+        {
+          "map_id": "MAP_VICTORY_ROAD_B2F",
+          "map_name": "VictoryRoad_B2F",
+          "label": "Victory Road B 2F"
+        }
+      ]
+    },
+    "TRAINER_WILTON_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ],
+      "derived_from": "TRAINER_WILTON_1"
+    },
+    "TRAINER_WILTON_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ],
+      "derived_from": "TRAINER_WILTON_1"
+    },
+    "TRAINER_WILTON_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ],
+      "derived_from": "TRAINER_WILTON_1"
+    },
+    "TRAINER_WILTON_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ],
+      "derived_from": "TRAINER_WILTON_1"
+    },
+    "TRAINER_WARREN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE133",
+          "map_name": "Route133",
+          "label": "Route 133"
+        }
+      ]
+    },
+    "TRAINER_MARY": {
+      "maps": [
+        {
+          "map_id": "MAP_PETALBURG_CITY_GYM",
+          "map_name": "PetalburgCity_Gym",
+          "label": "Petalburg City Gym"
+        }
+      ]
+    },
+    "TRAINER_ALEXIA": {
+      "maps": [
+        {
+          "map_id": "MAP_PETALBURG_CITY_GYM",
+          "map_name": "PetalburgCity_Gym",
+          "label": "Petalburg City Gym"
+        }
+      ]
+    },
+    "TRAINER_JODY": {
+      "maps": [
+        {
+          "map_id": "MAP_PETALBURG_CITY_GYM",
+          "map_name": "PetalburgCity_Gym",
+          "label": "Petalburg City Gym"
+        }
+      ]
+    },
+    "TRAINER_WENDY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ]
+    },
+    "TRAINER_KEIRA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE8",
+          "map_name": "Route110_TrickHousePuzzle8",
+          "label": "Route 110 Trick House Puzzle 8"
+        }
+      ]
+    },
+    "TRAINER_BROOKE_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ]
+    },
+    "TRAINER_JENNIFER": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE120",
+          "map_name": "Route120",
+          "label": "Route 120"
+        }
+      ]
+    },
+    "TRAINER_HOPE": {
+      "maps": [
+        {
+          "map_id": "MAP_VICTORY_ROAD_1F",
+          "map_name": "VictoryRoad_1F",
+          "label": "Victory Road 1F"
+        }
+      ]
+    },
+    "TRAINER_SHANNON": {
+      "maps": [
+        {
+          "map_id": "MAP_VICTORY_ROAD_B1F",
+          "map_name": "VictoryRoad_B1F",
+          "label": "Victory Road B 1F"
+        }
+      ]
+    },
+    "TRAINER_MICHELLE": {
+      "maps": [
+        {
+          "map_id": "MAP_VICTORY_ROAD_B1F",
+          "map_name": "VictoryRoad_B1F",
+          "label": "Victory Road B 1F"
+        }
+      ]
+    },
+    "TRAINER_CAROLINE": {
+      "maps": [
+        {
+          "map_id": "MAP_VICTORY_ROAD_B2F",
+          "map_name": "VictoryRoad_B2F",
+          "label": "Victory Road B 2F"
+        }
+      ]
+    },
+    "TRAINER_JULIE": {
+      "maps": [
+        {
+          "map_id": "MAP_VICTORY_ROAD_B2F",
+          "map_name": "VictoryRoad_B2F",
+          "label": "Victory Road B 2F"
+        }
+      ]
+    },
+    "TRAINER_BROOKE_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ],
+      "derived_from": "TRAINER_BROOKE_1"
+    },
+    "TRAINER_BROOKE_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ],
+      "derived_from": "TRAINER_BROOKE_1"
+    },
+    "TRAINER_BROOKE_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ],
+      "derived_from": "TRAINER_BROOKE_1"
+    },
+    "TRAINER_BROOKE_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ],
+      "derived_from": "TRAINER_BROOKE_1"
+    },
+    "TRAINER_PATRICIA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE7",
+          "map_name": "Route110_TrickHousePuzzle7",
+          "label": "Route 110 Trick House Puzzle 7"
+        }
+      ]
+    },
+    "TRAINER_KINDRA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ]
+    },
+    "TRAINER_TAMMY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ]
+    },
+    "TRAINER_VALERIE_1": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_PYRE_6F",
+          "map_name": "MtPyre_6F",
+          "label": "Mt Pyre 6F"
+        }
+      ]
+    },
+    "TRAINER_TASHA": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_PYRE_5F",
+          "map_name": "MtPyre_5F",
+          "label": "Mt Pyre 5F"
+        }
+      ]
+    },
+    "TRAINER_VALERIE_2": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_PYRE_6F",
+          "map_name": "MtPyre_6F",
+          "label": "Mt Pyre 6F"
+        }
+      ],
+      "derived_from": "TRAINER_VALERIE_1"
+    },
+    "TRAINER_VALERIE_3": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_PYRE_6F",
+          "map_name": "MtPyre_6F",
+          "label": "Mt Pyre 6F"
+        }
+      ],
+      "derived_from": "TRAINER_VALERIE_1"
+    },
+    "TRAINER_VALERIE_4": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_PYRE_6F",
+          "map_name": "MtPyre_6F",
+          "label": "Mt Pyre 6F"
+        }
+      ],
+      "derived_from": "TRAINER_VALERIE_1"
+    },
+    "TRAINER_VALERIE_5": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_PYRE_6F",
+          "map_name": "MtPyre_6F",
+          "label": "Mt Pyre 6F"
+        }
+      ],
+      "derived_from": "TRAINER_VALERIE_1"
+    },
+    "TRAINER_CINDY_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ]
+    },
+    "TRAINER_DAPHNE": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_GYM_B1F",
+          "map_name": "SootopolisCity_Gym_B1F",
+          "label": "Sootopolis City Gym B 1F"
+        }
+      ]
+    },
+    "TRAINER_CINDY_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ],
+      "derived_from": "TRAINER_CINDY_1"
+    },
+    "TRAINER_BRIANNA": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_GYM_B1F",
+          "map_name": "SootopolisCity_Gym_B1F",
+          "label": "Sootopolis City Gym B 1F"
+        }
+      ]
+    },
+    "TRAINER_NAOMI": {
+      "maps": [
+        {
+          "map_id": "MAP_SS_TIDAL_ROOMS",
+          "map_name": "SSTidalRooms",
+          "label": "SSTidal Rooms"
+        }
+      ]
+    },
+    "TRAINER_CINDY_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ],
+      "derived_from": "TRAINER_CINDY_1"
+    },
+    "TRAINER_CINDY_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ],
+      "derived_from": "TRAINER_CINDY_1"
+    },
+    "TRAINER_CINDY_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ],
+      "derived_from": "TRAINER_CINDY_1"
+    },
+    "TRAINER_CINDY_6": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ],
+      "derived_from": "TRAINER_CINDY_1"
+    },
+    "TRAINER_MELISSA": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_CHIMNEY",
+          "map_name": "MtChimney",
+          "label": "Mt Chimney"
+        }
+      ]
+    },
+    "TRAINER_SHEILA": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_CHIMNEY",
+          "map_name": "MtChimney",
+          "label": "Mt Chimney"
+        }
+      ]
+    },
+    "TRAINER_SHIRLEY": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_CHIMNEY",
+          "map_name": "MtChimney",
+          "label": "Mt Chimney"
+        }
+      ]
+    },
+    "TRAINER_JESSICA_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ]
+    },
+    "TRAINER_CONNIE": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_GYM_B1F",
+          "map_name": "SootopolisCity_Gym_B1F",
+          "label": "Sootopolis City Gym B 1F"
+        }
+      ]
+    },
+    "TRAINER_BRIDGET": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_GYM_B1F",
+          "map_name": "SootopolisCity_Gym_B1F",
+          "label": "Sootopolis City Gym B 1F"
+        }
+      ]
+    },
+    "TRAINER_OLIVIA": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_GYM_B1F",
+          "map_name": "SootopolisCity_Gym_B1F",
+          "label": "Sootopolis City Gym B 1F"
+        }
+      ]
+    },
+    "TRAINER_TIFFANY": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_GYM_B1F",
+          "map_name": "SootopolisCity_Gym_B1F",
+          "label": "Sootopolis City Gym B 1F"
+        }
+      ]
+    },
+    "TRAINER_JESSICA_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ],
+      "derived_from": "TRAINER_JESSICA_1"
+    },
+    "TRAINER_JESSICA_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ],
+      "derived_from": "TRAINER_JESSICA_1"
+    },
+    "TRAINER_JESSICA_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ],
+      "derived_from": "TRAINER_JESSICA_1"
+    },
+    "TRAINER_JESSICA_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ],
+      "derived_from": "TRAINER_JESSICA_1"
+    },
+    "TRAINER_WINSTON_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ]
+    },
+    "TRAINER_MOLLIE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE133",
+          "map_name": "Route133",
+          "label": "Route 133"
+        }
+      ]
+    },
+    "TRAINER_GARRET": {
+      "maps": [
+        {
+          "map_id": "MAP_SS_TIDAL_ROOMS",
+          "map_name": "SSTidalRooms",
+          "label": "SSTidal Rooms"
+        }
+      ]
+    },
+    "TRAINER_WINSTON_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ],
+      "derived_from": "TRAINER_WINSTON_1"
+    },
+    "TRAINER_WINSTON_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ],
+      "derived_from": "TRAINER_WINSTON_1"
+    },
+    "TRAINER_WINSTON_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ],
+      "derived_from": "TRAINER_WINSTON_1"
+    },
+    "TRAINER_WINSTON_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ],
+      "derived_from": "TRAINER_WINSTON_1"
+    },
+    "TRAINER_STEVE_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE114",
+          "map_name": "Route114",
+          "label": "Route 114"
+        }
+      ]
+    },
+    "TRAINER_THALIA_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ABANDONED_SHIP_ROOMS_1F",
+          "map_name": "AbandonedShip_Rooms_1F",
+          "label": "Abandoned Ship Rooms 1F"
+        }
+      ]
+    },
+    "TRAINER_MARK": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_PYRE_2F",
+          "map_name": "MtPyre_2F",
+          "label": "Mt Pyre 2F"
+        }
+      ]
+    },
+    "TRAINER_COURTNEY_MT_CHIMNEY": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_CHIMNEY",
+          "map_name": "MtChimney",
+          "label": "Mt Chimney"
+        }
+      ]
+    },
+    "TRAINER_STEVE_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE114",
+          "map_name": "Route114",
+          "label": "Route 114"
+        }
+      ],
+      "derived_from": "TRAINER_STEVE_1"
+    },
+    "TRAINER_STEVE_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE114",
+          "map_name": "Route114",
+          "label": "Route 114"
+        }
+      ],
+      "derived_from": "TRAINER_STEVE_1"
+    },
+    "TRAINER_STEVE_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE114",
+          "map_name": "Route114",
+          "label": "Route 114"
+        }
+      ],
+      "derived_from": "TRAINER_STEVE_1"
+    },
+    "TRAINER_STEVE_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE114",
+          "map_name": "Route114",
+          "label": "Route 114"
+        }
+      ],
+      "derived_from": "TRAINER_STEVE_1"
+    },
+    "TRAINER_LUIS": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE105",
+          "map_name": "Route105",
+          "label": "Route 105"
+        }
+      ]
+    },
+    "TRAINER_DOMINIK": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE105",
+          "map_name": "Route105",
+          "label": "Route 105"
+        }
+      ]
+    },
+    "TRAINER_DOUGLAS": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE106",
+          "map_name": "Route106",
+          "label": "Route 106"
+        }
+      ]
+    },
+    "TRAINER_DARRIN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE107",
+          "map_name": "Route107",
+          "label": "Route 107"
+        }
+      ]
+    },
+    "TRAINER_TONY_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE107",
+          "map_name": "Route107",
+          "label": "Route 107"
+        }
+      ]
+    },
+    "TRAINER_JEROME": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE108",
+          "map_name": "Route108",
+          "label": "Route 108"
+        }
+      ]
+    },
+    "TRAINER_MATTHEW": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE108",
+          "map_name": "Route108",
+          "label": "Route 108"
+        }
+      ]
+    },
+    "TRAINER_DAVID": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109",
+          "map_name": "Route109",
+          "label": "Route 109"
+        }
+      ]
+    },
+    "TRAINER_SPENCER": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE124",
+          "map_name": "Route124",
+          "label": "Route 124"
+        }
+      ]
+    },
+    "TRAINER_ROLAND": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE124",
+          "map_name": "Route124",
+          "label": "Route 124"
+        }
+      ]
+    },
+    "TRAINER_NOLEN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE125",
+          "map_name": "Route125",
+          "label": "Route 125"
+        }
+      ]
+    },
+    "TRAINER_STAN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE125",
+          "map_name": "Route125",
+          "label": "Route 125"
+        }
+      ]
+    },
+    "TRAINER_BARRY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE126",
+          "map_name": "Route126",
+          "label": "Route 126"
+        }
+      ]
+    },
+    "TRAINER_DEAN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE126",
+          "map_name": "Route126",
+          "label": "Route 126"
+        }
+      ]
+    },
+    "TRAINER_RODNEY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE130",
+          "map_name": "Route130",
+          "label": "Route 130"
+        }
+      ]
+    },
+    "TRAINER_RICHARD": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE131",
+          "map_name": "Route131",
+          "label": "Route 131"
+        }
+      ]
+    },
+    "TRAINER_HERMAN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE131",
+          "map_name": "Route131",
+          "label": "Route 131"
+        }
+      ]
+    },
+    "TRAINER_SANTIAGO": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE130",
+          "map_name": "Route130",
+          "label": "Route 130"
+        }
+      ]
+    },
+    "TRAINER_GILBERT": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE132",
+          "map_name": "Route132",
+          "label": "Route 132"
+        }
+      ]
+    },
+    "TRAINER_FRANKLIN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE133",
+          "map_name": "Route133",
+          "label": "Route 133"
+        }
+      ]
+    },
+    "TRAINER_KEVIN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE131",
+          "map_name": "Route131",
+          "label": "Route 131"
+        }
+      ]
+    },
+    "TRAINER_JACK": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE134",
+          "map_name": "Route134",
+          "label": "Route 134"
+        }
+      ]
+    },
+    "TRAINER_CHAD": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE124",
+          "map_name": "Route124",
+          "label": "Route 124"
+        }
+      ]
+    },
+    "TRAINER_TONY_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE107",
+          "map_name": "Route107",
+          "label": "Route 107"
+        }
+      ],
+      "derived_from": "TRAINER_TONY_1"
+    },
+    "TRAINER_TONY_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE107",
+          "map_name": "Route107",
+          "label": "Route 107"
+        }
+      ],
+      "derived_from": "TRAINER_TONY_1"
+    },
+    "TRAINER_TONY_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE107",
+          "map_name": "Route107",
+          "label": "Route 107"
+        }
+      ],
+      "derived_from": "TRAINER_TONY_1"
+    },
+    "TRAINER_TONY_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE107",
+          "map_name": "Route107",
+          "label": "Route 107"
+        }
+      ],
+      "derived_from": "TRAINER_TONY_1"
+    },
+    "TRAINER_TAKAO": {
+      "maps": [
+        {
+          "map_id": "MAP_DEWFORD_TOWN_GYM",
+          "map_name": "DewfordTown_Gym",
+          "label": "Dewford Town Gym"
+        }
+      ]
+    },
+    "TRAINER_HITOSHI": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE134",
+          "map_name": "Route134",
+          "label": "Route 134"
+        }
+      ]
+    },
+    "TRAINER_KIYO": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE132",
+          "map_name": "Route132",
+          "label": "Route 132"
+        }
+      ]
+    },
+    "TRAINER_KOICHI": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ]
+    },
+    "TRAINER_NOB_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ]
+    },
+    "TRAINER_NOB_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ],
+      "derived_from": "TRAINER_NOB_1"
+    },
+    "TRAINER_NOB_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ],
+      "derived_from": "TRAINER_NOB_1"
+    },
+    "TRAINER_NOB_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ],
+      "derived_from": "TRAINER_NOB_1"
+    },
+    "TRAINER_NOB_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ],
+      "derived_from": "TRAINER_NOB_1"
+    },
+    "TRAINER_YUJI": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE4",
+          "map_name": "Route110_TrickHousePuzzle4",
+          "label": "Route 110 Trick House Puzzle 4"
+        }
+      ]
+    },
+    "TRAINER_DAISUKE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ]
+    },
+    "TRAINER_ATSUSHI": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_PYRE_4F",
+          "map_name": "MtPyre_4F",
+          "label": "Mt Pyre 4F"
+        }
+      ]
+    },
+    "TRAINER_KIRK": {
+      "maps": [
+        {
+          "map_id": "MAP_MAUVILLE_CITY_GYM",
+          "map_name": "MauvilleCity_Gym",
+          "label": "Mauville City Gym"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_AQUA_HIDEOUT_7": {
+      "maps": [
+        {
+          "map_id": "MAP_AQUA_HIDEOUT_B1F",
+          "map_name": "AquaHideout_B1F",
+          "label": "Aqua Hideout B 1F"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_AQUA_HIDEOUT_8": {
+      "maps": [
+        {
+          "map_id": "MAP_AQUA_HIDEOUT_B2F",
+          "map_name": "AquaHideout_B2F",
+          "label": "Aqua Hideout B 2F"
+        }
+      ]
+    },
+    "TRAINER_SHAWN": {
+      "maps": [
+        {
+          "map_id": "MAP_MAUVILLE_CITY_GYM",
+          "map_name": "MauvilleCity_Gym",
+          "label": "Mauville City Gym"
+        }
+      ]
+    },
+    "TRAINER_FERNANDO_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ]
+    },
+    "TRAINER_DALTON_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE118",
+          "map_name": "Route118",
+          "label": "Route 118"
+        }
+      ]
+    },
+    "TRAINER_DALTON_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE118",
+          "map_name": "Route118",
+          "label": "Route 118"
+        }
+      ],
+      "derived_from": "TRAINER_DALTON_1"
+    },
+    "TRAINER_DALTON_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE118",
+          "map_name": "Route118",
+          "label": "Route 118"
+        }
+      ],
+      "derived_from": "TRAINER_DALTON_1"
+    },
+    "TRAINER_DALTON_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE118",
+          "map_name": "Route118",
+          "label": "Route 118"
+        }
+      ],
+      "derived_from": "TRAINER_DALTON_1"
+    },
+    "TRAINER_DALTON_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE118",
+          "map_name": "Route118",
+          "label": "Route 118"
+        }
+      ],
+      "derived_from": "TRAINER_DALTON_1"
+    },
+    "TRAINER_COLE": {
+      "maps": [
+        {
+          "map_id": "MAP_LAVARIDGE_TOWN_GYM_1F",
+          "map_name": "LavaridgeTown_Gym_1F",
+          "label": "Lavaridge Town Gym 1F"
+        }
+      ]
+    },
+    "TRAINER_JEFF": {
+      "maps": [
+        {
+          "map_id": "MAP_LAVARIDGE_TOWN_GYM_1F",
+          "map_name": "LavaridgeTown_Gym_1F",
+          "label": "Lavaridge Town Gym 1F"
+        }
+      ]
+    },
+    "TRAINER_AXLE": {
+      "maps": [
+        {
+          "map_id": "MAP_LAVARIDGE_TOWN_GYM_1F",
+          "map_name": "LavaridgeTown_Gym_1F",
+          "label": "Lavaridge Town Gym 1F"
+        }
+      ]
+    },
+    "TRAINER_JACE": {
+      "maps": [
+        {
+          "map_id": "MAP_LAVARIDGE_TOWN_GYM_1F",
+          "map_name": "LavaridgeTown_Gym_1F",
+          "label": "Lavaridge Town Gym 1F"
+        }
+      ]
+    },
+    "TRAINER_KEEGAN": {
+      "maps": [
+        {
+          "map_id": "MAP_LAVARIDGE_TOWN_GYM_1F",
+          "map_name": "LavaridgeTown_Gym_1F",
+          "label": "Lavaridge Town Gym 1F"
+        }
+      ]
+    },
+    "TRAINER_BERNIE_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE114",
+          "map_name": "Route114",
+          "label": "Route 114"
+        }
+      ]
+    },
+    "TRAINER_BERNIE_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE114",
+          "map_name": "Route114",
+          "label": "Route 114"
+        }
+      ],
+      "derived_from": "TRAINER_BERNIE_1"
+    },
+    "TRAINER_BERNIE_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE114",
+          "map_name": "Route114",
+          "label": "Route 114"
+        }
+      ],
+      "derived_from": "TRAINER_BERNIE_1"
+    },
+    "TRAINER_BERNIE_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE114",
+          "map_name": "Route114",
+          "label": "Route 114"
+        }
+      ],
+      "derived_from": "TRAINER_BERNIE_1"
+    },
+    "TRAINER_BERNIE_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE114",
+          "map_name": "Route114",
+          "label": "Route 114"
+        }
+      ],
+      "derived_from": "TRAINER_BERNIE_1"
+    },
+    "TRAINER_DREW": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ]
+    },
+    "TRAINER_BEAU": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ]
+    },
+    "TRAINER_LARRY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE112",
+          "map_name": "Route112",
+          "label": "Route 112"
+        }
+      ]
+    },
+    "TRAINER_SHANE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE114",
+          "map_name": "Route114",
+          "label": "Route 114"
+        }
+      ]
+    },
+    "TRAINER_RUSTY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE3",
+          "map_name": "Route110_TrickHousePuzzle3",
+          "label": "Route 110 Trick House Puzzle 3"
+        }
+      ]
+    },
+    "TRAINER_ETHAN_1": {
+      "maps": [
+        {
+          "map_id": "MAP_JAGGED_PASS",
+          "map_name": "JaggedPass",
+          "label": "Jagged Pass"
+        }
+      ]
+    },
+    "TRAINER_AUTUMN": {
+      "maps": [
+        {
+          "map_id": "MAP_JAGGED_PASS",
+          "map_name": "JaggedPass",
+          "label": "Jagged Pass"
+        }
+      ]
+    },
+    "TRAINER_TRAVIS": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ]
+    },
+    "TRAINER_ETHAN_2": {
+      "maps": [
+        {
+          "map_id": "MAP_JAGGED_PASS",
+          "map_name": "JaggedPass",
+          "label": "Jagged Pass"
+        }
+      ],
+      "derived_from": "TRAINER_ETHAN_1"
+    },
+    "TRAINER_ETHAN_3": {
+      "maps": [
+        {
+          "map_id": "MAP_JAGGED_PASS",
+          "map_name": "JaggedPass",
+          "label": "Jagged Pass"
+        }
+      ],
+      "derived_from": "TRAINER_ETHAN_1"
+    },
+    "TRAINER_ETHAN_4": {
+      "maps": [
+        {
+          "map_id": "MAP_JAGGED_PASS",
+          "map_name": "JaggedPass",
+          "label": "Jagged Pass"
+        }
+      ],
+      "derived_from": "TRAINER_ETHAN_1"
+    },
+    "TRAINER_ETHAN_5": {
+      "maps": [
+        {
+          "map_id": "MAP_JAGGED_PASS",
+          "map_name": "JaggedPass",
+          "label": "Jagged Pass"
+        }
+      ],
+      "derived_from": "TRAINER_ETHAN_1"
+    },
+    "TRAINER_BRENT": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_DONALD": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_TAYLOR": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_JEFFREY_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE120",
+          "map_name": "Route120",
+          "label": "Route 120"
+        }
+      ]
+    },
+    "TRAINER_JEFFREY_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE120",
+          "map_name": "Route120",
+          "label": "Route 120"
+        }
+      ],
+      "derived_from": "TRAINER_JEFFREY_1"
+    },
+    "TRAINER_JEFFREY_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE120",
+          "map_name": "Route120",
+          "label": "Route 120"
+        }
+      ],
+      "derived_from": "TRAINER_JEFFREY_1"
+    },
+    "TRAINER_JEFFREY_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE120",
+          "map_name": "Route120",
+          "label": "Route 120"
+        }
+      ],
+      "derived_from": "TRAINER_JEFFREY_1"
+    },
+    "TRAINER_JEFFREY_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE120",
+          "map_name": "Route120",
+          "label": "Route 120"
+        }
+      ],
+      "derived_from": "TRAINER_JEFFREY_1"
+    },
+    "TRAINER_EDWARD": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ]
+    },
+    "TRAINER_PRESTON": {
+      "maps": [
+        {
+          "map_id": "MAP_MOSSDEEP_CITY_GYM",
+          "map_name": "MossdeepCity_Gym",
+          "label": "Mossdeep City Gym"
+        }
+      ]
+    },
+    "TRAINER_VIRGIL": {
+      "maps": [
+        {
+          "map_id": "MAP_MOSSDEEP_CITY_GYM",
+          "map_name": "MossdeepCity_Gym",
+          "label": "Mossdeep City Gym"
+        }
+      ]
+    },
+    "TRAINER_BLAKE": {
+      "maps": [
+        {
+          "map_id": "MAP_MOSSDEEP_CITY_GYM",
+          "map_name": "MossdeepCity_Gym",
+          "label": "Mossdeep City Gym"
+        }
+      ]
+    },
+    "TRAINER_WILLIAM": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_PYRE_3F",
+          "map_name": "MtPyre_3F",
+          "label": "Mt Pyre 3F"
+        }
+      ]
+    },
+    "TRAINER_JOSHUA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE7",
+          "map_name": "Route110_TrickHousePuzzle7",
+          "label": "Route 110 Trick House Puzzle 7"
+        }
+      ]
+    },
+    "TRAINER_CAMERON_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ]
+    },
+    "TRAINER_CAMERON_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ],
+      "derived_from": "TRAINER_CAMERON_1"
+    },
+    "TRAINER_CAMERON_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ],
+      "derived_from": "TRAINER_CAMERON_1"
+    },
+    "TRAINER_CAMERON_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ],
+      "derived_from": "TRAINER_CAMERON_1"
+    },
+    "TRAINER_CAMERON_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ],
+      "derived_from": "TRAINER_CAMERON_1"
+    },
+    "TRAINER_JACLYN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ]
+    },
+    "TRAINER_HANNAH": {
+      "maps": [
+        {
+          "map_id": "MAP_MOSSDEEP_CITY_GYM",
+          "map_name": "MossdeepCity_Gym",
+          "label": "Mossdeep City Gym"
+        }
+      ]
+    },
+    "TRAINER_SAMANTHA": {
+      "maps": [
+        {
+          "map_id": "MAP_MOSSDEEP_CITY_GYM",
+          "map_name": "MossdeepCity_Gym",
+          "label": "Mossdeep City Gym"
+        }
+      ]
+    },
+    "TRAINER_MAURA": {
+      "maps": [
+        {
+          "map_id": "MAP_MOSSDEEP_CITY_GYM",
+          "map_name": "MossdeepCity_Gym",
+          "label": "Mossdeep City Gym"
+        }
+      ]
+    },
+    "TRAINER_KAYLA": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_PYRE_3F",
+          "map_name": "MtPyre_3F",
+          "label": "Mt Pyre 3F"
+        }
+      ]
+    },
+    "TRAINER_ALEXIS": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE7",
+          "map_name": "Route110_TrickHousePuzzle7",
+          "label": "Route 110 Trick House Puzzle 7"
+        }
+      ]
+    },
+    "TRAINER_JACKI_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ]
+    },
+    "TRAINER_JACKI_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ],
+      "derived_from": "TRAINER_JACKI_1"
+    },
+    "TRAINER_JACKI_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ],
+      "derived_from": "TRAINER_JACKI_1"
+    },
+    "TRAINER_JACKI_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ],
+      "derived_from": "TRAINER_JACKI_1"
+    },
+    "TRAINER_JACKI_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ],
+      "derived_from": "TRAINER_JACKI_1"
+    },
+    "TRAINER_WALTER_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ]
+    },
+    "TRAINER_MICAH": {
+      "maps": [
+        {
+          "map_id": "MAP_SS_TIDAL_ROOMS",
+          "map_name": "SSTidalRooms",
+          "label": "SSTidal Rooms"
+        }
+      ]
+    },
+    "TRAINER_THOMAS": {
+      "maps": [
+        {
+          "map_id": "MAP_SS_TIDAL_ROOMS",
+          "map_name": "SSTidalRooms",
+          "label": "SSTidal Rooms"
+        }
+      ]
+    },
+    "TRAINER_WALTER_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ],
+      "derived_from": "TRAINER_WALTER_1"
+    },
+    "TRAINER_WALTER_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ],
+      "derived_from": "TRAINER_WALTER_1"
+    },
+    "TRAINER_WALTER_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ],
+      "derived_from": "TRAINER_WALTER_1"
+    },
+    "TRAINER_WALTER_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ],
+      "derived_from": "TRAINER_WALTER_1"
+    },
+    "TRAINER_SIDNEY1": {
+      "maps": [
+        {
+          "map_id": "MAP_EVER_GRANDE_CITY_SIDNEYS_ROOM",
+          "map_name": "EverGrandeCity_SidneysRoom",
+          "label": "Ever Grande City Sidneys Room"
+        }
+      ]
+    },
+    "TRAINER_SIDNEY2": {
+      "maps": [
+        {
+          "map_id": "MAP_EVER_GRANDE_CITY_SIDNEYS_ROOM",
+          "map_name": "EverGrandeCity_SidneysRoom",
+          "label": "Ever Grande City Sidneys Room"
+        }
+      ]
+    },
+    "TRAINER_PHOEBE1": {
+      "maps": [
+        {
+          "map_id": "MAP_EVER_GRANDE_CITY_PHOEBES_ROOM",
+          "map_name": "EverGrandeCity_PhoebesRoom",
+          "label": "Ever Grande City Phoebes Room"
+        }
+      ]
+    },
+    "TRAINER_PHOEBE2": {
+      "maps": [
+        {
+          "map_id": "MAP_EVER_GRANDE_CITY_PHOEBES_ROOM",
+          "map_name": "EverGrandeCity_PhoebesRoom",
+          "label": "Ever Grande City Phoebes Room"
+        }
+      ]
+    },
+    "TRAINER_GLACIA1": {
+      "maps": [
+        {
+          "map_id": "MAP_EVER_GRANDE_CITY_GLACIAS_ROOM",
+          "map_name": "EverGrandeCity_GlaciasRoom",
+          "label": "Ever Grande City Glacias Room"
+        }
+      ]
+    },
+    "TRAINER_GLACIA2": {
+      "maps": [
+        {
+          "map_id": "MAP_EVER_GRANDE_CITY_GLACIAS_ROOM",
+          "map_name": "EverGrandeCity_GlaciasRoom",
+          "label": "Ever Grande City Glacias Room"
+        }
+      ]
+    },
+    "TRAINER_CYNTHIA": {
+      "maps": [
+        {
+          "map_id": "MAP_EVER_GRANDE_CITY_DRAKES_ROOM",
+          "map_name": "EverGrandeCity_DrakesRoom",
+          "label": "Ever Grande City Drakes Room"
+        }
+      ]
+    },
+    "TRAINER_WALLACE_WITH_STEVEN": {
+      "maps": [
+        {
+          "map_id": "MAP_EVER_GRANDE_CITY_CHAMPIONS_ROOM",
+          "map_name": "EverGrandeCity_ChampionsRoom",
+          "label": "Ever Grande City Champions Room"
+        }
+      ]
+    },
+    "TRAINER_STEVEN_WITH_WALLACE": {
+      "maps": [
+        {
+          "map_id": "MAP_EVER_GRANDE_CITY_CHAMPIONS_ROOM",
+          "map_name": "EverGrandeCity_ChampionsRoom",
+          "label": "Ever Grande City Champions Room"
+        }
+      ]
+    },
+    "TRAINER_DRAKE": {
+      "maps": [
+        {
+          "map_id": "MAP_SKY_PILLAR_TOP",
+          "map_name": "SkyPillar_Top",
+          "label": "Sky Pillar Top"
+        }
+      ]
+    },
+    "TRAINER_ROXANNE_1": {
+      "maps": [
+        {
+          "map_id": "MAP_RUSTBORO_CITY_GYM",
+          "map_name": "RustboroCity_Gym",
+          "label": "Rustboro City Gym"
+        }
+      ]
+    },
+    "TRAINER_BRAWLY_1": {
+      "maps": [
+        {
+          "map_id": "MAP_DEWFORD_TOWN_GYM",
+          "map_name": "DewfordTown_Gym",
+          "label": "Dewford Town Gym"
+        }
+      ]
+    },
+    "TRAINER_WATTSON_1": {
+      "maps": [
+        {
+          "map_id": "MAP_MAUVILLE_CITY_GYM",
+          "map_name": "MauvilleCity_Gym",
+          "label": "Mauville City Gym"
+        }
+      ]
+    },
+    "TRAINER_FLANNERY_1": {
+      "maps": [
+        {
+          "map_id": "MAP_LAVARIDGE_TOWN_GYM_1F",
+          "map_name": "LavaridgeTown_Gym_1F",
+          "label": "Lavaridge Town Gym 1F"
+        }
+      ]
+    },
+    "TRAINER_NORMAN_1": {
+      "maps": [
+        {
+          "map_id": "MAP_PETALBURG_CITY_GYM",
+          "map_name": "PetalburgCity_Gym",
+          "label": "Petalburg City Gym"
+        }
+      ]
+    },
+    "TRAINER_WINONA_1": {
+      "maps": [
+        {
+          "map_id": "MAP_FORTREE_CITY_GYM",
+          "map_name": "FortreeCity_Gym",
+          "label": "Fortree City Gym"
+        }
+      ]
+    },
+    "TRAINER_TATE": {
+      "maps": [
+        {
+          "map_id": "MAP_MOSSDEEP_CITY_GYM",
+          "map_name": "MossdeepCity_Gym",
+          "label": "Mossdeep City Gym"
+        }
+      ]
+    },
+    "TRAINER_LIZA": {
+      "maps": [
+        {
+          "map_id": "MAP_MOSSDEEP_CITY_GYM",
+          "map_name": "MossdeepCity_Gym",
+          "label": "Mossdeep City Gym"
+        }
+      ]
+    },
+    "TRAINER_JUAN_1": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_GYM_1F",
+          "map_name": "SootopolisCity_Gym_1F",
+          "label": "Sootopolis City Gym 1F"
+        }
+      ]
+    },
+    "TRAINER_JERRY_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE116",
+          "map_name": "Route116",
+          "label": "Route 116"
+        }
+      ]
+    },
+    "TRAINER_TED": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE2",
+          "map_name": "Route110_TrickHousePuzzle2",
+          "label": "Route 110 Trick House Puzzle 2"
+        }
+      ]
+    },
+    "TRAINER_RACHEL": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE2",
+          "map_name": "Route110_TrickHousePuzzle2",
+          "label": "Route 110 Trick House Puzzle 2"
+        }
+      ]
+    },
+    "TRAINER_JERRY_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE116",
+          "map_name": "Route116",
+          "label": "Route 116"
+        }
+      ],
+      "derived_from": "TRAINER_JERRY_1"
+    },
+    "TRAINER_JERRY_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE116",
+          "map_name": "Route116",
+          "label": "Route 116"
+        }
+      ],
+      "derived_from": "TRAINER_JERRY_1"
+    },
+    "TRAINER_JERRY_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE116",
+          "map_name": "Route116",
+          "label": "Route 116"
+        }
+      ],
+      "derived_from": "TRAINER_JERRY_1"
+    },
+    "TRAINER_JERRY_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE116",
+          "map_name": "Route116",
+          "label": "Route 116"
+        }
+      ],
+      "derived_from": "TRAINER_JERRY_1"
+    },
+    "TRAINER_KAREN_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE116",
+          "map_name": "Route116",
+          "label": "Route 116"
+        }
+      ]
+    },
+    "TRAINER_GEORGIA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE2",
+          "map_name": "Route110_TrickHousePuzzle2",
+          "label": "Route 110 Trick House Puzzle 2"
+        }
+      ]
+    },
+    "TRAINER_KAREN_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE116",
+          "map_name": "Route116",
+          "label": "Route 116"
+        }
+      ],
+      "derived_from": "TRAINER_KAREN_1"
+    },
+    "TRAINER_KAREN_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE116",
+          "map_name": "Route116",
+          "label": "Route 116"
+        }
+      ],
+      "derived_from": "TRAINER_KAREN_1"
+    },
+    "TRAINER_KAREN_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE116",
+          "map_name": "Route116",
+          "label": "Route 116"
+        }
+      ],
+      "derived_from": "TRAINER_KAREN_1"
+    },
+    "TRAINER_KAREN_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE116",
+          "map_name": "Route116",
+          "label": "Route 116"
+        }
+      ],
+      "derived_from": "TRAINER_KAREN_1"
+    },
+    "TRAINER_KATE_AND_JOY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ]
+    },
+    "TRAINER_ANNA_AND_MEG_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ]
+    },
+    "TRAINER_ANNA_AND_MEG_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ],
+      "derived_from": "TRAINER_ANNA_AND_MEG_1"
+    },
+    "TRAINER_ANNA_AND_MEG_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ],
+      "derived_from": "TRAINER_ANNA_AND_MEG_1"
+    },
+    "TRAINER_ANNA_AND_MEG_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ],
+      "derived_from": "TRAINER_ANNA_AND_MEG_1"
+    },
+    "TRAINER_ANNA_AND_MEG_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ],
+      "derived_from": "TRAINER_ANNA_AND_MEG_1"
+    },
+    "TRAINER_VICTOR": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ]
+    },
+    "TRAINER_MIGUEL_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ]
+    },
+    "TRAINER_COLTON": {
+      "maps": [
+        {
+          "map_id": "MAP_SS_TIDAL_ROOMS",
+          "map_name": "SSTidalRooms",
+          "label": "SSTidal Rooms"
+        }
+      ]
+    },
+    "TRAINER_MIGUEL_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ],
+      "derived_from": "TRAINER_MIGUEL_1"
+    },
+    "TRAINER_MIGUEL_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ],
+      "derived_from": "TRAINER_MIGUEL_1"
+    },
+    "TRAINER_MIGUEL_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ],
+      "derived_from": "TRAINER_MIGUEL_1"
+    },
+    "TRAINER_MIGUEL_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ],
+      "derived_from": "TRAINER_MIGUEL_1"
+    },
+    "TRAINER_VICTORIA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ]
+    },
+    "TRAINER_VANESSA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ]
+    },
+    "TRAINER_BETHANY": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_GYM_B1F",
+          "map_name": "SootopolisCity_Gym_B1F",
+          "label": "Sootopolis City Gym B 1F"
+        }
+      ]
+    },
+    "TRAINER_ISABEL_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ]
+    },
+    "TRAINER_ISABEL_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ],
+      "derived_from": "TRAINER_ISABEL_1"
+    },
+    "TRAINER_ISABEL_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ],
+      "derived_from": "TRAINER_ISABEL_1"
+    },
+    "TRAINER_ISABEL_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ],
+      "derived_from": "TRAINER_ISABEL_1"
+    },
+    "TRAINER_ISABEL_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ],
+      "derived_from": "TRAINER_ISABEL_1"
+    },
+    "TRAINER_TIMOTHY_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ]
+    },
+    "TRAINER_TIMOTHY_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ],
+      "derived_from": "TRAINER_TIMOTHY_1"
+    },
+    "TRAINER_TIMOTHY_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ],
+      "derived_from": "TRAINER_TIMOTHY_1"
+    },
+    "TRAINER_TIMOTHY_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ],
+      "derived_from": "TRAINER_TIMOTHY_1"
+    },
+    "TRAINER_TIMOTHY_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ],
+      "derived_from": "TRAINER_TIMOTHY_1"
+    },
+    "TRAINER_VICKY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ]
+    },
+    "TRAINER_SHELBY_1": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_CHIMNEY",
+          "map_name": "MtChimney",
+          "label": "Mt Chimney"
+        }
+      ]
+    },
+    "TRAINER_SHELBY_2": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_CHIMNEY",
+          "map_name": "MtChimney",
+          "label": "Mt Chimney"
+        }
+      ],
+      "derived_from": "TRAINER_SHELBY_1"
+    },
+    "TRAINER_SHELBY_3": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_CHIMNEY",
+          "map_name": "MtChimney",
+          "label": "Mt Chimney"
+        }
+      ],
+      "derived_from": "TRAINER_SHELBY_1"
+    },
+    "TRAINER_SHELBY_4": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_CHIMNEY",
+          "map_name": "MtChimney",
+          "label": "Mt Chimney"
+        }
+      ],
+      "derived_from": "TRAINER_SHELBY_1"
+    },
+    "TRAINER_SHELBY_5": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_CHIMNEY",
+          "map_name": "MtChimney",
+          "label": "Mt Chimney"
+        }
+      ],
+      "derived_from": "TRAINER_SHELBY_1"
+    },
+    "TRAINER_CALVIN_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE102",
+          "map_name": "Route102",
+          "label": "Route 102"
+        }
+      ]
+    },
+    "TRAINER_BILLY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ]
+    },
+    "TRAINER_JOSH": {
+      "maps": [
+        {
+          "map_id": "MAP_RUSTBORO_CITY_GYM",
+          "map_name": "RustboroCity_Gym",
+          "label": "Rustboro City Gym"
+        }
+      ]
+    },
+    "TRAINER_TOMMY": {
+      "maps": [
+        {
+          "map_id": "MAP_RUSTBORO_CITY_GYM",
+          "map_name": "RustboroCity_Gym",
+          "label": "Rustboro City Gym"
+        }
+      ]
+    },
+    "TRAINER_JOEY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE116",
+          "map_name": "Route116",
+          "label": "Route 116"
+        }
+      ]
+    },
+    "TRAINER_BEN": {
+      "maps": [
+        {
+          "map_id": "MAP_MAUVILLE_CITY_GYM",
+          "map_name": "MauvilleCity_Gym",
+          "label": "Mauville City Gym"
+        }
+      ]
+    },
+    "TRAINER_QUINCY": {
+      "maps": [
+        {
+          "map_id": "MAP_VICTORY_ROAD_1F",
+          "map_name": "VictoryRoad_1F",
+          "label": "Victory Road 1F"
+        }
+      ]
+    },
+    "TRAINER_KATELYNN": {
+      "maps": [
+        {
+          "map_id": "MAP_VICTORY_ROAD_1F",
+          "map_name": "VictoryRoad_1F",
+          "label": "Victory Road 1F"
+        }
+      ]
+    },
+    "TRAINER_JAYLEN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE113",
+          "map_name": "Route113",
+          "label": "Route 113"
+        }
+      ]
+    },
+    "TRAINER_DILLON": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE113",
+          "map_name": "Route113",
+          "label": "Route 113"
+        }
+      ]
+    },
+    "TRAINER_CALVIN_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE102",
+          "map_name": "Route102",
+          "label": "Route 102"
+        }
+      ],
+      "derived_from": "TRAINER_CALVIN_1"
+    },
+    "TRAINER_CALVIN_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE102",
+          "map_name": "Route102",
+          "label": "Route 102"
+        }
+      ],
+      "derived_from": "TRAINER_CALVIN_1"
+    },
+    "TRAINER_CALVIN_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE102",
+          "map_name": "Route102",
+          "label": "Route 102"
+        }
+      ],
+      "derived_from": "TRAINER_CALVIN_1"
+    },
+    "TRAINER_CALVIN_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE102",
+          "map_name": "Route102",
+          "label": "Route 102"
+        }
+      ],
+      "derived_from": "TRAINER_CALVIN_1"
+    },
+    "TRAINER_EDDIE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE1",
+          "map_name": "Route110_TrickHousePuzzle1",
+          "label": "Route 110 Trick House Puzzle 1"
+        }
+      ]
+    },
+    "TRAINER_ALLEN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE102",
+          "map_name": "Route102",
+          "label": "Route 102"
+        }
+      ]
+    },
+    "TRAINER_TIMMY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ]
+    },
+    "TRAINER_IVAN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ]
+    },
+    "TRAINER_CLAUDE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE114",
+          "map_name": "Route114",
+          "label": "Route 114"
+        }
+      ]
+    },
+    "TRAINER_ELLIOT_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE106",
+          "map_name": "Route106",
+          "label": "Route 106"
+        }
+      ]
+    },
+    "TRAINER_NED": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE106",
+          "map_name": "Route106",
+          "label": "Route 106"
+        }
+      ]
+    },
+    "TRAINER_DALE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ]
+    },
+    "TRAINER_NOLAN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE114",
+          "map_name": "Route114",
+          "label": "Route 114"
+        }
+      ]
+    },
+    "TRAINER_BARNY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE118",
+          "map_name": "Route118",
+          "label": "Route 118"
+        }
+      ]
+    },
+    "TRAINER_WADE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE118",
+          "map_name": "Route118",
+          "label": "Route 118"
+        }
+      ]
+    },
+    "TRAINER_CARTER": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109",
+          "map_name": "Route109",
+          "label": "Route 109"
+        }
+      ]
+    },
+    "TRAINER_ELLIOT_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE106",
+          "map_name": "Route106",
+          "label": "Route 106"
+        }
+      ],
+      "derived_from": "TRAINER_ELLIOT_1"
+    },
+    "TRAINER_ELLIOT_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE106",
+          "map_name": "Route106",
+          "label": "Route 106"
+        }
+      ],
+      "derived_from": "TRAINER_ELLIOT_1"
+    },
+    "TRAINER_ELLIOT_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE106",
+          "map_name": "Route106",
+          "label": "Route 106"
+        }
+      ],
+      "derived_from": "TRAINER_ELLIOT_1"
+    },
+    "TRAINER_ELLIOT_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE106",
+          "map_name": "Route106",
+          "label": "Route 106"
+        }
+      ],
+      "derived_from": "TRAINER_ELLIOT_1"
+    },
+    "TRAINER_RONALD": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE132",
+          "map_name": "Route132",
+          "label": "Route 132"
+        }
+      ]
+    },
+    "TRAINER_JACOB": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ]
+    },
+    "TRAINER_ANTHONY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ]
+    },
+    "TRAINER_BENJAMIN_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ]
+    },
+    "TRAINER_BENJAMIN_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ],
+      "derived_from": "TRAINER_BENJAMIN_1"
+    },
+    "TRAINER_BENJAMIN_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ],
+      "derived_from": "TRAINER_BENJAMIN_1"
+    },
+    "TRAINER_BENJAMIN_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ],
+      "derived_from": "TRAINER_BENJAMIN_1"
+    },
+    "TRAINER_BENJAMIN_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ],
+      "derived_from": "TRAINER_BENJAMIN_1"
+    },
+    "TRAINER_ABIGAIL_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ]
+    },
+    "TRAINER_JASMINE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ]
+    },
+    "TRAINER_ABIGAIL_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ],
+      "derived_from": "TRAINER_ABIGAIL_1"
+    },
+    "TRAINER_ABIGAIL_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ],
+      "derived_from": "TRAINER_ABIGAIL_1"
+    },
+    "TRAINER_ABIGAIL_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ],
+      "derived_from": "TRAINER_ABIGAIL_1"
+    },
+    "TRAINER_ABIGAIL_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ],
+      "derived_from": "TRAINER_ABIGAIL_1"
+    },
+    "TRAINER_DYLAN_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ]
+    },
+    "TRAINER_DYLAN_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ],
+      "derived_from": "TRAINER_DYLAN_1"
+    },
+    "TRAINER_DYLAN_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ],
+      "derived_from": "TRAINER_DYLAN_1"
+    },
+    "TRAINER_DYLAN_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ],
+      "derived_from": "TRAINER_DYLAN_1"
+    },
+    "TRAINER_DYLAN_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ],
+      "derived_from": "TRAINER_DYLAN_1"
+    },
+    "TRAINER_MARIA_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ]
+    },
+    "TRAINER_MARIA_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ],
+      "derived_from": "TRAINER_MARIA_1"
+    },
+    "TRAINER_MARIA_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ],
+      "derived_from": "TRAINER_MARIA_1"
+    },
+    "TRAINER_MARIA_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ],
+      "derived_from": "TRAINER_MARIA_1"
+    },
+    "TRAINER_MARIA_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ],
+      "derived_from": "TRAINER_MARIA_1"
+    },
+    "TRAINER_CAMDEN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE127",
+          "map_name": "Route127",
+          "label": "Route 127"
+        }
+      ]
+    },
+    "TRAINER_DEMETRIUS": {
+      "maps": [
+        {
+          "map_id": "MAP_ABANDONED_SHIP_ROOMS_1F",
+          "map_name": "AbandonedShip_Rooms_1F",
+          "label": "Abandoned Ship Rooms 1F"
+        }
+      ]
+    },
+    "TRAINER_ISAIAH_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE128",
+          "map_name": "Route128",
+          "label": "Route 128"
+        }
+      ]
+    },
+    "TRAINER_PABLO_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE126",
+          "map_name": "Route126",
+          "label": "Route 126"
+        }
+      ]
+    },
+    "TRAINER_CHASE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE129",
+          "map_name": "Route129",
+          "label": "Route 129"
+        }
+      ]
+    },
+    "TRAINER_ISAIAH_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE128",
+          "map_name": "Route128",
+          "label": "Route 128"
+        }
+      ],
+      "derived_from": "TRAINER_ISAIAH_1"
+    },
+    "TRAINER_ISAIAH_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE128",
+          "map_name": "Route128",
+          "label": "Route 128"
+        }
+      ],
+      "derived_from": "TRAINER_ISAIAH_1"
+    },
+    "TRAINER_ISAIAH_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE128",
+          "map_name": "Route128",
+          "label": "Route 128"
+        }
+      ],
+      "derived_from": "TRAINER_ISAIAH_1"
+    },
+    "TRAINER_ISAIAH_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE128",
+          "map_name": "Route128",
+          "label": "Route 128"
+        }
+      ],
+      "derived_from": "TRAINER_ISAIAH_1"
+    },
+    "TRAINER_ISOBEL": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE126",
+          "map_name": "Route126",
+          "label": "Route 126"
+        }
+      ]
+    },
+    "TRAINER_DONNY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE127",
+          "map_name": "Route127",
+          "label": "Route 127"
+        }
+      ]
+    },
+    "TRAINER_TALIA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE131",
+          "map_name": "Route131",
+          "label": "Route 131"
+        }
+      ]
+    },
+    "TRAINER_KATELYN_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE128",
+          "map_name": "Route128",
+          "label": "Route 128"
+        }
+      ]
+    },
+    "TRAINER_ALLISON": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE129",
+          "map_name": "Route129",
+          "label": "Route 129"
+        }
+      ]
+    },
+    "TRAINER_KATELYN_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE128",
+          "map_name": "Route128",
+          "label": "Route 128"
+        }
+      ],
+      "derived_from": "TRAINER_KATELYN_1"
+    },
+    "TRAINER_KATELYN_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE128",
+          "map_name": "Route128",
+          "label": "Route 128"
+        }
+      ],
+      "derived_from": "TRAINER_KATELYN_1"
+    },
+    "TRAINER_KATELYN_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE128",
+          "map_name": "Route128",
+          "label": "Route 128"
+        }
+      ],
+      "derived_from": "TRAINER_KATELYN_1"
+    },
+    "TRAINER_KATELYN_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE128",
+          "map_name": "Route128",
+          "label": "Route 128"
+        }
+      ],
+      "derived_from": "TRAINER_KATELYN_1"
+    },
+    "TRAINER_NICOLAS_1": {
+      "maps": [
+        {
+          "map_id": "MAP_METEOR_FALLS_1F_2R",
+          "map_name": "MeteorFalls_1F_2R",
+          "label": "Meteor Falls 1F 2R"
+        }
+      ]
+    },
+    "TRAINER_NICOLAS_2": {
+      "maps": [
+        {
+          "map_id": "MAP_METEOR_FALLS_1F_2R",
+          "map_name": "MeteorFalls_1F_2R",
+          "label": "Meteor Falls 1F 2R"
+        }
+      ],
+      "derived_from": "TRAINER_NICOLAS_1"
+    },
+    "TRAINER_NICOLAS_3": {
+      "maps": [
+        {
+          "map_id": "MAP_METEOR_FALLS_1F_2R",
+          "map_name": "MeteorFalls_1F_2R",
+          "label": "Meteor Falls 1F 2R"
+        }
+      ],
+      "derived_from": "TRAINER_NICOLAS_1"
+    },
+    "TRAINER_NICOLAS_4": {
+      "maps": [
+        {
+          "map_id": "MAP_METEOR_FALLS_1F_2R",
+          "map_name": "MeteorFalls_1F_2R",
+          "label": "Meteor Falls 1F 2R"
+        }
+      ],
+      "derived_from": "TRAINER_NICOLAS_1"
+    },
+    "TRAINER_NICOLAS_5": {
+      "maps": [
+        {
+          "map_id": "MAP_METEOR_FALLS_1F_2R",
+          "map_name": "MeteorFalls_1F_2R",
+          "label": "Meteor Falls 1F 2R"
+        }
+      ],
+      "derived_from": "TRAINER_NICOLAS_1"
+    },
+    "TRAINER_AARON": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE134",
+          "map_name": "Route134",
+          "label": "Route 134"
+        }
+      ]
+    },
+    "TRAINER_PERRY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE118",
+          "map_name": "Route118",
+          "label": "Route 118"
+        }
+      ]
+    },
+    "TRAINER_HUGH": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_PHIL": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_JARED": {
+      "maps": [
+        {
+          "map_id": "MAP_FORTREE_CITY_GYM",
+          "map_name": "FortreeCity_Gym",
+          "label": "Fortree City Gym"
+        }
+      ]
+    },
+    "TRAINER_HUMBERTO": {
+      "maps": [
+        {
+          "map_id": "MAP_FORTREE_CITY_GYM",
+          "map_name": "FortreeCity_Gym",
+          "label": "Fortree City Gym"
+        }
+      ]
+    },
+    "TRAINER_PRESLEY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE125",
+          "map_name": "Route125",
+          "label": "Route 125"
+        }
+      ]
+    },
+    "TRAINER_EDWARDO": {
+      "maps": [
+        {
+          "map_id": "MAP_FORTREE_CITY_GYM",
+          "map_name": "FortreeCity_Gym",
+          "label": "Fortree City Gym"
+        }
+      ]
+    },
+    "TRAINER_COLIN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE120",
+          "map_name": "Route120",
+          "label": "Route 120"
+        }
+      ]
+    },
+    "TRAINER_ROBERT_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE120",
+          "map_name": "Route120",
+          "label": "Route 120"
+        }
+      ]
+    },
+    "TRAINER_BENNY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE6",
+          "map_name": "Route110_TrickHousePuzzle6",
+          "label": "Route 110 Trick House Puzzle 6"
+        }
+      ]
+    },
+    "TRAINER_CHESTER": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE118",
+          "map_name": "Route118",
+          "label": "Route 118"
+        }
+      ]
+    },
+    "TRAINER_ROBERT_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE120",
+          "map_name": "Route120",
+          "label": "Route 120"
+        }
+      ],
+      "derived_from": "TRAINER_ROBERT_1"
+    },
+    "TRAINER_ROBERT_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE120",
+          "map_name": "Route120",
+          "label": "Route 120"
+        }
+      ],
+      "derived_from": "TRAINER_ROBERT_1"
+    },
+    "TRAINER_ROBERT_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE120",
+          "map_name": "Route120",
+          "label": "Route 120"
+        }
+      ],
+      "derived_from": "TRAINER_ROBERT_1"
+    },
+    "TRAINER_ROBERT_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE120",
+          "map_name": "Route120",
+          "label": "Route 120"
+        }
+      ],
+      "derived_from": "TRAINER_ROBERT_1"
+    },
+    "TRAINER_ALEX": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE134",
+          "map_name": "Route134",
+          "label": "Route 134"
+        }
+      ]
+    },
+    "TRAINER_BECK": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE133",
+          "map_name": "Route133",
+          "label": "Route 133"
+        }
+      ]
+    },
+    "TRAINER_YASU": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_TAKASHI": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_DIANNE": {
+      "maps": [
+        {
+          "map_id": "MAP_VICTORY_ROAD_B2F",
+          "map_name": "VictoryRoad_B2F",
+          "label": "Victory Road B 2F"
+        }
+      ]
+    },
+    "TRAINER_JANI": {
+      "maps": [
+        {
+          "map_id": "MAP_ABANDONED_SHIP_ROOMS2_1F",
+          "map_name": "AbandonedShip_Rooms2_1F",
+          "label": "Abandoned Ship Rooms 2 1F"
+        }
+      ]
+    },
+    "TRAINER_LAO_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE113",
+          "map_name": "Route113",
+          "label": "Route 113"
+        }
+      ]
+    },
+    "TRAINER_LUNG": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE113",
+          "map_name": "Route113",
+          "label": "Route 113"
+        }
+      ]
+    },
+    "TRAINER_LAO_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE113",
+          "map_name": "Route113",
+          "label": "Route 113"
+        }
+      ],
+      "derived_from": "TRAINER_LAO_1"
+    },
+    "TRAINER_LAO_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE113",
+          "map_name": "Route113",
+          "label": "Route 113"
+        }
+      ],
+      "derived_from": "TRAINER_LAO_1"
+    },
+    "TRAINER_LAO_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE113",
+          "map_name": "Route113",
+          "label": "Route 113"
+        }
+      ],
+      "derived_from": "TRAINER_LAO_1"
+    },
+    "TRAINER_LAO_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE113",
+          "map_name": "Route113",
+          "label": "Route 113"
+        }
+      ],
+      "derived_from": "TRAINER_LAO_1"
+    },
+    "TRAINER_JOCELYN": {
+      "maps": [
+        {
+          "map_id": "MAP_DEWFORD_TOWN_GYM",
+          "map_name": "DewfordTown_Gym",
+          "label": "Dewford Town Gym"
+        }
+      ]
+    },
+    "TRAINER_LAURA": {
+      "maps": [
+        {
+          "map_id": "MAP_DEWFORD_TOWN_GYM",
+          "map_name": "DewfordTown_Gym",
+          "label": "Dewford Town Gym"
+        }
+      ]
+    },
+    "TRAINER_CYNDY_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ]
+    },
+    "TRAINER_CORA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE4",
+          "map_name": "Route110_TrickHousePuzzle4",
+          "label": "Route 110 Trick House Puzzle 4"
+        }
+      ]
+    },
+    "TRAINER_PAULA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE4",
+          "map_name": "Route110_TrickHousePuzzle4",
+          "label": "Route 110 Trick House Puzzle 4"
+        }
+      ]
+    },
+    "TRAINER_CYNDY_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ],
+      "derived_from": "TRAINER_CYNDY_1"
+    },
+    "TRAINER_CYNDY_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ],
+      "derived_from": "TRAINER_CYNDY_1"
+    },
+    "TRAINER_CYNDY_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ],
+      "derived_from": "TRAINER_CYNDY_1"
+    },
+    "TRAINER_CYNDY_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ],
+      "derived_from": "TRAINER_CYNDY_1"
+    },
+    "TRAINER_MADELINE_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE113",
+          "map_name": "Route113",
+          "label": "Route 113"
+        }
+      ]
+    },
+    "TRAINER_CLARISSA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE120",
+          "map_name": "Route120",
+          "label": "Route 120"
+        }
+      ]
+    },
+    "TRAINER_ANGELICA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE120",
+          "map_name": "Route120",
+          "label": "Route 120"
+        }
+      ]
+    },
+    "TRAINER_MADELINE_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE113",
+          "map_name": "Route113",
+          "label": "Route 113"
+        }
+      ],
+      "derived_from": "TRAINER_MADELINE_1"
+    },
+    "TRAINER_MADELINE_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE113",
+          "map_name": "Route113",
+          "label": "Route 113"
+        }
+      ],
+      "derived_from": "TRAINER_MADELINE_1"
+    },
+    "TRAINER_MADELINE_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE113",
+          "map_name": "Route113",
+          "label": "Route 113"
+        }
+      ],
+      "derived_from": "TRAINER_MADELINE_1"
+    },
+    "TRAINER_MADELINE_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE113",
+          "map_name": "Route113",
+          "label": "Route 113"
+        }
+      ],
+      "derived_from": "TRAINER_MADELINE_1"
+    },
+    "TRAINER_BEVERLY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE105",
+          "map_name": "Route105",
+          "label": "Route 105"
+        }
+      ]
+    },
+    "TRAINER_IMANI": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE105",
+          "map_name": "Route105",
+          "label": "Route 105"
+        }
+      ]
+    },
+    "TRAINER_KYLA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE106",
+          "map_name": "Route106",
+          "label": "Route 106"
+        }
+      ]
+    },
+    "TRAINER_DENISE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE107",
+          "map_name": "Route107",
+          "label": "Route 107"
+        }
+      ]
+    },
+    "TRAINER_BETH": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE107",
+          "map_name": "Route107",
+          "label": "Route 107"
+        }
+      ]
+    },
+    "TRAINER_TARA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE108",
+          "map_name": "Route108",
+          "label": "Route 108"
+        }
+      ]
+    },
+    "TRAINER_MISSY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE108",
+          "map_name": "Route108",
+          "label": "Route 108"
+        }
+      ]
+    },
+    "TRAINER_ALICE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109",
+          "map_name": "Route109",
+          "label": "Route 109"
+        }
+      ]
+    },
+    "TRAINER_JENNY_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE124",
+          "map_name": "Route124",
+          "label": "Route 124"
+        }
+      ]
+    },
+    "TRAINER_GRACE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE124",
+          "map_name": "Route124",
+          "label": "Route 124"
+        }
+      ]
+    },
+    "TRAINER_TANYA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE125",
+          "map_name": "Route125",
+          "label": "Route 125"
+        }
+      ]
+    },
+    "TRAINER_SHARON": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE125",
+          "map_name": "Route125",
+          "label": "Route 125"
+        }
+      ]
+    },
+    "TRAINER_NIKKI": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE126",
+          "map_name": "Route126",
+          "label": "Route 126"
+        }
+      ]
+    },
+    "TRAINER_BRENDA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE126",
+          "map_name": "Route126",
+          "label": "Route 126"
+        }
+      ]
+    },
+    "TRAINER_KATIE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE130",
+          "map_name": "Route130",
+          "label": "Route 130"
+        }
+      ]
+    },
+    "TRAINER_SUSIE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE131",
+          "map_name": "Route131",
+          "label": "Route 131"
+        }
+      ]
+    },
+    "TRAINER_KARA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE131",
+          "map_name": "Route131",
+          "label": "Route 131"
+        }
+      ]
+    },
+    "TRAINER_DANA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE132",
+          "map_name": "Route132",
+          "label": "Route 132"
+        }
+      ]
+    },
+    "TRAINER_SIENNA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE126",
+          "map_name": "Route126",
+          "label": "Route 126"
+        }
+      ]
+    },
+    "TRAINER_DEBRA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE133",
+          "map_name": "Route133",
+          "label": "Route 133"
+        }
+      ]
+    },
+    "TRAINER_LINDA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE133",
+          "map_name": "Route133",
+          "label": "Route 133"
+        }
+      ]
+    },
+    "TRAINER_LAUREL": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE134",
+          "map_name": "Route134",
+          "label": "Route 134"
+        }
+      ]
+    },
+    "TRAINER_CARLEE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE128",
+          "map_name": "Route128",
+          "label": "Route 128"
+        }
+      ]
+    },
+    "TRAINER_JENNY_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE124",
+          "map_name": "Route124",
+          "label": "Route 124"
+        }
+      ],
+      "derived_from": "TRAINER_JENNY_1"
+    },
+    "TRAINER_JENNY_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE124",
+          "map_name": "Route124",
+          "label": "Route 124"
+        }
+      ],
+      "derived_from": "TRAINER_JENNY_1"
+    },
+    "TRAINER_JENNY_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE124",
+          "map_name": "Route124",
+          "label": "Route 124"
+        }
+      ],
+      "derived_from": "TRAINER_JENNY_1"
+    },
+    "TRAINER_JENNY_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE124",
+          "map_name": "Route124",
+          "label": "Route 124"
+        }
+      ],
+      "derived_from": "TRAINER_JENNY_1"
+    },
+    "TRAINER_HEIDI": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ]
+    },
+    "TRAINER_BECKY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ]
+    },
+    "TRAINER_CAROL": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE112",
+          "map_name": "Route112",
+          "label": "Route 112"
+        }
+      ]
+    },
+    "TRAINER_NANCY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE114",
+          "map_name": "Route114",
+          "label": "Route 114"
+        }
+      ]
+    },
+    "TRAINER_MARTHA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE3",
+          "map_name": "Route110_TrickHousePuzzle3",
+          "label": "Route 110 Trick House Puzzle 3"
+        }
+      ]
+    },
+    "TRAINER_DIANA_1": {
+      "maps": [
+        {
+          "map_id": "MAP_JAGGED_PASS",
+          "map_name": "JaggedPass",
+          "label": "Jagged Pass"
+        }
+      ]
+    },
+    "TRAINER_CEDRIC": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_PYRE_6F",
+          "map_name": "MtPyre_6F",
+          "label": "Mt Pyre 6F"
+        }
+      ]
+    },
+    "TRAINER_IRENE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ]
+    },
+    "TRAINER_DIANA_2": {
+      "maps": [
+        {
+          "map_id": "MAP_JAGGED_PASS",
+          "map_name": "JaggedPass",
+          "label": "Jagged Pass"
+        }
+      ],
+      "derived_from": "TRAINER_DIANA_1"
+    },
+    "TRAINER_DIANA_3": {
+      "maps": [
+        {
+          "map_id": "MAP_JAGGED_PASS",
+          "map_name": "JaggedPass",
+          "label": "Jagged Pass"
+        }
+      ],
+      "derived_from": "TRAINER_DIANA_1"
+    },
+    "TRAINER_DIANA_4": {
+      "maps": [
+        {
+          "map_id": "MAP_JAGGED_PASS",
+          "map_name": "JaggedPass",
+          "label": "Jagged Pass"
+        }
+      ],
+      "derived_from": "TRAINER_DIANA_1"
+    },
+    "TRAINER_DIANA_5": {
+      "maps": [
+        {
+          "map_id": "MAP_JAGGED_PASS",
+          "map_name": "JaggedPass",
+          "label": "Jagged Pass"
+        }
+      ],
+      "derived_from": "TRAINER_DIANA_1"
+    },
+    "TRAINER_AMY_AND_LIV_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ]
+    },
+    "TRAINER_AMY_AND_LIV_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ],
+      "derived_from": "TRAINER_AMY_AND_LIV_1"
+    },
+    "TRAINER_GINA_AND_MIA_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ]
+    },
+    "TRAINER_MIU_AND_YUKI": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ]
+    },
+    "TRAINER_AMY_AND_LIV_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ],
+      "derived_from": "TRAINER_AMY_AND_LIV_1"
+    },
+    "TRAINER_GINA_AND_MIA_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ],
+      "derived_from": "TRAINER_GINA_AND_MIA_1"
+    },
+    "TRAINER_AMY_AND_LIV_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ],
+      "derived_from": "TRAINER_AMY_AND_LIV_1"
+    },
+    "TRAINER_AMY_AND_LIV_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ],
+      "derived_from": "TRAINER_AMY_AND_LIV_1"
+    },
+    "TRAINER_AMY_AND_LIV_6": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ],
+      "derived_from": "TRAINER_AMY_AND_LIV_1"
+    },
+    "TRAINER_HUEY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109",
+          "map_name": "Route109",
+          "label": "Route 109"
+        }
+      ]
+    },
+    "TRAINER_EDMOND": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109",
+          "map_name": "Route109",
+          "label": "Route 109"
+        }
+      ]
+    },
+    "TRAINER_ERNEST_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE125",
+          "map_name": "Route125",
+          "label": "Route 125"
+        }
+      ]
+    },
+    "TRAINER_DWAYNE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109_SEASHORE_HOUSE",
+          "map_name": "Route109_SeashoreHouse",
+          "label": "Route 109 Seashore House"
+        }
+      ]
+    },
+    "TRAINER_PHILLIP": {
+      "maps": [
+        {
+          "map_id": "MAP_BATTLE_FRONTIER_BATTLE_PYRAMID_FLOOR",
+          "map_name": "BattleFrontier_BattlePyramidFloor",
+          "label": "Battle Frontier Battle Pyramid Floor"
+        },
+        {
+          "map_id": "MAP_SS_TIDAL_LOWER_DECK",
+          "map_name": "SSTidalLowerDeck",
+          "label": "SSTidal Lower Deck"
+        }
+      ]
+    },
+    "TRAINER_LEONARD": {
+      "maps": [
+        {
+          "map_id": "MAP_SS_TIDAL_LOWER_DECK",
+          "map_name": "SSTidalLowerDeck",
+          "label": "SSTidal Lower Deck"
+        }
+      ]
+    },
+    "TRAINER_DUNCAN": {
+      "maps": [
+        {
+          "map_id": "MAP_ABANDONED_SHIP_CORRIDORS_B1F",
+          "map_name": "AbandonedShip_Corridors_B1F",
+          "label": "Abandoned Ship Corridors B 1F"
+        }
+      ]
+    },
+    "TRAINER_ERNEST_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE125",
+          "map_name": "Route125",
+          "label": "Route 125"
+        }
+      ],
+      "derived_from": "TRAINER_ERNEST_1"
+    },
+    "TRAINER_ERNEST_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE125",
+          "map_name": "Route125",
+          "label": "Route 125"
+        }
+      ],
+      "derived_from": "TRAINER_ERNEST_1"
+    },
+    "TRAINER_ERNEST_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE125",
+          "map_name": "Route125",
+          "label": "Route 125"
+        }
+      ],
+      "derived_from": "TRAINER_ERNEST_1"
+    },
+    "TRAINER_ERNEST_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE125",
+          "map_name": "Route125",
+          "label": "Route 125"
+        }
+      ],
+      "derived_from": "TRAINER_ERNEST_1"
+    },
+    "TRAINER_ELI": {
+      "maps": [
+        {
+          "map_id": "MAP_LAVARIDGE_TOWN_GYM_1F",
+          "map_name": "LavaridgeTown_Gym_1F",
+          "label": "Lavaridge Town Gym 1F"
+        }
+      ]
+    },
+    "TRAINER_ANNIKA": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_GYM_B1F",
+          "map_name": "SootopolisCity_Gym_B1F",
+          "label": "Sootopolis City Gym B 1F"
+        }
+      ]
+    },
+    "TRAINER_JAZMYN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ]
+    },
+    "TRAINER_JONAS": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ]
+    },
+    "TRAINER_KAYLEY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ]
+    },
+    "TRAINER_AURON": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE125",
+          "map_name": "Route125",
+          "label": "Route 125"
+        }
+      ]
+    },
+    "TRAINER_KELVIN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE134",
+          "map_name": "Route134",
+          "label": "Route 134"
+        }
+      ]
+    },
+    "TRAINER_MARLEY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE134",
+          "map_name": "Route134",
+          "label": "Route 134"
+        }
+      ]
+    },
+    "TRAINER_REYNA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE134",
+          "map_name": "Route134",
+          "label": "Route 134"
+        }
+      ]
+    },
+    "TRAINER_HUDSON": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE134",
+          "map_name": "Route134",
+          "label": "Route 134"
+        }
+      ]
+    },
+    "TRAINER_CONOR": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE133",
+          "map_name": "Route133",
+          "label": "Route 133"
+        }
+      ]
+    },
+    "TRAINER_EDWIN_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ]
+    },
+    "TRAINER_HECTOR": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ]
+    },
+    "TRAINER_EDWIN_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ],
+      "derived_from": "TRAINER_EDWIN_1"
+    },
+    "TRAINER_EDWIN_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ],
+      "derived_from": "TRAINER_EDWIN_1"
+    },
+    "TRAINER_EDWIN_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ],
+      "derived_from": "TRAINER_EDWIN_1"
+    },
+    "TRAINER_EDWIN_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ],
+      "derived_from": "TRAINER_EDWIN_1"
+    },
+    "TRAINER_WALLY_VR_1": {
+      "maps": [
+        {
+          "map_id": "MAP_VICTORY_ROAD_1F",
+          "map_name": "VictoryRoad_1F",
+          "label": "Victory Road 1F"
+        }
+      ]
+    },
+    "TRAINER_BRENDAN_ROUTE_103_MUDKIP": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ]
+    },
+    "TRAINER_BRENDAN_ROUTE_110_MUDKIP": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ]
+    },
+    "TRAINER_BRENDAN_ROUTE_119_MUDKIP": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_BRENDAN_ROUTE_103_TREECKO": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ]
+    },
+    "TRAINER_BRENDAN_ROUTE_110_TREECKO": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ]
+    },
+    "TRAINER_BRENDAN_ROUTE_119_TREECKO": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_BRENDAN_ROUTE_103_TORCHIC": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ]
+    },
+    "TRAINER_BRENDAN_ROUTE_110_TORCHIC": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ]
+    },
+    "TRAINER_BRENDAN_ROUTE_119_TORCHIC": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_MAY_ROUTE_103_MUDKIP": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ]
+    },
+    "TRAINER_MAY_ROUTE_110_MUDKIP": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ]
+    },
+    "TRAINER_MAY_ROUTE_119_MUDKIP": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_MAY_ROUTE_103_TREECKO": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ]
+    },
+    "TRAINER_MAY_ROUTE_110_TREECKO": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ]
+    },
+    "TRAINER_MAY_ROUTE_119_TREECKO": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_MAY_ROUTE_103_TORCHIC": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ]
+    },
+    "TRAINER_MAY_ROUTE_110_TORCHIC": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ]
+    },
+    "TRAINER_MAY_ROUTE_119_TORCHIC": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_EZEKIEL_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ]
+    },
+    "TRAINER_DAVIS": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ]
+    },
+    "TRAINER_MITCHELL": {
+      "maps": [
+        {
+          "map_id": "MAP_VICTORY_ROAD_B1F",
+          "map_name": "VictoryRoad_B1F",
+          "label": "Victory Road B 1F"
+        }
+      ]
+    },
+    "TRAINER_EZEKIEL_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ],
+      "derived_from": "TRAINER_EZEKIEL_1"
+    },
+    "TRAINER_EZEKIEL_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ],
+      "derived_from": "TRAINER_EZEKIEL_1"
+    },
+    "TRAINER_EZEKIEL_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ],
+      "derived_from": "TRAINER_EZEKIEL_1"
+    },
+    "TRAINER_EZEKIEL_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ],
+      "derived_from": "TRAINER_EZEKIEL_1"
+    },
+    "TRAINER_LYDIA_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ]
+    },
+    "TRAINER_HALLE": {
+      "maps": [
+        {
+          "map_id": "MAP_VICTORY_ROAD_B1F",
+          "map_name": "VictoryRoad_B1F",
+          "label": "Victory Road B 1F"
+        }
+      ]
+    },
+    "TRAINER_GARRISON": {
+      "maps": [
+        {
+          "map_id": "MAP_ABANDONED_SHIP_ROOMS2_1F",
+          "map_name": "AbandonedShip_Rooms2_1F",
+          "label": "Abandoned Ship Rooms 2 1F"
+        }
+      ]
+    },
+    "TRAINER_LYDIA_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ],
+      "derived_from": "TRAINER_LYDIA_1"
+    },
+    "TRAINER_LYDIA_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ],
+      "derived_from": "TRAINER_LYDIA_1"
+    },
+    "TRAINER_LYDIA_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ],
+      "derived_from": "TRAINER_LYDIA_1"
+    },
+    "TRAINER_LYDIA_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ],
+      "derived_from": "TRAINER_LYDIA_1"
+    },
+    "TRAINER_JACKSON_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_LORENZO": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE120",
+          "map_name": "Route120",
+          "label": "Route 120"
+        }
+      ]
+    },
+    "TRAINER_SEBASTIAN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE6",
+          "map_name": "Route110_TrickHousePuzzle6",
+          "label": "Route 110 Trick House Puzzle 6"
+        }
+      ]
+    },
+    "TRAINER_JACKSON_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ],
+      "derived_from": "TRAINER_JACKSON_1"
+    },
+    "TRAINER_JACKSON_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ],
+      "derived_from": "TRAINER_JACKSON_1"
+    },
+    "TRAINER_JACKSON_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ],
+      "derived_from": "TRAINER_JACKSON_1"
+    },
+    "TRAINER_JACKSON_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ],
+      "derived_from": "TRAINER_JACKSON_1"
+    },
+    "TRAINER_CATHERINE_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_JENNA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE120",
+          "map_name": "Route120",
+          "label": "Route 120"
+        }
+      ]
+    },
+    "TRAINER_SOPHIA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE6",
+          "map_name": "Route110_TrickHousePuzzle6",
+          "label": "Route 110 Trick House Puzzle 6"
+        }
+      ]
+    },
+    "TRAINER_CATHERINE_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ],
+      "derived_from": "TRAINER_CATHERINE_1"
+    },
+    "TRAINER_CATHERINE_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ],
+      "derived_from": "TRAINER_CATHERINE_1"
+    },
+    "TRAINER_CATHERINE_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ],
+      "derived_from": "TRAINER_CATHERINE_1"
+    },
+    "TRAINER_CATHERINE_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ],
+      "derived_from": "TRAINER_CATHERINE_1"
+    },
+    "TRAINER_GRUNT_SEAFLOOR_CAVERN_5": {
+      "maps": [
+        {
+          "map_id": "MAP_SEAFLOOR_CAVERN_ROOM3",
+          "map_name": "SeafloorCavern_Room3",
+          "label": "Seafloor Cavern Room 3"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_JAGGED_PASS": {
+      "maps": [
+        {
+          "map_id": "MAP_JAGGED_PASS",
+          "map_name": "JaggedPass",
+          "label": "Jagged Pass"
+        }
+      ]
+    },
+    "TRAINER_MARC": {
+      "maps": [
+        {
+          "map_id": "MAP_RUSTBORO_CITY_GYM",
+          "map_name": "RustboroCity_Gym",
+          "label": "Rustboro City Gym"
+        }
+      ]
+    },
+    "TRAINER_BRENDEN": {
+      "maps": [
+        {
+          "map_id": "MAP_DEWFORD_TOWN_GYM",
+          "map_name": "DewfordTown_Gym",
+          "label": "Dewford Town Gym"
+        }
+      ]
+    },
+    "TRAINER_LILITH": {
+      "maps": [
+        {
+          "map_id": "MAP_DEWFORD_TOWN_GYM",
+          "map_name": "DewfordTown_Gym",
+          "label": "Dewford Town Gym"
+        }
+      ]
+    },
+    "TRAINER_CRISTIAN": {
+      "maps": [
+        {
+          "map_id": "MAP_DEWFORD_TOWN_GYM",
+          "map_name": "DewfordTown_Gym",
+          "label": "Dewford Town Gym"
+        }
+      ]
+    },
+    "TRAINER_SYLVIA": {
+      "maps": [
+        {
+          "map_id": "MAP_MOSSDEEP_CITY_GYM",
+          "map_name": "MossdeepCity_Gym",
+          "label": "Mossdeep City Gym"
+        }
+      ]
+    },
+    "TRAINER_LEONARDO": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE126",
+          "map_name": "Route126",
+          "label": "Route 126"
+        }
+      ]
+    },
+    "TRAINER_ATHENA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE127",
+          "map_name": "Route127",
+          "label": "Route 127"
+        }
+      ]
+    },
+    "TRAINER_HARRISON": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE128",
+          "map_name": "Route128",
+          "label": "Route 128"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_MT_CHIMNEY_2": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_CHIMNEY",
+          "map_name": "MtChimney",
+          "label": "Mt Chimney"
+        }
+      ]
+    },
+    "TRAINER_CLARENCE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE129",
+          "map_name": "Route129",
+          "label": "Route 129"
+        }
+      ]
+    },
+    "TRAINER_NATE": {
+      "maps": [
+        {
+          "map_id": "MAP_MOSSDEEP_CITY_GYM",
+          "map_name": "MossdeepCity_Gym",
+          "label": "Mossdeep City Gym"
+        }
+      ]
+    },
+    "TRAINER_KATHLEEN": {
+      "maps": [
+        {
+          "map_id": "MAP_MOSSDEEP_CITY_GYM",
+          "map_name": "MossdeepCity_Gym",
+          "label": "Mossdeep City Gym"
+        }
+      ]
+    },
+    "TRAINER_CLIFFORD": {
+      "maps": [
+        {
+          "map_id": "MAP_MOSSDEEP_CITY_GYM",
+          "map_name": "MossdeepCity_Gym",
+          "label": "Mossdeep City Gym"
+        }
+      ]
+    },
+    "TRAINER_NICHOLAS": {
+      "maps": [
+        {
+          "map_id": "MAP_MOSSDEEP_CITY_GYM",
+          "map_name": "MossdeepCity_Gym",
+          "label": "Mossdeep City Gym"
+        }
+      ]
+    },
+    "TRAINER_MACEY": {
+      "maps": [
+        {
+          "map_id": "MAP_MOSSDEEP_CITY_GYM",
+          "map_name": "MossdeepCity_Gym",
+          "label": "Mossdeep City Gym"
+        }
+      ]
+    },
+    "TRAINER_BRENDAN_RUSTBORO_TREECKO": {
+      "maps": [
+        {
+          "map_id": "MAP_RUSTBORO_CITY",
+          "map_name": "RustboroCity",
+          "label": "Rustboro City"
+        }
+      ]
+    },
+    "TRAINER_BRENDAN_RUSTBORO_MUDKIP": {
+      "maps": [
+        {
+          "map_id": "MAP_RUSTBORO_CITY",
+          "map_name": "RustboroCity",
+          "label": "Rustboro City"
+        }
+      ]
+    },
+    "TRAINER_PAXTON": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE132",
+          "map_name": "Route132",
+          "label": "Route 132"
+        }
+      ]
+    },
+    "TRAINER_ISABELLA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE124",
+          "map_name": "Route124",
+          "label": "Route 124"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_WEATHER_INST_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119_WEATHER_INSTITUTE_2F",
+          "map_name": "Route119_WeatherInstitute_2F",
+          "label": "Route 119 Weather Institute 2F"
+        }
+      ]
+    },
+    "TRAINER_TABITHA_MT_CHIMNEY": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_CHIMNEY",
+          "map_name": "MtChimney",
+          "label": "Mt Chimney"
+        }
+      ]
+    },
+    "TRAINER_JONATHAN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE132",
+          "map_name": "Route132",
+          "label": "Route 132"
+        }
+      ]
+    },
+    "TRAINER_BRENDAN_RUSTBORO_TORCHIC": {
+      "maps": [
+        {
+          "map_id": "MAP_RUSTBORO_CITY",
+          "map_name": "RustboroCity",
+          "label": "Rustboro City"
+        }
+      ]
+    },
+    "TRAINER_MAY_RUSTBORO_MUDKIP": {
+      "maps": [
+        {
+          "map_id": "MAP_RUSTBORO_CITY",
+          "map_name": "RustboroCity",
+          "label": "Rustboro City"
+        }
+      ]
+    },
+    "TRAINER_MAXIE_MAGMA_HIDEOUT": {
+      "maps": [
+        {
+          "map_id": "MAP_MAGMA_HIDEOUT_4F",
+          "map_name": "MagmaHideout_4F",
+          "label": "Magma Hideout 4F"
+        }
+      ]
+    },
+    "TRAINER_MAXIE_MT_CHIMNEY": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_CHIMNEY",
+          "map_name": "MtChimney",
+          "label": "Mt Chimney"
+        }
+      ]
+    },
+    "TRAINER_TIANA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE102",
+          "map_name": "Route102",
+          "label": "Route 102"
+        }
+      ]
+    },
+    "TRAINER_HALEY_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ]
+    },
+    "TRAINER_JANICE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE116",
+          "map_name": "Route116",
+          "label": "Route 116"
+        }
+      ]
+    },
+    "TRAINER_VIVI": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ]
+    },
+    "TRAINER_HALEY_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ],
+      "derived_from": "TRAINER_HALEY_1"
+    },
+    "TRAINER_HALEY_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ],
+      "derived_from": "TRAINER_HALEY_1"
+    },
+    "TRAINER_HALEY_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ],
+      "derived_from": "TRAINER_HALEY_1"
+    },
+    "TRAINER_HALEY_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ],
+      "derived_from": "TRAINER_HALEY_1"
+    },
+    "TRAINER_SALLY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE1",
+          "map_name": "Route110_TrickHousePuzzle1",
+          "label": "Route 110 Trick House Puzzle 1"
+        }
+      ]
+    },
+    "TRAINER_ROBIN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE1",
+          "map_name": "Route110_TrickHousePuzzle1",
+          "label": "Route 110 Trick House Puzzle 1"
+        }
+      ]
+    },
+    "TRAINER_ANDREA": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_GYM_B1F",
+          "map_name": "SootopolisCity_Gym_B1F",
+          "label": "Sootopolis City Gym B 1F"
+        }
+      ]
+    },
+    "TRAINER_CRISSY": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_GYM_B1F",
+          "map_name": "SootopolisCity_Gym_B1F",
+          "label": "Sootopolis City Gym B 1F"
+        }
+      ]
+    },
+    "TRAINER_RICK": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE102",
+          "map_name": "Route102",
+          "label": "Route 102"
+        }
+      ]
+    },
+    "TRAINER_LYLE": {
+      "maps": [
+        {
+          "map_id": "MAP_PETALBURG_WOODS",
+          "map_name": "PetalburgWoods",
+          "label": "Petalburg Woods"
+        }
+      ]
+    },
+    "TRAINER_JOSE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE116",
+          "map_name": "Route116",
+          "label": "Route 116"
+        }
+      ]
+    },
+    "TRAINER_DOUG": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_GREG": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_KENT": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_JAMES_1": {
+      "maps": [
+        {
+          "map_id": "MAP_PETALBURG_WOODS",
+          "map_name": "PetalburgWoods",
+          "label": "Petalburg Woods"
+        }
+      ]
+    },
+    "TRAINER_JAMES_2": {
+      "maps": [
+        {
+          "map_id": "MAP_PETALBURG_WOODS",
+          "map_name": "PetalburgWoods",
+          "label": "Petalburg Woods"
+        }
+      ],
+      "derived_from": "TRAINER_JAMES_1"
+    },
+    "TRAINER_JAMES_3": {
+      "maps": [
+        {
+          "map_id": "MAP_PETALBURG_WOODS",
+          "map_name": "PetalburgWoods",
+          "label": "Petalburg Woods"
+        }
+      ],
+      "derived_from": "TRAINER_JAMES_1"
+    },
+    "TRAINER_JAMES_4": {
+      "maps": [
+        {
+          "map_id": "MAP_PETALBURG_WOODS",
+          "map_name": "PetalburgWoods",
+          "label": "Petalburg Woods"
+        }
+      ],
+      "derived_from": "TRAINER_JAMES_1"
+    },
+    "TRAINER_JAMES_5": {
+      "maps": [
+        {
+          "map_id": "MAP_PETALBURG_WOODS",
+          "map_name": "PetalburgWoods",
+          "label": "Petalburg Woods"
+        }
+      ],
+      "derived_from": "TRAINER_JAMES_1"
+    },
+    "TRAINER_TRENT_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE112",
+          "map_name": "Route112",
+          "label": "Route 112"
+        }
+      ]
+    },
+    "TRAINER_LENNY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE114",
+          "map_name": "Route114",
+          "label": "Route 114"
+        }
+      ]
+    },
+    "TRAINER_LUCAS_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE114",
+          "map_name": "Route114",
+          "label": "Route 114"
+        }
+      ]
+    },
+    "TRAINER_ALAN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE3",
+          "map_name": "Route110_TrickHousePuzzle3",
+          "label": "Route 110 Trick House Puzzle 3"
+        }
+      ]
+    },
+    "TRAINER_CLARK": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE116",
+          "map_name": "Route116",
+          "label": "Route 116"
+        }
+      ]
+    },
+    "TRAINER_ERIC": {
+      "maps": [
+        {
+          "map_id": "MAP_JAGGED_PASS",
+          "map_name": "JaggedPass",
+          "label": "Jagged Pass"
+        }
+      ]
+    },
+    "TRAINER_LUCAS_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE114",
+          "map_name": "Route114",
+          "label": "Route 114"
+        }
+      ],
+      "derived_from": "TRAINER_LUCAS_1"
+    },
+    "TRAINER_MIKE_2": {
+      "maps": [
+        {
+          "map_id": "MAP_RUSTURF_TUNNEL",
+          "map_name": "RusturfTunnel",
+          "label": "Rusturf Tunnel"
+        }
+      ]
+    },
+    "TRAINER_TRENT_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE112",
+          "map_name": "Route112",
+          "label": "Route 112"
+        }
+      ],
+      "derived_from": "TRAINER_TRENT_1"
+    },
+    "TRAINER_TRENT_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE112",
+          "map_name": "Route112",
+          "label": "Route 112"
+        }
+      ],
+      "derived_from": "TRAINER_TRENT_1"
+    },
+    "TRAINER_TRENT_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE112",
+          "map_name": "Route112",
+          "label": "Route 112"
+        }
+      ],
+      "derived_from": "TRAINER_TRENT_1"
+    },
+    "TRAINER_TRENT_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE112",
+          "map_name": "Route112",
+          "label": "Route 112"
+        }
+      ],
+      "derived_from": "TRAINER_TRENT_1"
+    },
+    "TRAINER_DEZ_AND_LUKE": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_PYRE_2F",
+          "map_name": "MtPyre_2F",
+          "label": "Mt Pyre 2F"
+        }
+      ]
+    },
+    "TRAINER_LEA_AND_JED": {
+      "maps": [
+        {
+          "map_id": "MAP_SS_TIDAL_ROOMS",
+          "map_name": "SSTidalRooms",
+          "label": "SSTidal Rooms"
+        }
+      ]
+    },
+    "TRAINER_KIRA_AND_DAN_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ABANDONED_SHIP_ROOMS2_1F",
+          "map_name": "AbandonedShip_Rooms2_1F",
+          "label": "Abandoned Ship Rooms 2 1F"
+        }
+      ]
+    },
+    "TRAINER_KIRA_AND_DAN_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ABANDONED_SHIP_ROOMS2_1F",
+          "map_name": "AbandonedShip_Rooms2_1F",
+          "label": "Abandoned Ship Rooms 2 1F"
+        }
+      ],
+      "derived_from": "TRAINER_KIRA_AND_DAN_1"
+    },
+    "TRAINER_KIRA_AND_DAN_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ABANDONED_SHIP_ROOMS2_1F",
+          "map_name": "AbandonedShip_Rooms2_1F",
+          "label": "Abandoned Ship Rooms 2 1F"
+        }
+      ],
+      "derived_from": "TRAINER_KIRA_AND_DAN_1"
+    },
+    "TRAINER_KIRA_AND_DAN_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ABANDONED_SHIP_ROOMS2_1F",
+          "map_name": "AbandonedShip_Rooms2_1F",
+          "label": "Abandoned Ship Rooms 2 1F"
+        }
+      ],
+      "derived_from": "TRAINER_KIRA_AND_DAN_1"
+    },
+    "TRAINER_KIRA_AND_DAN_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ABANDONED_SHIP_ROOMS2_1F",
+          "map_name": "AbandonedShip_Rooms2_1F",
+          "label": "Abandoned Ship Rooms 2 1F"
+        }
+      ],
+      "derived_from": "TRAINER_KIRA_AND_DAN_1"
+    },
+    "TRAINER_JOHANNA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109_SEASHORE_HOUSE",
+          "map_name": "Route109_SeashoreHouse",
+          "label": "Route 109 Seashore House"
+        }
+      ]
+    },
+    "TRAINER_GERALD": {
+      "maps": [
+        {
+          "map_id": "MAP_LAVARIDGE_TOWN_GYM_1F",
+          "map_name": "LavaridgeTown_Gym_1F",
+          "label": "Lavaridge Town Gym 1F"
+        }
+      ]
+    },
+    "TRAINER_VIVIAN": {
+      "maps": [
+        {
+          "map_id": "MAP_MAUVILLE_CITY_GYM",
+          "map_name": "MauvilleCity_Gym",
+          "label": "Mauville City Gym"
+        }
+      ]
+    },
+    "TRAINER_DANIELLE": {
+      "maps": [
+        {
+          "map_id": "MAP_LAVARIDGE_TOWN_GYM_1F",
+          "map_name": "LavaridgeTown_Gym_1F",
+          "label": "Lavaridge Town Gym 1F"
+        }
+      ]
+    },
+    "TRAINER_HIDEO": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_KEIGO": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE120",
+          "map_name": "Route120",
+          "label": "Route 120"
+        }
+      ]
+    },
+    "TRAINER_RILEY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE120",
+          "map_name": "Route120",
+          "label": "Route 120"
+        }
+      ]
+    },
+    "TRAINER_FLINT": {
+      "maps": [
+        {
+          "map_id": "MAP_FORTREE_CITY_GYM",
+          "map_name": "FortreeCity_Gym",
+          "label": "Fortree City Gym"
+        }
+      ]
+    },
+    "TRAINER_ASHLEY": {
+      "maps": [
+        {
+          "map_id": "MAP_FORTREE_CITY_GYM",
+          "map_name": "FortreeCity_Gym",
+          "label": "Fortree City Gym"
+        }
+      ]
+    },
+    "TRAINER_WALLY_MAUVILLE": {
+      "maps": [
+        {
+          "map_id": "MAP_MAUVILLE_CITY",
+          "map_name": "MauvilleCity",
+          "label": "Mauville City"
+        }
+      ]
+    },
+    "TRAINER_WALLY_VR_2": {
+      "maps": [
+        {
+          "map_id": "MAP_VICTORY_ROAD_1F",
+          "map_name": "VictoryRoad_1F",
+          "label": "Victory Road 1F"
+        }
+      ]
+    },
+    "TRAINER_WALLY_ROUTE_110": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ]
+    },
+    "TRAINER_BRENDAN_EVERGRANDE_MUDKIP": {
+      "maps": [
+        {
+          "map_id": "MAP_EVER_GRANDE_CITY",
+          "map_name": "EverGrandeCity",
+          "label": "Ever Grande City"
+        }
+      ]
+    },
+    "TRAINER_BRENDAN_EVERGRANDE_TREECKO": {
+      "maps": [
+        {
+          "map_id": "MAP_EVER_GRANDE_CITY",
+          "map_name": "EverGrandeCity",
+          "label": "Ever Grande City"
+        }
+      ]
+    },
+    "TRAINER_BRENDAN_EVERGRANDE_TORCHIC": {
+      "maps": [
+        {
+          "map_id": "MAP_EVER_GRANDE_CITY",
+          "map_name": "EverGrandeCity",
+          "label": "Ever Grande City"
+        }
+      ]
+    },
+    "TRAINER_MAY_EVERGRANDE_MUDKIP": {
+      "maps": [
+        {
+          "map_id": "MAP_EVER_GRANDE_CITY",
+          "map_name": "EverGrandeCity",
+          "label": "Ever Grande City"
+        }
+      ]
+    },
+    "TRAINER_MAY_EVERGRANDE_TREECKO": {
+      "maps": [
+        {
+          "map_id": "MAP_EVER_GRANDE_CITY",
+          "map_name": "EverGrandeCity",
+          "label": "Ever Grande City"
+        }
+      ]
+    },
+    "TRAINER_MAY_EVERGRANDE_TORCHIC": {
+      "maps": [
+        {
+          "map_id": "MAP_EVER_GRANDE_CITY",
+          "map_name": "EverGrandeCity",
+          "label": "Ever Grande City"
+        }
+      ]
+    },
+    "TRAINER_JONAH": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE127",
+          "map_name": "Route127",
+          "label": "Route 127"
+        }
+      ]
+    },
+    "TRAINER_HENRY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE127",
+          "map_name": "Route127",
+          "label": "Route 127"
+        }
+      ]
+    },
+    "TRAINER_ROGER": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE127",
+          "map_name": "Route127",
+          "label": "Route 127"
+        }
+      ]
+    },
+    "TRAINER_ALEXA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE128",
+          "map_name": "Route128",
+          "label": "Route 128"
+        }
+      ]
+    },
+    "TRAINER_RUBEN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE128",
+          "map_name": "Route128",
+          "label": "Route 128"
+        }
+      ]
+    },
+    "TRAINER_KOJI_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE127",
+          "map_name": "Route127",
+          "label": "Route 127"
+        }
+      ]
+    },
+    "TRAINER_WAYNE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE128",
+          "map_name": "Route128",
+          "label": "Route 128"
+        }
+      ]
+    },
+    "TRAINER_AIDAN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE127",
+          "map_name": "Route127",
+          "label": "Route 127"
+        }
+      ]
+    },
+    "TRAINER_REED": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE129",
+          "map_name": "Route129",
+          "label": "Route 129"
+        }
+      ]
+    },
+    "TRAINER_TISHA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE129",
+          "map_name": "Route129",
+          "label": "Route 129"
+        }
+      ]
+    },
+    "TRAINER_TORI_AND_TIA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE113",
+          "map_name": "Route113",
+          "label": "Route 113"
+        }
+      ]
+    },
+    "TRAINER_KIM_AND_IRIS": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE125",
+          "map_name": "Route125",
+          "label": "Route 125"
+        }
+      ]
+    },
+    "TRAINER_TYRA_AND_IVY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE114",
+          "map_name": "Route114",
+          "label": "Route 114"
+        }
+      ]
+    },
+    "TRAINER_MEL_AND_PAUL": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109",
+          "map_name": "Route109",
+          "label": "Route 109"
+        }
+      ]
+    },
+    "TRAINER_JOHN_AND_JAY_1": {
+      "maps": [
+        {
+          "map_id": "MAP_METEOR_FALLS_1F_2R",
+          "map_name": "MeteorFalls_1F_2R",
+          "label": "Meteor Falls 1F 2R"
+        }
+      ]
+    },
+    "TRAINER_JOHN_AND_JAY_2": {
+      "maps": [
+        {
+          "map_id": "MAP_METEOR_FALLS_1F_2R",
+          "map_name": "MeteorFalls_1F_2R",
+          "label": "Meteor Falls 1F 2R"
+        }
+      ],
+      "derived_from": "TRAINER_JOHN_AND_JAY_1"
+    },
+    "TRAINER_JOHN_AND_JAY_3": {
+      "maps": [
+        {
+          "map_id": "MAP_METEOR_FALLS_1F_2R",
+          "map_name": "MeteorFalls_1F_2R",
+          "label": "Meteor Falls 1F 2R"
+        }
+      ],
+      "derived_from": "TRAINER_JOHN_AND_JAY_1"
+    },
+    "TRAINER_JOHN_AND_JAY_4": {
+      "maps": [
+        {
+          "map_id": "MAP_METEOR_FALLS_1F_2R",
+          "map_name": "MeteorFalls_1F_2R",
+          "label": "Meteor Falls 1F 2R"
+        }
+      ],
+      "derived_from": "TRAINER_JOHN_AND_JAY_1"
+    },
+    "TRAINER_JOHN_AND_JAY_5": {
+      "maps": [
+        {
+          "map_id": "MAP_METEOR_FALLS_1F_2R",
+          "map_name": "MeteorFalls_1F_2R",
+          "label": "Meteor Falls 1F 2R"
+        }
+      ],
+      "derived_from": "TRAINER_JOHN_AND_JAY_1"
+    },
+    "TRAINER_RELI_AND_IAN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE131",
+          "map_name": "Route131",
+          "label": "Route 131"
+        }
+      ]
+    },
+    "TRAINER_LILA_AND_ROY_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE124",
+          "map_name": "Route124",
+          "label": "Route 124"
+        }
+      ]
+    },
+    "TRAINER_LILA_AND_ROY_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE124",
+          "map_name": "Route124",
+          "label": "Route 124"
+        }
+      ],
+      "derived_from": "TRAINER_LILA_AND_ROY_1"
+    },
+    "TRAINER_LILA_AND_ROY_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE124",
+          "map_name": "Route124",
+          "label": "Route 124"
+        }
+      ],
+      "derived_from": "TRAINER_LILA_AND_ROY_1"
+    },
+    "TRAINER_LILA_AND_ROY_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE124",
+          "map_name": "Route124",
+          "label": "Route 124"
+        }
+      ],
+      "derived_from": "TRAINER_LILA_AND_ROY_1"
+    },
+    "TRAINER_LILA_AND_ROY_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE124",
+          "map_name": "Route124",
+          "label": "Route 124"
+        }
+      ],
+      "derived_from": "TRAINER_LILA_AND_ROY_1"
+    },
+    "TRAINER_LISA_AND_RAY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE107",
+          "map_name": "Route107",
+          "label": "Route 107"
+        }
+      ]
+    },
+    "TRAINER_CHRIS": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_DAWSON": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE116",
+          "map_name": "Route116",
+          "label": "Route 116"
+        }
+      ]
+    },
+    "TRAINER_SARAH": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE116",
+          "map_name": "Route116",
+          "label": "Route 116"
+        }
+      ]
+    },
+    "TRAINER_DARIAN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ]
+    },
+    "TRAINER_HAILEY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109",
+          "map_name": "Route109",
+          "label": "Route 109"
+        }
+      ]
+    },
+    "TRAINER_CHANDLER": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109",
+          "map_name": "Route109",
+          "label": "Route 109"
+        }
+      ]
+    },
+    "TRAINER_KALEB": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ]
+    },
+    "TRAINER_JOSEPH": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ]
+    },
+    "TRAINER_ALYSSA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110",
+          "map_name": "Route110",
+          "label": "Route 110"
+        }
+      ]
+    },
+    "TRAINER_MARCOS": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ]
+    },
+    "TRAINER_RHETT": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ]
+    },
+    "TRAINER_TYRON": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ]
+    },
+    "TRAINER_CELINA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ]
+    },
+    "TRAINER_BIANCA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ]
+    },
+    "TRAINER_HAYDEN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ]
+    },
+    "TRAINER_SOPHIE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE113",
+          "map_name": "Route113",
+          "label": "Route 113"
+        }
+      ]
+    },
+    "TRAINER_COBY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE113",
+          "map_name": "Route113",
+          "label": "Route 113"
+        }
+      ]
+    },
+    "TRAINER_KAI": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE114",
+          "map_name": "Route114",
+          "label": "Route 114"
+        }
+      ]
+    },
+    "TRAINER_CHARLOTTE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE114",
+          "map_name": "Route114",
+          "label": "Route 114"
+        }
+      ]
+    },
+    "TRAINER_DEANDRE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE118",
+          "map_name": "Route118",
+          "label": "Route 118"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_MAGMA_HIDEOUT_1": {
+      "maps": [
+        {
+          "map_id": "MAP_MAGMA_HIDEOUT_1F",
+          "map_name": "MagmaHideout_1F",
+          "label": "Magma Hideout 1F"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_MAGMA_HIDEOUT_2": {
+      "maps": [
+        {
+          "map_id": "MAP_MAGMA_HIDEOUT_1F",
+          "map_name": "MagmaHideout_1F",
+          "label": "Magma Hideout 1F"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_MAGMA_HIDEOUT_3": {
+      "maps": [
+        {
+          "map_id": "MAP_MAGMA_HIDEOUT_2F_1R",
+          "map_name": "MagmaHideout_2F_1R",
+          "label": "Magma Hideout 2F 1R"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_MAGMA_HIDEOUT_4": {
+      "maps": [
+        {
+          "map_id": "MAP_MAGMA_HIDEOUT_2F_1R",
+          "map_name": "MagmaHideout_2F_1R",
+          "label": "Magma Hideout 2F 1R"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_MAGMA_HIDEOUT_5": {
+      "maps": [
+        {
+          "map_id": "MAP_MAGMA_HIDEOUT_2F_1R",
+          "map_name": "MagmaHideout_2F_1R",
+          "label": "Magma Hideout 2F 1R"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_MAGMA_HIDEOUT_6": {
+      "maps": [
+        {
+          "map_id": "MAP_MAGMA_HIDEOUT_2F_2R",
+          "map_name": "MagmaHideout_2F_2R",
+          "label": "Magma Hideout 2F 2R"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_MAGMA_HIDEOUT_7": {
+      "maps": [
+        {
+          "map_id": "MAP_MAGMA_HIDEOUT_2F_2R",
+          "map_name": "MagmaHideout_2F_2R",
+          "label": "Magma Hideout 2F 2R"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_MAGMA_HIDEOUT_8": {
+      "maps": [
+        {
+          "map_id": "MAP_MAGMA_HIDEOUT_2F_2R",
+          "map_name": "MagmaHideout_2F_2R",
+          "label": "Magma Hideout 2F 2R"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_MAGMA_HIDEOUT_9": {
+      "maps": [
+        {
+          "map_id": "MAP_MAGMA_HIDEOUT_3F_1R",
+          "map_name": "MagmaHideout_3F_1R",
+          "label": "Magma Hideout 3F 1R"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_MAGMA_HIDEOUT_10": {
+      "maps": [
+        {
+          "map_id": "MAP_MAGMA_HIDEOUT_3F_2R",
+          "map_name": "MagmaHideout_3F_2R",
+          "label": "Magma Hideout 3F 2R"
+        }
+      ]
+    },
+    "TRAINER_COURTNEY": {
+      "maps": [
+        {
+          "map_id": "MAP_MAGMA_HIDEOUT_4F",
+          "map_name": "MagmaHideout_4F",
+          "label": "Magma Hideout 4F"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_MAGMA_HIDEOUT_14": {
+      "maps": [
+        {
+          "map_id": "MAP_MAGMA_HIDEOUT_2F_1R",
+          "map_name": "MagmaHideout_2F_1R",
+          "label": "Magma Hideout 2F 1R"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_MAGMA_HIDEOUT_15": {
+      "maps": [
+        {
+          "map_id": "MAP_MAGMA_HIDEOUT_2F_2R",
+          "map_name": "MagmaHideout_2F_2R",
+          "label": "Magma Hideout 2F 2R"
+        }
+      ]
+    },
+    "TRAINER_GRUNT_MAGMA_HIDEOUT_16": {
+      "maps": [
+        {
+          "map_id": "MAP_MAGMA_HIDEOUT_3F_1R",
+          "map_name": "MagmaHideout_3F_1R",
+          "label": "Magma Hideout 3F 1R"
+        }
+      ]
+    },
+    "TRAINER_TABITHA_MAGMA_HIDEOUT": {
+      "maps": [
+        {
+          "map_id": "MAP_MAGMA_HIDEOUT_4F",
+          "map_name": "MagmaHideout_4F",
+          "label": "Magma Hideout 4F"
+        }
+      ]
+    },
+    "TRAINER_DARCY": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE132",
+          "map_name": "Route132",
+          "label": "Route 132"
+        }
+      ]
+    },
+    "TRAINER_PETE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ]
+    },
+    "TRAINER_ISABELLE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE103",
+          "map_name": "Route103",
+          "label": "Route 103"
+        }
+      ]
+    },
+    "TRAINER_ANDRES_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE105",
+          "map_name": "Route105",
+          "label": "Route 105"
+        }
+      ]
+    },
+    "TRAINER_JOSUE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE105",
+          "map_name": "Route105",
+          "label": "Route 105"
+        }
+      ]
+    },
+    "TRAINER_CAMRON": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE107",
+          "map_name": "Route107",
+          "label": "Route 107"
+        }
+      ]
+    },
+    "TRAINER_CORY_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE108",
+          "map_name": "Route108",
+          "label": "Route 108"
+        }
+      ]
+    },
+    "TRAINER_CAROLINA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE108",
+          "map_name": "Route108",
+          "label": "Route 108"
+        }
+      ]
+    },
+    "TRAINER_ELIJAH": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE109",
+          "map_name": "Route109",
+          "label": "Route 109"
+        }
+      ]
+    },
+    "TRAINER_CELIA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ]
+    },
+    "TRAINER_BRANDEN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ]
+    },
+    "TRAINER_BRYANT": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE112",
+          "map_name": "Route112",
+          "label": "Route 112"
+        }
+      ]
+    },
+    "TRAINER_SHAYLA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE112",
+          "map_name": "Route112",
+          "label": "Route 112"
+        }
+      ]
+    },
+    "TRAINER_KYRA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ]
+    },
+    "TRAINER_JAIDEN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ]
+    },
+    "TRAINER_ALIX": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ]
+    },
+    "TRAINER_HELENE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ]
+    },
+    "TRAINER_MARLENE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE115",
+          "map_name": "Route115",
+          "label": "Route 115"
+        }
+      ]
+    },
+    "TRAINER_DEVAN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE116",
+          "map_name": "Route116",
+          "label": "Route 116"
+        }
+      ]
+    },
+    "TRAINER_JOHNSON": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE116",
+          "map_name": "Route116",
+          "label": "Route 116"
+        }
+      ]
+    },
+    "TRAINER_BRANDI": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ]
+    },
+    "TRAINER_AISHA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ]
+    },
+    "TRAINER_MAKAYLA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE132",
+          "map_name": "Route132",
+          "label": "Route 132"
+        }
+      ]
+    },
+    "TRAINER_FABIAN": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_DAYTON": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_RAQUEL": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE119",
+          "map_name": "Route119",
+          "label": "Route 119"
+        }
+      ]
+    },
+    "TRAINER_LEONEL": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE120",
+          "map_name": "Route120",
+          "label": "Route 120"
+        }
+      ]
+    },
+    "TRAINER_CALLIE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE120",
+          "map_name": "Route120",
+          "label": "Route 120"
+        }
+      ]
+    },
+    "TRAINER_CALE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ]
+    },
+    "TRAINER_MYLES": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ]
+    },
+    "TRAINER_PAT": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ]
+    },
+    "TRAINER_CRISTIN_1": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ]
+    },
+    "TRAINER_MAY_RUSTBORO_TREECKO": {
+      "maps": [
+        {
+          "map_id": "MAP_RUSTBORO_CITY",
+          "map_name": "RustboroCity",
+          "label": "Rustboro City"
+        }
+      ]
+    },
+    "TRAINER_MAY_RUSTBORO_TORCHIC": {
+      "maps": [
+        {
+          "map_id": "MAP_RUSTBORO_CITY",
+          "map_name": "RustboroCity",
+          "label": "Rustboro City"
+        }
+      ]
+    },
+    "TRAINER_ROXANNE_2": {
+      "maps": [
+        {
+          "map_id": "MAP_RUSTBORO_CITY_GYM",
+          "map_name": "RustboroCity_Gym",
+          "label": "Rustboro City Gym"
+        }
+      ],
+      "derived_from": "TRAINER_ROXANNE_1"
+    },
+    "TRAINER_ROXANNE_3": {
+      "maps": [
+        {
+          "map_id": "MAP_RUSTBORO_CITY_GYM",
+          "map_name": "RustboroCity_Gym",
+          "label": "Rustboro City Gym"
+        }
+      ],
+      "derived_from": "TRAINER_ROXANNE_1"
+    },
+    "TRAINER_ROXANNE_4": {
+      "maps": [
+        {
+          "map_id": "MAP_RUSTBORO_CITY_GYM",
+          "map_name": "RustboroCity_Gym",
+          "label": "Rustboro City Gym"
+        }
+      ],
+      "derived_from": "TRAINER_ROXANNE_1"
+    },
+    "TRAINER_ROXANNE_5": {
+      "maps": [
+        {
+          "map_id": "MAP_RUSTBORO_CITY_GYM",
+          "map_name": "RustboroCity_Gym",
+          "label": "Rustboro City Gym"
+        }
+      ],
+      "derived_from": "TRAINER_ROXANNE_1"
+    },
+    "TRAINER_BRAWLY_2": {
+      "maps": [
+        {
+          "map_id": "MAP_DEWFORD_TOWN_GYM",
+          "map_name": "DewfordTown_Gym",
+          "label": "Dewford Town Gym"
+        }
+      ],
+      "derived_from": "TRAINER_BRAWLY_1"
+    },
+    "TRAINER_BRAWLY_3": {
+      "maps": [
+        {
+          "map_id": "MAP_DEWFORD_TOWN_GYM",
+          "map_name": "DewfordTown_Gym",
+          "label": "Dewford Town Gym"
+        }
+      ],
+      "derived_from": "TRAINER_BRAWLY_1"
+    },
+    "TRAINER_BRAWLY_4": {
+      "maps": [
+        {
+          "map_id": "MAP_DEWFORD_TOWN_GYM",
+          "map_name": "DewfordTown_Gym",
+          "label": "Dewford Town Gym"
+        }
+      ],
+      "derived_from": "TRAINER_BRAWLY_1"
+    },
+    "TRAINER_BRAWLY_5": {
+      "maps": [
+        {
+          "map_id": "MAP_DEWFORD_TOWN_GYM",
+          "map_name": "DewfordTown_Gym",
+          "label": "Dewford Town Gym"
+        }
+      ],
+      "derived_from": "TRAINER_BRAWLY_1"
+    },
+    "TRAINER_WATTSON_2": {
+      "maps": [
+        {
+          "map_id": "MAP_MAUVILLE_CITY_GYM",
+          "map_name": "MauvilleCity_Gym",
+          "label": "Mauville City Gym"
+        }
+      ],
+      "derived_from": "TRAINER_WATTSON_1"
+    },
+    "TRAINER_WATTSON_3": {
+      "maps": [
+        {
+          "map_id": "MAP_MAUVILLE_CITY_GYM",
+          "map_name": "MauvilleCity_Gym",
+          "label": "Mauville City Gym"
+        }
+      ],
+      "derived_from": "TRAINER_WATTSON_1"
+    },
+    "TRAINER_WATTSON_4": {
+      "maps": [
+        {
+          "map_id": "MAP_MAUVILLE_CITY_GYM",
+          "map_name": "MauvilleCity_Gym",
+          "label": "Mauville City Gym"
+        }
+      ],
+      "derived_from": "TRAINER_WATTSON_1"
+    },
+    "TRAINER_WATTSON_5": {
+      "maps": [
+        {
+          "map_id": "MAP_MAUVILLE_CITY_GYM",
+          "map_name": "MauvilleCity_Gym",
+          "label": "Mauville City Gym"
+        }
+      ],
+      "derived_from": "TRAINER_WATTSON_1"
+    },
+    "TRAINER_FLANNERY_2": {
+      "maps": [
+        {
+          "map_id": "MAP_LAVARIDGE_TOWN_GYM_1F",
+          "map_name": "LavaridgeTown_Gym_1F",
+          "label": "Lavaridge Town Gym 1F"
+        }
+      ],
+      "derived_from": "TRAINER_FLANNERY_1"
+    },
+    "TRAINER_FLANNERY_3": {
+      "maps": [
+        {
+          "map_id": "MAP_LAVARIDGE_TOWN_GYM_1F",
+          "map_name": "LavaridgeTown_Gym_1F",
+          "label": "Lavaridge Town Gym 1F"
+        }
+      ],
+      "derived_from": "TRAINER_FLANNERY_1"
+    },
+    "TRAINER_FLANNERY_4": {
+      "maps": [
+        {
+          "map_id": "MAP_LAVARIDGE_TOWN_GYM_1F",
+          "map_name": "LavaridgeTown_Gym_1F",
+          "label": "Lavaridge Town Gym 1F"
+        }
+      ],
+      "derived_from": "TRAINER_FLANNERY_1"
+    },
+    "TRAINER_FLANNERY_5": {
+      "maps": [
+        {
+          "map_id": "MAP_LAVARIDGE_TOWN_GYM_1F",
+          "map_name": "LavaridgeTown_Gym_1F",
+          "label": "Lavaridge Town Gym 1F"
+        }
+      ],
+      "derived_from": "TRAINER_FLANNERY_1"
+    },
+    "TRAINER_NORMAN_2": {
+      "maps": [
+        {
+          "map_id": "MAP_PETALBURG_CITY_GYM",
+          "map_name": "PetalburgCity_Gym",
+          "label": "Petalburg City Gym"
+        }
+      ],
+      "derived_from": "TRAINER_NORMAN_1"
+    },
+    "TRAINER_NORMAN_3": {
+      "maps": [
+        {
+          "map_id": "MAP_PETALBURG_CITY_GYM",
+          "map_name": "PetalburgCity_Gym",
+          "label": "Petalburg City Gym"
+        }
+      ],
+      "derived_from": "TRAINER_NORMAN_1"
+    },
+    "TRAINER_NORMAN_4": {
+      "maps": [
+        {
+          "map_id": "MAP_PETALBURG_CITY_GYM",
+          "map_name": "PetalburgCity_Gym",
+          "label": "Petalburg City Gym"
+        }
+      ],
+      "derived_from": "TRAINER_NORMAN_1"
+    },
+    "TRAINER_NORMAN_5": {
+      "maps": [
+        {
+          "map_id": "MAP_PETALBURG_CITY_GYM",
+          "map_name": "PetalburgCity_Gym",
+          "label": "Petalburg City Gym"
+        }
+      ],
+      "derived_from": "TRAINER_NORMAN_1"
+    },
+    "TRAINER_WINONA_2": {
+      "maps": [
+        {
+          "map_id": "MAP_FORTREE_CITY_GYM",
+          "map_name": "FortreeCity_Gym",
+          "label": "Fortree City Gym"
+        }
+      ],
+      "derived_from": "TRAINER_WINONA_1"
+    },
+    "TRAINER_WINONA_3": {
+      "maps": [
+        {
+          "map_id": "MAP_FORTREE_CITY_GYM",
+          "map_name": "FortreeCity_Gym",
+          "label": "Fortree City Gym"
+        }
+      ],
+      "derived_from": "TRAINER_WINONA_1"
+    },
+    "TRAINER_WINONA_4": {
+      "maps": [
+        {
+          "map_id": "MAP_FORTREE_CITY_GYM",
+          "map_name": "FortreeCity_Gym",
+          "label": "Fortree City Gym"
+        }
+      ],
+      "derived_from": "TRAINER_WINONA_1"
+    },
+    "TRAINER_WINONA_5": {
+      "maps": [
+        {
+          "map_id": "MAP_FORTREE_CITY_GYM",
+          "map_name": "FortreeCity_Gym",
+          "label": "Fortree City Gym"
+        }
+      ],
+      "derived_from": "TRAINER_WINONA_1"
+    },
+    "TRAINER_TATE_AND_LIZA_2": {
+      "maps": [
+        {
+          "map_id": "MAP_MOSSDEEP_CITY_GYM",
+          "map_name": "MossdeepCity_Gym",
+          "label": "Mossdeep City Gym"
+        }
+      ],
+      "derived_from": "TRAINER_TATE_AND_LIZA_1"
+    },
+    "TRAINER_TATE_AND_LIZA_3": {
+      "maps": [
+        {
+          "map_id": "MAP_MOSSDEEP_CITY_GYM",
+          "map_name": "MossdeepCity_Gym",
+          "label": "Mossdeep City Gym"
+        }
+      ],
+      "derived_from": "TRAINER_TATE_AND_LIZA_1"
+    },
+    "TRAINER_TATE_AND_LIZA_4": {
+      "maps": [
+        {
+          "map_id": "MAP_MOSSDEEP_CITY_GYM",
+          "map_name": "MossdeepCity_Gym",
+          "label": "Mossdeep City Gym"
+        }
+      ],
+      "derived_from": "TRAINER_TATE_AND_LIZA_1"
+    },
+    "TRAINER_TATE_AND_LIZA_5": {
+      "maps": [
+        {
+          "map_id": "MAP_MOSSDEEP_CITY_GYM",
+          "map_name": "MossdeepCity_Gym",
+          "label": "Mossdeep City Gym"
+        }
+      ],
+      "derived_from": "TRAINER_TATE_AND_LIZA_1"
+    },
+    "TRAINER_JUAN_2": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_GYM_1F",
+          "map_name": "SootopolisCity_Gym_1F",
+          "label": "Sootopolis City Gym 1F"
+        }
+      ],
+      "derived_from": "TRAINER_JUAN_1"
+    },
+    "TRAINER_JUAN_3": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_GYM_1F",
+          "map_name": "SootopolisCity_Gym_1F",
+          "label": "Sootopolis City Gym 1F"
+        }
+      ],
+      "derived_from": "TRAINER_JUAN_1"
+    },
+    "TRAINER_JUAN_4": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_GYM_1F",
+          "map_name": "SootopolisCity_Gym_1F",
+          "label": "Sootopolis City Gym 1F"
+        }
+      ],
+      "derived_from": "TRAINER_JUAN_1"
+    },
+    "TRAINER_JUAN_5": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_GYM_1F",
+          "map_name": "SootopolisCity_Gym_1F",
+          "label": "Sootopolis City Gym 1F"
+        }
+      ],
+      "derived_from": "TRAINER_JUAN_1"
+    },
+    "TRAINER_ANGELO": {
+      "maps": [
+        {
+          "map_id": "MAP_MAUVILLE_CITY_GYM",
+          "map_name": "MauvilleCity_Gym",
+          "label": "Mauville City Gym"
+        }
+      ]
+    },
+    "TRAINER_DARIUS": {
+      "maps": [
+        {
+          "map_id": "MAP_FORTREE_CITY_GYM",
+          "map_name": "FortreeCity_Gym",
+          "label": "Fortree City Gym"
+        }
+      ]
+    },
+    "TRAINER_ANDRES_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE105",
+          "map_name": "Route105",
+          "label": "Route 105"
+        }
+      ],
+      "derived_from": "TRAINER_ANDRES_1"
+    },
+    "TRAINER_ANDRES_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE105",
+          "map_name": "Route105",
+          "label": "Route 105"
+        }
+      ],
+      "derived_from": "TRAINER_ANDRES_1"
+    },
+    "TRAINER_ANDRES_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE105",
+          "map_name": "Route105",
+          "label": "Route 105"
+        }
+      ],
+      "derived_from": "TRAINER_ANDRES_1"
+    },
+    "TRAINER_ANDRES_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE105",
+          "map_name": "Route105",
+          "label": "Route 105"
+        }
+      ],
+      "derived_from": "TRAINER_ANDRES_1"
+    },
+    "TRAINER_CORY_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE108",
+          "map_name": "Route108",
+          "label": "Route 108"
+        }
+      ],
+      "derived_from": "TRAINER_CORY_1"
+    },
+    "TRAINER_CORY_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE108",
+          "map_name": "Route108",
+          "label": "Route 108"
+        }
+      ],
+      "derived_from": "TRAINER_CORY_1"
+    },
+    "TRAINER_CORY_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE108",
+          "map_name": "Route108",
+          "label": "Route 108"
+        }
+      ],
+      "derived_from": "TRAINER_CORY_1"
+    },
+    "TRAINER_CORY_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE108",
+          "map_name": "Route108",
+          "label": "Route 108"
+        }
+      ],
+      "derived_from": "TRAINER_CORY_1"
+    },
+    "TRAINER_PABLO_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE126",
+          "map_name": "Route126",
+          "label": "Route 126"
+        }
+      ],
+      "derived_from": "TRAINER_PABLO_1"
+    },
+    "TRAINER_PABLO_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE126",
+          "map_name": "Route126",
+          "label": "Route 126"
+        }
+      ],
+      "derived_from": "TRAINER_PABLO_1"
+    },
+    "TRAINER_PABLO_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE126",
+          "map_name": "Route126",
+          "label": "Route 126"
+        }
+      ],
+      "derived_from": "TRAINER_PABLO_1"
+    },
+    "TRAINER_PABLO_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE126",
+          "map_name": "Route126",
+          "label": "Route 126"
+        }
+      ],
+      "derived_from": "TRAINER_PABLO_1"
+    },
+    "TRAINER_KOJI_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE127",
+          "map_name": "Route127",
+          "label": "Route 127"
+        }
+      ],
+      "derived_from": "TRAINER_KOJI_1"
+    },
+    "TRAINER_KOJI_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE127",
+          "map_name": "Route127",
+          "label": "Route 127"
+        }
+      ],
+      "derived_from": "TRAINER_KOJI_1"
+    },
+    "TRAINER_KOJI_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE127",
+          "map_name": "Route127",
+          "label": "Route 127"
+        }
+      ],
+      "derived_from": "TRAINER_KOJI_1"
+    },
+    "TRAINER_KOJI_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE127",
+          "map_name": "Route127",
+          "label": "Route 127"
+        }
+      ],
+      "derived_from": "TRAINER_KOJI_1"
+    },
+    "TRAINER_CRISTIN_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ],
+      "derived_from": "TRAINER_CRISTIN_1"
+    },
+    "TRAINER_CRISTIN_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ],
+      "derived_from": "TRAINER_CRISTIN_1"
+    },
+    "TRAINER_CRISTIN_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ],
+      "derived_from": "TRAINER_CRISTIN_1"
+    },
+    "TRAINER_CRISTIN_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ],
+      "derived_from": "TRAINER_CRISTIN_1"
+    },
+    "TRAINER_FERNANDO_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ],
+      "derived_from": "TRAINER_FERNANDO_1"
+    },
+    "TRAINER_FERNANDO_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ],
+      "derived_from": "TRAINER_FERNANDO_1"
+    },
+    "TRAINER_FERNANDO_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ],
+      "derived_from": "TRAINER_FERNANDO_1"
+    },
+    "TRAINER_FERNANDO_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE123",
+          "map_name": "Route123",
+          "label": "Route 123"
+        }
+      ],
+      "derived_from": "TRAINER_FERNANDO_1"
+    },
+    "TRAINER_SAWYER_2": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_CHIMNEY",
+          "map_name": "MtChimney",
+          "label": "Mt Chimney"
+        }
+      ],
+      "derived_from": "TRAINER_SAWYER_1"
+    },
+    "TRAINER_SAWYER_3": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_CHIMNEY",
+          "map_name": "MtChimney",
+          "label": "Mt Chimney"
+        }
+      ],
+      "derived_from": "TRAINER_SAWYER_1"
+    },
+    "TRAINER_SAWYER_4": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_CHIMNEY",
+          "map_name": "MtChimney",
+          "label": "Mt Chimney"
+        }
+      ],
+      "derived_from": "TRAINER_SAWYER_1"
+    },
+    "TRAINER_SAWYER_5": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_CHIMNEY",
+          "map_name": "MtChimney",
+          "label": "Mt Chimney"
+        }
+      ],
+      "derived_from": "TRAINER_SAWYER_1"
+    },
+    "TRAINER_GABRIELLE_2": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_PYRE_3F",
+          "map_name": "MtPyre_3F",
+          "label": "Mt Pyre 3F"
+        }
+      ],
+      "derived_from": "TRAINER_GABRIELLE_1"
+    },
+    "TRAINER_GABRIELLE_3": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_PYRE_3F",
+          "map_name": "MtPyre_3F",
+          "label": "Mt Pyre 3F"
+        }
+      ],
+      "derived_from": "TRAINER_GABRIELLE_1"
+    },
+    "TRAINER_GABRIELLE_4": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_PYRE_3F",
+          "map_name": "MtPyre_3F",
+          "label": "Mt Pyre 3F"
+        }
+      ],
+      "derived_from": "TRAINER_GABRIELLE_1"
+    },
+    "TRAINER_GABRIELLE_5": {
+      "maps": [
+        {
+          "map_id": "MAP_MT_PYRE_3F",
+          "map_name": "MtPyre_3F",
+          "label": "Mt Pyre 3F"
+        }
+      ],
+      "derived_from": "TRAINER_GABRIELLE_1"
+    },
+    "TRAINER_THALIA_2": {
+      "maps": [
+        {
+          "map_id": "MAP_ABANDONED_SHIP_ROOMS_1F",
+          "map_name": "AbandonedShip_Rooms_1F",
+          "label": "Abandoned Ship Rooms 1F"
+        }
+      ],
+      "derived_from": "TRAINER_THALIA_1"
+    },
+    "TRAINER_THALIA_3": {
+      "maps": [
+        {
+          "map_id": "MAP_ABANDONED_SHIP_ROOMS_1F",
+          "map_name": "AbandonedShip_Rooms_1F",
+          "label": "Abandoned Ship Rooms 1F"
+        }
+      ],
+      "derived_from": "TRAINER_THALIA_1"
+    },
+    "TRAINER_THALIA_4": {
+      "maps": [
+        {
+          "map_id": "MAP_ABANDONED_SHIP_ROOMS_1F",
+          "map_name": "AbandonedShip_Rooms_1F",
+          "label": "Abandoned Ship Rooms 1F"
+        }
+      ],
+      "derived_from": "TRAINER_THALIA_1"
+    },
+    "TRAINER_THALIA_5": {
+      "maps": [
+        {
+          "map_id": "MAP_ABANDONED_SHIP_ROOMS_1F",
+          "map_name": "AbandonedShip_Rooms_1F",
+          "label": "Abandoned Ship Rooms 1F"
+        }
+      ],
+      "derived_from": "TRAINER_THALIA_1"
+    },
+    "TRAINER_MARIELA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE7",
+          "map_name": "Route110_TrickHousePuzzle7",
+          "label": "Route 110 Trick House Puzzle 7"
+        }
+      ]
+    },
+    "TRAINER_ALVARO": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE7",
+          "map_name": "Route110_TrickHousePuzzle7",
+          "label": "Route 110 Trick House Puzzle 7"
+        }
+      ]
+    },
+    "TRAINER_EVERETT": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE110_TRICK_HOUSE_PUZZLE7",
+          "map_name": "Route110_TrickHousePuzzle7",
+          "label": "Route 110 Trick House Puzzle 7"
+        }
+      ]
+    },
+    "TRAINER_ROARK": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE125",
+          "map_name": "Route125",
+          "label": "Route 125"
+        }
+      ]
+    },
+    "TRAINER_GARDENIA": {
+      "maps": [
+        {
+          "map_id": "MAP_PETALBURG_WOODS",
+          "map_name": "PetalburgWoods",
+          "label": "Petalburg Woods"
+        }
+      ]
+    },
+    "TRAINER_GARDENIA2": {
+      "maps": [
+        {
+          "map_id": "MAP_PETALBURG_WOODS",
+          "map_name": "PetalburgWoods",
+          "label": "Petalburg Woods"
+        }
+      ]
+    },
+    "TRAINER_FANTINA": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE117",
+          "map_name": "Route117",
+          "label": "Route 117"
+        }
+      ]
+    },
+    "TRAINER_MAYLENE": {
+      "maps": [
+        {
+          "map_id": "MAP_JAGGED_PASS",
+          "map_name": "JaggedPass",
+          "label": "Jagged Pass"
+        }
+      ]
+    },
+    "TRAINER_WAKE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE118",
+          "map_name": "Route118",
+          "label": "Route 118"
+        }
+      ]
+    },
+    "TRAINER_BYRON": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE121",
+          "map_name": "Route121",
+          "label": "Route 121"
+        }
+      ]
+    },
+    "TRAINER_CANDICE": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE116",
+          "map_name": "Route116",
+          "label": "Route 116"
+        }
+      ]
+    },
+    "TRAINER_VOLKNER": {
+      "maps": [
+        {
+          "map_id": "MAP_EVER_GRANDE_CITY",
+          "map_name": "EverGrandeCity",
+          "label": "Ever Grande City"
+        }
+      ]
+    },
+    "TRAINER_DAWN_ROUTE_104": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE104",
+          "map_name": "Route104",
+          "label": "Route 104"
+        }
+      ]
+    },
+    "TRAINER_DAWN_ROUTE_111": {
+      "maps": [
+        {
+          "map_id": "MAP_ROUTE111",
+          "map_name": "Route111",
+          "label": "Route 111"
+        }
+      ]
+    },
+    "TRAINER_DAWN_LILYCOVE": {
+      "maps": [
+        {
+          "map_id": "MAP_LILYCOVE_CITY",
+          "map_name": "LilycoveCity",
+          "label": "Lilycove City"
+        }
+      ]
+    },
+    "TRAINER_DAWN_EVERGRANDE": {
+      "maps": [
+        {
+          "map_id": "MAP_EVER_GRANDE_CITY",
+          "map_name": "EverGrandeCity",
+          "label": "Ever Grande City"
+        }
+      ]
+    },
+    "TRAINER_URSULA": {
+      "maps": [
+        {
+          "map_id": "MAP_VERDANTURF_TOWN_HOUSE",
+          "map_name": "VerdanturfTown_House",
+          "label": "Verdanturf Town House"
+        }
+      ]
+    },
+    "TRAINER_X": {
+      "maps": [
+        {
+          "map_id": "MAP_FORTREE_CITY_CREATOR_HOUSE",
+          "map_name": "FortreeCity_CreatorHouse",
+          "label": "Fortree City Creator House"
+        }
+      ]
+    },
+    "TRAINER_IRIV24": {
+      "maps": [
+        {
+          "map_id": "MAP_FORTREE_CITY_CREATOR_HOUSE",
+          "map_name": "FortreeCity_CreatorHouse",
+          "label": "Fortree City Creator House"
+        }
+      ]
+    },
+    "TRAINER_CAP": {
+      "maps": [
+        {
+          "map_id": "MAP_FORTREE_CITY_CREATOR_HOUSE",
+          "map_name": "FortreeCity_CreatorHouse",
+          "label": "Fortree City Creator House"
+        }
+      ]
+    },
+    "TRAINER_SUNBIRD": {
+      "maps": [
+        {
+          "map_id": "MAP_MOSSDEEP_CITY_BETA_TESTER_HOUSE",
+          "map_name": "MossdeepCity_BetaTesterHouse",
+          "label": "Mossdeep City Beta Tester House"
+        }
+      ]
+    },
+    "TRAINER_SUNEAL": {
+      "maps": [
+        {
+          "map_id": "MAP_MOSSDEEP_CITY_BETA_TESTER_HOUSE",
+          "map_name": "MossdeepCity_BetaTesterHouse",
+          "label": "Mossdeep City Beta Tester House"
+        }
+      ]
+    },
+    "TRAINER_DOLLAMIKE": {
+      "maps": [
+        {
+          "map_id": "MAP_MOSSDEEP_CITY_BETA_TESTER_HOUSE",
+          "map_name": "MossdeepCity_BetaTesterHouse",
+          "label": "Mossdeep City Beta Tester House"
+        }
+      ]
+    },
+    "TRAINER_DANNI": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_CHAMP_HOUSE",
+          "map_name": "SootopolisCity_ChampHouse",
+          "label": "Sootopolis City Champ House"
+        }
+      ]
+    },
+    "TRAINER_MASTA_JANES": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_CHAMP_HOUSE",
+          "map_name": "SootopolisCity_ChampHouse",
+          "label": "Sootopolis City Champ House"
+        }
+      ]
+    },
+    "TRAINER_BEFOOLS": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_CHAMP_HOUSE",
+          "map_name": "SootopolisCity_ChampHouse",
+          "label": "Sootopolis City Champ House"
+        }
+      ]
+    },
+    "TRAINER_NATN": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_HOUSE5",
+          "map_name": "SootopolisCity_House5",
+          "label": "Sootopolis City House 5"
+        }
+      ]
+    },
+    "TRAINER_MASTER_POUCINE": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_HOUSE5",
+          "map_name": "SootopolisCity_House5",
+          "label": "Sootopolis City House 5"
+        }
+      ]
+    },
+    "TRAINER_OBLIVION_WING": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_HOUSE5",
+          "map_name": "SootopolisCity_House5",
+          "label": "Sootopolis City House 5"
+        }
+      ]
+    },
+    "TRAINER_BURAK": {
+      "maps": [
+        {
+          "map_id": "MAP_SOOTOPOLIS_CITY_CHAMP_HOUSE",
+          "map_name": "SootopolisCity_ChampHouse",
+          "label": "Sootopolis City Champ House"
+        }
+      ]
+    }
+  }
+}
