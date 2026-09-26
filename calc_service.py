@@ -45,6 +45,14 @@ def _unavailable(reason, detail):
             "missing": [], "mechanics": []}
 
 
+def _rom_unavailable(reason, detail, source_sha):
+    card = _unavailable(reason, detail)
+    result = {kind: dict(card) for kind in
+              ("player_moves", "enemy_moves", "ai_actions", "recommendation")}
+    result.update(status="unavailable", source_sha=source_sha)
+    return result
+
+
 def snapshot_key(snapshot):
     """Canonical key including the relevant evaluator identity."""
     if snapshot.get("schema_version") == 2:
@@ -123,19 +131,28 @@ def _run(key, snapshot, game_data):
     # its full two seconds. ponytail: queued work is not cancelled, only ignored.
     started = time.monotonic()
     if snapshot.get("schema_version") == 2:
-        try:
-            import rom_bridge
-            evaluate = getattr(rom_bridge, "evaluate", None)
-            if evaluate is None:
-                raise RuntimeError("ROM turn evaluator is not implemented")
-            result = evaluate(snapshot, game_data, deadline=started + 10.0)
-            if not isinstance(result, dict):
-                raise TypeError("ROM evaluator did not return a result object")
-        except Exception as exc:
-            card = _unavailable("engine-error", f"ROM worker unavailable: {type(exc).__name__}: {exc}")
-            result = {kind: dict(card) for kind in
-                      ("player_moves", "enemy_moves", "ai_actions", "recommendation")}
-            result.update(status="unavailable", source_sha=snapshot.get("source_sha"))
+        source_sha = snapshot.get("source_sha")
+        if source_sha != game_data.get("source", {}).get("commit"):
+            result = _rom_unavailable("source-mismatch",
+                                      "The battle state uses a different pinned source commit.",
+                                      source_sha)
+        else:
+            try:
+                import rom_bridge
+                evaluate = getattr(rom_bridge, "evaluate", None)
+                if evaluate is None:
+                    raise RuntimeError("ROM turn evaluator is not implemented")
+                result = evaluate(snapshot, game_data, deadline=started + 10.0)
+                if not isinstance(result, dict):
+                    raise TypeError("ROM evaluator did not return a result object")
+                if any(result.get(kind, {}).get("status") not in
+                       {"verified-fixed-seed", "estimated", "unavailable"} for kind in
+                       ("player_moves", "enemy_moves", "ai_actions", "recommendation")):
+                    raise ValueError("ROM evaluator returned an invalid card status")
+            except Exception as exc:
+                result = _rom_unavailable("engine-error",
+                                          f"ROM worker unavailable: {type(exc).__name__}: {exc}",
+                                          source_sha)
     else:
         engine, error = _safe_engine()
         if engine is None:

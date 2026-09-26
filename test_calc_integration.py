@@ -586,6 +586,13 @@ class ServiceIntegration(unittest.TestCase):
             self.assertEqual(result[kind]["status"], "unavailable")
             self.assertIn(result[kind]["reason"], {"engine-error", "incomplete-state"})
 
+    def test_v2_rejects_a_different_source_before_running_a_worker(self):
+        snap = snapshot_v2("TRAINER_HALEY_1")
+        snap["source_sha"] = "0" * 40
+        result = calc_service._run(calc_service.snapshot_key(snap), snap, DATA)
+        self.assertEqual(result["player_moves"]["reason"], "source-mismatch")
+        self.assertEqual(self._FakeEngine.calls, [])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
