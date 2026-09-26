@@ -1,238 +1,181 @@
-# ROM-accurate head-to-head Calc: orchestrated implementation plan
+# ROM-backed Calc: orchestration handoff
 
-## Mandate and decisions
+Status: implementation plan, not a claim that ROM-backed results work yet.
+Working branch: `plan/rom-backed-calc-orchestration`.
+Recoverable pre-engine snapshot: `snapshot/pre-rom-engine-2026-09-26` at `bc66ce9`.
+Source of truth: `data/source_lock.json`, Emerald Imperium commit
+`2576d0f3f4c861c760f0c55198e37e6d7b91683e`. Keep this pin; do not
+silently update to upstream `master` or claim parity with a different played ROM.
 
-Implement the four existing Calc result cards for Emerald Imperium trainer **singles**:
-player move KO probabilities, **Recommended action**, the AI action distribution,
-and enemy move KO probabilities. The full-battle calculation button, whole-battle
-win probability, doubles, and player bag actions are later work. Do not build a
-turn-by-turn battle playback.
+## Objective and non-negotiable behavior
 
-Use the pinned source in `data/source_lock.json`, commit
-`2576d0f3f4c861c760f0c55198e37e6d7b91683e`. The sibling checkout
-`../pokeemerald-expansion-ref` was at that commit during planning; verify it
-again before using it. Runtime must be standalone Python plus the app's existing
-Streamlit dependency. A development-only ROM build or emulator may serve as a
-verification oracle. The local reference checkout has no `test/battle` directory
-and no GBA build tools were found on PATH, so do not assume cited upstream test
-files or a ready oracle exist.
+Make the four existing Calc cards useful in local trainer singles: conditional
+player move KO estimates, trainer action estimates (moves, switches, items),
+conditional enemy move KO estimates, and a recommended legal player move or
+party switch. The recommendation retains the existing two-turn lookahead and
+HP/survivor score in `CALC_CONTRACT.md`; it is not whole-battle optimal play.
+All ability effects reachable in these trainer singles must run through the
+pinned game's battle code, including their move, item, status, field, and
+switch interactions. Player bag actions, doubles, whole-battle win probability,
+and hosted deployment are outside this delivery.
 
-Behavior already chosen with the user:
+Unknown RNG produces **model-based estimates**, never an `exact` percentage.
+Display sample count, uncertainty, source/ROM identity, and the assumed sampler.
+A fixed-seed result may be called ROM-verified only after full trace parity.
+Missing consequential state is unknown, not zero or full HP. The UI must not
+invent an RNG state. A newer state must never show a cached older result.
 
-- Keep “Recommended action” as the card title. It may recommend a legal move or
-  switch to a living party member. Label its basis **two-turn lookahead**; it is
-  not a claim of whole-battle optimal play.
-- Automatically recalculate after a relevant edit. Keep the page responsive,
-  reuse results for identical states, discard stale results, and give each
-  updated state a **two-second wall-clock budget**. Display an independently
-  completed exact card even if another card is unavailable. Never display a
-  sampled or approximate percentage as exact.
-- Exact probabilities use the ROM RNG, including correlations between draws,
-  over uniformly possible starting seeds consistent with the observed turn
-  history. The ROM uses seeded SFC32 streams; a single in-game decision is not
-  equivalent to a probability over every possible seed. If exact aggregation
-  cannot finish in budget, show `Unavailable` and a specific reason.
-- Preserve separate **focused** and **active** Pokémon selections. The focused
-  cards are for browsing; active selections determine battle calculations.
-  Include an explicit planned player move or switch for enemy move KO odds.
-- Include trainer AI moves, party switches, and bag item use. The inspected
-  singles AI predicts from prior move/battle history, not the current planned
-  player action, so its action distribution is for the entered battle state.
-- User and enemy move cards give probabilities **conditional on that move being
-  selected**, not the probability of selecting and landing it. Count a KO of
-  the Pokémon active at turn start caused by that move and its immediate
-  effects during this turn. A switch prevents a KO of that turn-start target;
-  unrelated residual damage does not count as the move's KO. Include move
-  failure, accuracy, critical hits, damage rolls, multi-hit behavior, and action
-  order when relevant. Enemy move odds also condition on the planned player
-  action. Show the AI's action-choice probabilities separately.
-- A missing player level, IV, EV, nature, ability, item, or other consequential
-  value is unknown, not zero. Prefill only values verified from the ROM and the
-  recorded build. “Use Item” off simulates no held item.
-- Replace the free numeric level cap with a selected ROM progression milestone
-  from `src/caps.c`. Simulate the ROM's raise-to-cap routine on a copy of the
-  party, assuming all members are unmarked; never alter saved Box levels.
-  Resolve `200+n` trainer levels from the highest **simulated** party level.
-  Apply Easy-mode boss-level changes and other source conditions. Offer only
-  Easy and Normal: the pinned ROM has no Hard mode. An old config saved as Hard
-  requires an explicit mode correction before exact calculations.
-- Save the manual turn state and observed turn log with each named Calc config.
-  Conditional trainer parties, post-Champion variants, and other required
-  progression flags must be resolved from entered context or reported unknown.
+## Ground truth and architecture
 
-## Orchestration in Herdr
+- The sibling `pokeemerald-expansion-ref` checkout is at the source pin but is
+  **sparse**. `test/battle/ai`, about 180 ability test files, `tools/mgba`, and
+  `tools/mgba-rom-test-hydra` exist in Git even though they are not checked out.
+  The old claim that this source has no ROM test suite was wrong. Create a
+  disposable full checkout at the pin; keep the reference checkout and Sidedex
+  source lock unchanged. Do not commit built ROMs, ELF files, or emulator binaries.
+- WSL Ubuntu has `make` and host `gcc`, but no ARM compiler was found. Install
+  the pinned project's build prerequisites in that build environment. Its
+  `make check` builds a test ELF and runs the mGBA ROM test tool. Use existing
+  battle tests as the first oracle before inventing a runtime bridge.
+- Run the **compiled ARM ROM** in a persistent local mGBA core worker. A small
+  native worker may wrap libmGBA; it must not reimplement the game's damage,
+  AI, or ability logic. The source's battle functions use GBA globals and ARM
+  assembly, so a host compilation of selected C files is not the default path.
+  mGBA's core API supports ROM loading, frames, state, and memory access.
+  Research references: [pinned Makefile](https://github.com/iriv24/pokeemerald-expansion/blob/2576d0f3f4c861c760f0c55198e37e6d7b91683e/Makefile),
+  [mGBA core example](https://github.com/mgba-emu/mgba/blob/master/src/platform/example/client-server/server.c),
+  [mGBA state API](https://mgba.io/docs/scripting.html).
+- The current four-word snapshot does not represent every volatile battle
+  field or the second RNG stream. The bridge must establish state sufficiency
+  through battle-start setup plus replay or a verified emulator checkpoint.
+  Arbitrary midbattle HP edits are scenario inputs, not proof of the actual
+  game's hidden state. Return `incomplete-state` where reconstruction fails.
 
-The user requested Pi agents under Herdr with one primary orchestrator. The
-orchestrator must run **inside a Herdr-managed pane** and first verify
-`HERDR_ENV=1`. If absent, stop Herdr control and report that prerequisite;
-never operate another client's focused session from outside Herdr. In a valid
-pane, inspect `herdr --help`, `herdr agent`, the current pane, and existing
-agents. Start available `pi` agents in sibling panes in the current tab and
-working directory, using `--no-focus`; keep the user's focus in the controller
-pane. Read IDs from command responses. Do not create worktrees, tabs, or a new
-workspace merely for these roles. Give each agent the relevant section of this
-file and ask for short status reports with changed files, verification, and
-blocking evidence. If Pi is not an installed Herdr kind, report that limitation
-and ask before substituting another kind.
+## Contract to freeze before parallel edits
 
-All agents share one checkout. The orchestrator fixes the interface contract
-below **before** parallel edits and owns integration. Use these nonoverlapping
-file assignments:
+The coordinator updates `CALC_CONTRACT.md` to v2 before agents edit callers.
+Keep v1 behavior documented as legacy until its replacement passes tests.
+Use versioned JSON messages across a persistent worker process:
 
-| Role / Pi agent | Owned implementation | Required handoff |
-| --- | --- | --- |
-| `rom_source` | `tools/extract_game_data.py`, generated `data/game_data.json`, source-oracle fixtures and extractor checks | Source fields, active config, fixture provenance, unresolved conditions, and exact ROM outputs |
-| `battle_core` | New standalone battle/RNG/AI engine module and its focused tests | Supported-mechanic registry, exact result examples, timing, and reasons for unsupported cases |
-| `calc_ui` | `planner_ui.py`, `app.py`, Calc config/state UI, related CSS and UI tests | Turn-state editor, config migration behavior, card rendering, and stale-job handling |
-| Orchestrator | Shared interface contract, cross-module wiring, integration/performance tests, docs and final review | One verified end-to-end singles scenario; no false exact claims |
+- `BattleRequest`: source commit and ROM hash; resolved trainer, difficulty,
+  progression, parties, and battle-start setup; ordered observed turns; player
+  candidate action; optional known state for **both** RNG streams; deadline.
+  Stable source IDs must map to ROM numeric IDs with explicit mismatch errors.
+- `TurnTrace`: trainer action (move, destination, or item); ordered move,
+  switch, item, damage, status, ability, and field events; resulting parties,
+  actives, volatile state, and RNG states; terminal result. Record enough to
+  replay and compare a full turn, not only damage and the chosen move.
+- `CalcResult`: independent four-card statuses `verified-fixed-seed`,
+  `estimated`, or `unavailable`; reason and missing paths for unavailable;
+  ROM hash/engine version on every result. Estimates include numerator/count,
+  denominator, sampler ID, effective sample size, and 95% interval. The UI
+  never renders an estimate with the old `exact` label.
+- Unknown-state sampler: generate reproducible 32-bit seeds for the ROM's two
+  stream initializers, replay the battle from the declared start, and retain
+  only trajectories consistent with entered observations. This is an explicit
+  scenario prior, **not** a calibrated probability for the user's hidden RNG.
+  If history filtering yields too few valid trajectories, show unavailable.
+  Preserve correlations by evaluating full joint turns, including trainer AI.
 
-Agents must not rewrite another role's files. Route interface changes to the
-orchestrator, who broadcasts the revised contract before dependent edits.
-Preserve existing uncommitted and untracked user work; this repo had many such
-files at planning time. Do not reset, clean, or overwrite them. Work in waves:
+## Agent schedule, ownership, and gates
 
-1. **Preflight and contract** — orchestrator verifies the source SHA, records
-   baseline checks, pins the state/result schema below, and dispatches the
-   three agents. Agent `rom_source` establishes the oracle first; the others
-   may build against the contract but must not assert ROM accuracy yet.
-2. **Independent implementation** — source extraction and oracle, battle core,
-   and state/UI proceed in parallel within their owned files. Each agent runs
-   the smallest meaningful check for its logic and reports completion.
-3. **Integration** — orchestrator joins extracted data, core, and UI; runs
-   differential fixtures and app checks; fixes interface mismatches. Agents
-   receive targeted follow-ups only in their owned files.
-4. **Release gate** — enable an exact card only for states covered by source
-   fields, supported mechanics, complete inputs, and game-backed checks. Show
-   all remaining cards as unavailable with actionable reasons. Record the
-   supported subset and measured latency in the final handoff.
+Run at most three Luna-high implementation agents alongside the coordinator.
+The coordinator alone edits the contract, `calc_service.py`, integration tests,
+README, and this plan. Agents report changed files, commands, fixed-seed traces,
+latency, and blockers at each gate. Do not share ownership of a file; merge each
+workstream only after its gate. A failing gate blocks dependent work, not an
+excuse to label the old Python calculation ROM-backed.
 
-## Interface contract and data flow
+### Gate 0 — ROM build and oracle (ROM/source agent)
 
-Use one versioned, serializable `BattleSnapshot` built from the current Calc
-selection. It includes source SHA; trainer ID and resolved party variant; Easy
-or Normal; progression milestone and relevant flags; simulated player and enemy
-builds; active party indexes; each member's current/max HP and move PP; held
-item enablement; statuses and stat stages; weather, terrain, hazards, screens,
-trick room and other effects when used; remaining trainer items; observed turn
-log; and planned player action. Record `unknown` distinctly from zero, empty,
-or false. The log must preserve ordered observed moves, switches, item use,
-hits, misses, damage, and other RNG-relevant outcomes that can constrain seeds.
-If an event cannot be represented exactly, do not claim the posterior is exact.
+Ownership: reproducible build scripts or patch overlays under
+`tools/rom_oracle/`, ROM fixtures, and dedicated oracle tests. Work in a
+disposable full checkout of the pinned source. Build the ROM and run its
+existing `make check` suite. Add **one** deterministic trainer singles test
+with smart AI and a fixed RNG state using the existing battle test helpers;
+capture ordered action, ability events, HP/status changes, and final state.
+Repeat it and record source commit, build flags, ROM hash, and trace. Do not
+modify or commit the sibling reference checkout as the integration artifact.
 
-Provide a pure battle entry point conceptually equivalent to:
+Pass: pinned ROM and test ELF build reproducibly, existing relevant tests pass,
+and the new complete-turn trace is identical across fixed-seed reruns.
 
-`evaluate_head_to_head(snapshot, game_data, deadline) -> HeadToHeadResult`
+### Gate 1 — Generic state bridge (ROM worker agent)
 
-Return separate `player_moves`, `enemy_moves`, `ai_actions`, and
-`recommendation` results. Each is either `exact` with an exact rational
-probability/score and source SHA, or `unavailable` with machine-readable reason
-and readable missing-input/mechanic detail. Convert fractions to rounded
-percentages only in the UI. Key cached results by normalized snapshot, source
-SHA, and engine version. A deadline or cancellation affects only unfinished
-results. A newer edit invalidates the old result so it can never render under
-the new battle state.
+Ownership: native worker under `native/rom_worker/`, Python IPC adapter in
+`rom_bridge.py`, and bridge tests. Start after the v2 contract and Gate 0.
+Use a battle-start initializer/test-ROM hook or a verified checkpoint plus
+replay, rather than guessing internal globals from the old snapshot. Accept
+the JSON request, run the actual battle loop, emit `TurnTrace`, and validate
+ROM hash and source IDs. Prove one opening and one midbattle turn, including a
+switch or ability effect. Serialize requests per emulator core.
 
-The recommendation evaluates every legal first-turn player move and party
-switch against the ROM AI. After each observable first-turn outcome, it chooses
-the best legal second-turn move or switch based on that observed state, never a
-hidden RNG seed. Stop early at a ROM terminal win/loss. At the end of the
-second turn, score the state as:
+Pass: complete trace and final state match the oracle for multiple fixed seeds;
+unknown or unrepresentable state fails closed. Benchmark batched reset/replay
+before choosing a sampling rate. If a dynamic bridge cannot reproduce state,
+stop and report the exact missing state or instrumentation obstacle.
 
-`sum(player 100*HP/maxHP) - sum(enemy 100*HP/maxHP) + 100*(living player count - living enemy count)`
+### Gate 2 — Truthful Calc state (UI agent, parallel with Gate 1)
 
-Maximize the exact expected score. This adds one full HP bar of value for each
-surviving Pokémon. Status, boosts, and hazards contribute when they change a
-ROM-resolved outcome within the two turns; do not invent extra terminal
-weights. Show all tied top actions and a short score breakdown. If the
-two-turn search is incomplete, the recommendation is unavailable even when
-current-turn damage or AI cards are exact.
+Ownership: `planner_ui.py`, `calc_config_component.py`, `ui.css`, and
+`test_calc_ui.py`. Start after the v2 contract. Add explicit battle actives
+separate from browsing focus; battle-start inputs, planned action, and ordered
+turn history; visible unknown values; an explicit “start at full HP” action;
+optional known RNG state entry. Remove `random.getrandbits` at
+`planner_ui.py:1588` and automatic current-HP-to-max filling. Bump config
+version and migrate old configs without inventing state. Render verified,
+estimated, pending, uncertain, and unavailable cards distinctly.
 
-Use ROM arithmetic and RNG call order, not generic Pokémon formulas or the
-current `calculate_stats` helper's missing-IV/EV-as-zero behavior. Extend the
-existing snapshot only with source-proven fields needed by the supported
-mechanics. No LLM, new API service, ORM, or runtime ROM dependency.
+Pass: focus changes do not change actives; old/blank configs retain unknown HP
+and RNG; save/load round-trips state and history; every relevant edit changes
+the snapshot key and hides stale results.
 
-## Phase deliverables and verification gates
+### Gate 3 — Sampling and recommendation (evaluation agent)
 
-### A. Source data and oracle (`rom_source`)
+Ownership: `rom_eval.py` and `test_rom_eval.py`. Start after Gate 1. Run matched
+starting states for each legal player move/switch, using full trainer-response
+and turn-outcome traces. Show KO and trainer-action frequencies with a 95%
+Wilson interval. For the existing two-turn score, use paired samples across
+candidates and a reproducible paired bootstrap interval for each score
+difference. Choose the best action only if its 95% interval beats every other
+candidate; otherwise show an uncertain ranking. Use at least 400 valid
+trajectories per candidate for a recommendation. Stop at 10 seconds, report
+sample counts, and show insufficient evidence rather than a false winner.
 
-- Expand the pinned extractor with move category, effect, priority, accuracy,
-  targeting, secondary effects, relevant ability/item parameters, AI flags,
-  trainer inventory, cap milestones, and conditional party inputs needed by the
-  first supported states. Resolve active preprocessor branches; reject
-  ambiguous values instead of guessing. Bump the generated data schema.
-- Obtain game outputs from the pinned source using a development-only
-  instrumented build/harness or emulator. Record the source SHA, battle-state
-  inputs, RNG seed/state, and expected damage/action output in compact fixtures.
-  If the local build toolchain is unavailable, establish it outside the app or
-  report the concrete blocker. Do not copy a ROM or build products into Sidedex.
-- Start with an ordinary trainer and a smart-switching trainer, then add
-  Easy/Normal scaling, held item, status, AI tie, and trainer-item fixtures.
-  Include Sawyer as an active-table regression: the inactive `.party` syntax
-  must not supply the team.
+Pass: probabilities are counted from complete joint trajectories, action
+frequencies sum to one on supported states, a switch can outrank moves, and
+timeouts/incomplete trajectories never become exact or confident results.
 
-### B. Exact battle core (`battle_core`)
+### Gate 4 — Integration and ability coverage (coordinator)
 
-- Port only the source paths reachable by declared supported singles cases:
-  stats, battle damage/rounding, move resolution, action priority, seeded SFC32
-  RNG, AI scoring and tie breaks, smart switching, and trainer-item selection.
-  Register unsupported moves/effects/state features and fail closed before
-  producing a number.
-- Reproduce fixed-seed fixture outputs exactly. For unknown seed, aggregate
-  only if the set of consistent seeds/outcomes can be covered exhaustively
-  within the two-second budget. Use integer counts or `Fraction`; no sampling,
-  independent-draw substitution, or floating-point probability accumulation.
-- Expose legal player moves and switches, conditional current-turn KO
-  probabilities, AI action probabilities, and the two-turn expected-score
-  evaluator through the agreed result contract. Keep each result independently
-  gated so an unsupported status move need not suppress a verified simple
-  damage result unless it can affect that result.
+Connect the worker through `calc_service.py`: persistent process lifecycle,
+bounded queue, per-request cancellation/timeout, exact-key cache including
+ROM hash and sampler version, and independently completed cards. Keep the
+Streamlit page responsive; do not cross the Python/native boundary per frame.
+Create a reachability matrix for all 328 extracted ability IDs. Classify
+singles-inert/unreachable abilities with a source reason; exercise every
+reachable effect through the ROM, including important move, item, status,
+field, and switch interactions. Reuse the existing ability and AI tests and
+add gaps; do not count one isolated test per ID as full interaction coverage.
+Update the README to state the measured coverage and remaining unavailable
+states.
 
-### C. Calc state and presentation (`calc_ui`)
+Pass: the current Python suite and `python app.py --self-check` pass; fixed-seed
+bridge traces match the ROM; a representative opening and midbattle state fill
+the four cards or give specific unavailable reasons; recommendation finishes
+within 10 seconds or honestly reports insufficient evidence; no stale result
+survives an edit. Do not claim “all abilities” until every reachable ability
+path in the matrix has a ROM-backed result and its required state is representable.
 
-- Replace the four `Not calculated` result bodies in `planner_ui.py`. Show
-  exact percentage, outcome context, source revision, and specific unavailable
-  reasons. The AI card lists all nonzero move, switch-destination, and item
-  probabilities and highlights all top ties. The recommendation card displays
-  its two-turn label, chosen move or switch target, and breakdown.
-- Add active selectors, planned action, milestone/difficulty, and a compact
-  current-state/turn-log editor. Keep focus selections independent. Include
-  only values needed by the supported state, with an expandable advanced area
-  for field effects and history. Prefill verified opening values; unknowns
-  remain visibly unknown.
-- Version and validate named Calc configs. Persist the new battle state and
-  history. Load old configs without inventing absent HP/IV/EV/history; require
-  correction of Hard difficulty. Apply `Use Item` toggles to calculation rather
-  than display only.
-- Use a cached background calculation keyed by the normalized state. Debounce
-  edits enough to avoid launching work for each keystroke, enforce the shared
-  two-second deadline, cancel or ignore stale work, and keep the main UI usable.
+## Performance and stop rules
 
-### D. Orchestrator integration and acceptance
+Keep the ROM/core loaded, save a valid pre-choice checkpoint, restore it for
+each sample, batch samples inside the worker, reuse the same sampled starting
+states across candidate actions, and cache identical requests. Add multiple
+isolated emulator cores only if a benchmark demonstrates throughput gain.
+Measure build, reset, replay, per-turn, and full recommendation costs separately.
 
-- Run existing `python app.py --self-check` and unit tests, then add focused
-  cross-module tests for source extraction, exact damage, AI moves/ties,
-  switching, items, KO conditioning, missing inputs, timeout, and config load.
-  Test a smart-switching position in which a player switch outranks every move.
-- Differentially compare every enabled mechanic with the ROM oracle, including
-  fixed RNG seeds and action order. Verify probabilities sum to one over all
-  legal AI actions for a fully supported state. Verify no percentage or
-  recommendation appears after an edit until it belongs to the new state.
-- Measure automatic recalculation on representative opening and midbattle
-  singles states. Finish only when at least one complete, useful head-to-head
-  state fills all four cards in under two seconds; otherwise report the
-  concrete feasibility blocker and leave unverified cards unavailable.
-- Update the README with the supported subset, required inputs, meaning of
-  percentages and two-turn score, source SHA, and unavailable behavior. The
-  full-battle button remains unimplemented in this delivery.
-
-## Stop conditions and handoff
-
-Do not turn a partial port, guessed default, generic damage formula, sampled
-RNG result, or type-coverage suggestion into an “exact” battle result. If the
-oracle cannot be established, or if exact unknown-seed aggregation cannot
-meet the two-second gate for even one complete representative state, stop that
-path with evidence and report what remains unavailable. Ship independently
-verified pieces only when their displayed meaning is still correct. The next
-agent's final report should list changed files, commands/tests run, supported
-mechanics, measured latency, and every material unsupported case.
+Do not publish sampled numbers as exact, silently discard unsupported actions,
+infer unknown HP/RNG, or use source-transcribed Python fixtures as a ROM oracle.
+If Gate 0 or Gate 1 fails, preserve the current working Calc and report the
+feasibility evidence; dependent claims and cards remain unavailable.

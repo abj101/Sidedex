@@ -1,5 +1,9 @@
 # Sidedex
 
+The handoff plan for ROM-backed predictions and move recommendations is in
+[`CALC_IMPLEMENTATION_PLAN.md`](CALC_IMPLEMENTATION_PLAN.md). The current Calc
+implementation and its supported subset are described below.
+
 Local Emerald Imperium Box and type-coverage planner with Pokedex and Calc tabs.
 
 ```powershell

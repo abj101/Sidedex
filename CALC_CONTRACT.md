@@ -1,4 +1,8 @@
-# Calc interface contract v1 (frozen before parallel edits)
+# Calc interface contract v1 (legacy)
+
+This describes the current Python Calc model. The ROM-backed implementation
+must first freeze the v2 interface specified in `CALC_IMPLEMENTATION_PLAN.md`;
+do not treat this v1 exact-only result shape as the new engine contract.
 
 Owned by the orchestrator. Agents read this; only the orchestrator edits it.
 Source of truth for the source pin: `data/source_lock.json`
