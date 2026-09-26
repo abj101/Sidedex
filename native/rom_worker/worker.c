@@ -21,17 +21,40 @@
 #define PROTOCOL_VERSION 1
 #define MAX_REQUEST_BYTES 4096
 #define MAX_FRAMES_PER_REQUEST 100000
+#define MAX_TRACE_EVENTS 16
+#define MAX_TRACE_BYTES 512
 
 static struct mCore *s_core;
 static struct VFile *s_saved_state;
+static uint64_t s_artifact_bytes;
+static char s_trace_events[MAX_TRACE_EVENTS][MAX_TRACE_BYTES];
+static size_t s_trace_count;
+static bool s_trace_overflow;
 
-static void discard_log(struct mLogger *logger, int category, enum mLogLevel level,
+static void capture_log(struct mLogger *logger, int category, enum mLogLevel level,
                         const char *format, va_list args) {
     (void) logger;
-    (void) category;
     (void) level;
-    (void) format;
-    (void) args;
+    const char *category_name = mLogCategoryName(category);
+    if (!category_name || strcmp(category_name, "GBA Debug") != 0 || s_trace_overflow) return;
+    char message[MAX_TRACE_BYTES];
+    vsnprintf(message, sizeof(message), format, args);
+    if (strncmp(message, "ROMTRACE|", 9) != 0) return;
+    if (s_trace_count == MAX_TRACE_EVENTS || strlen(message) >= MAX_TRACE_BYTES - 1) {
+        s_trace_overflow = true;
+        return;
+    }
+    strcpy(s_trace_events[s_trace_count++], message);
+}
+
+static void print_json_string(const char *value) {
+    putchar('"');
+    for (const unsigned char *p = (const unsigned char *) value; *p; ++p) {
+        if (*p == '"' || *p == '\\') { putchar('\\'); putchar(*p); }
+        else if (*p < 0x20 || *p >= 0x7f) printf("\\u%04x", *p);
+        else putchar(*p);
+    }
+    putchar('"');
 }
 
 static bool json_uint(const char *line, const char *key, uint64_t *value) {
@@ -83,21 +106,50 @@ static void respond_error(const char *reason) {
 
 static void respond_status(void) {
     char title[13] = {0};
-    char code[5] = {0};
+    char code[9] = {0};
     s_core->getGameTitle(s_core, title);
     s_core->getGameCode(s_core, code);
-    for (size_t i = 0; title[i]; ++i) {
-        if ((unsigned char) title[i] < 0x20 || title[i] == '"' || title[i] == '\\') title[i] = '_';
-    }
-    for (size_t i = 0; code[i]; ++i) {
-        if ((unsigned char) code[i] < 0x20 || code[i] == '"' || code[i] == '\\') code[i] = '_';
-    }
     printf("{\"protocol\":%d,\"ok\":true,\"worker\":\"sidedex-mgba-worker/" ROM_WORKER_VERSION
-           "\",\"mgba\":\"" ROM_WORKER_MGBA_VERSION "\","
-           "\"platform\":\"gba\",\"rom_title\":\"%s\",\"rom_code\":\"%s\","
-           "\"rom_bytes\":%zu,\"frame_count\":%" PRIu32 "}\n",
-           PROTOCOL_VERSION, title, code, s_core->romSize(s_core), s_core->frameCounter(s_core));
+           "\",\"mgba\":\"" ROM_WORKER_MGBA_VERSION "\",\"platform\":\"gba\",\"rom_title\":",
+           PROTOCOL_VERSION);
+    print_json_string(title);
+    printf(",\"rom_code\":");
+    print_json_string(code);
+    printf(",\"rom_bytes\":%" PRIu64 ",\"frame_count\":%" PRIu32 "}\n",
+           s_artifact_bytes, s_core->frameCounter(s_core));
     fflush(stdout);
+}
+
+static void respond_run_frames(void) {
+    char title[13] = {0};
+    char code[9] = {0};
+    s_core->getGameTitle(s_core, title);
+    s_core->getGameCode(s_core, code);
+    printf("{\"protocol\":%d,\"ok\":true,\"worker\":\"sidedex-mgba-worker/" ROM_WORKER_VERSION
+           "\",\"mgba\":\"" ROM_WORKER_MGBA_VERSION "\",\"platform\":\"gba\",\"rom_title\":",
+           PROTOCOL_VERSION);
+    print_json_string(title);
+    printf(",\"rom_code\":");
+    print_json_string(code);
+    printf(",\"rom_bytes\":%" PRIu64 ",\"frame_count\":%" PRIu32 ",\"trace_events\":[",
+           s_artifact_bytes, s_core->frameCounter(s_core));
+    for (size_t i = 0; i < s_trace_count; ++i) {
+        if (i) putchar(',');
+        print_json_string(s_trace_events[i]);
+    }
+    printf("],\"trace_overflow\":%s}\n", s_trace_overflow ? "true" : "false");
+    fflush(stdout);
+}
+
+static bool artifact_size(const char *path, uint64_t *size) {
+    FILE *file = fopen(path, "rb");
+    if (!file) return false;
+    bool ok = fseek(file, 0, SEEK_END) == 0;
+    long length = ok ? ftell(file) : -1;
+    fclose(file);
+    if (length < 0) return false;
+    *size = (uint64_t) length;
+    return true;
 }
 
 static bool read_memory(uint64_t address, uint64_t width, uint32_t *value) {
@@ -130,8 +182,10 @@ static bool handle_request(const char *line, bool *should_quit) {
             respond_error("invalid_frame_count");
             return false;
         }
+        s_trace_count = 0;
+        s_trace_overflow = false;
         for (uint64_t i = 0; i < frames; ++i) s_core->runFrame(s_core);
-        respond_status();
+        respond_run_frames();
         return true;
     }
     if (strcmp(op, "reset") == 0) {
@@ -196,7 +250,11 @@ int main(int argc, char **argv) {
         fprintf(stderr, "usage: rom_worker --rom PATH\n");
         return 2;
     }
-    struct mLogger logger = {.log = discard_log};
+    if (!artifact_size(argv[2], &s_artifact_bytes)) {
+        fprintf(stderr, "could not read input artifact size: %s\n", argv[2]);
+        return 2;
+    }
+    struct mLogger logger = {.log = capture_log};
     mLogSetDefaultLogger(&logger);
 
     s_core = mCoreFind(argv[2]);

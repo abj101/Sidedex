@@ -25,7 +25,7 @@ Build on Windows through MSYS2 MinGW64. Install MSYS2, open its shell once, and
 run:
 
     pacman -Syu
-    pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
+    pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja mingw-w64-x86_64-libelf
 
 Then build from PowerShell:
 
@@ -44,3 +44,9 @@ an existing ROM and compiled worker:
 
 The smoke test skips when either artifact is absent. It is an emulator lifecycle
 check only; passing it does not establish battle-engine parity.
+
+The worker can also load a hash-pinned, instrumented test ELF when given that
+artifact explicitly. `run_frames` returns raw `ROMTRACE|` lines emitted through
+mGBA's `GBA Debug` logger. This supports comparing fixture transport with the
+oracle test; it does not initialize battles in the release ROM or establish
+release-ROM battle parity.

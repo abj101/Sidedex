@@ -125,6 +125,7 @@ class RomWorkerClient:
         *,
         timeout: float = 5.0,
         source_lock_path: str | os.PathLike[str] = DEFAULT_SOURCE_LOCK,
+        expected_artifact_sha256: str = ROM_SHA256,
         worker_args: Sequence[str] = (),
     ):
         if type(timeout) not in (int, float) or timeout <= 0:
@@ -136,7 +137,13 @@ class RomWorkerClient:
         self._closed = False
         self._stderr_lines: queue.Queue = queue.Queue(maxsize=16)
 
-        self.rom_sha256 = self._verify_identity(rom, Path(source_lock_path))
+        if not isinstance(expected_artifact_sha256, str) or len(expected_artifact_sha256) != 64 or any(
+            char not in "0123456789abcdefABCDEF" for char in expected_artifact_sha256
+        ):
+            raise ValueError("expected_artifact_sha256 must be a 64-character SHA-256 hex digest")
+        self.rom_sha256 = self._verify_identity(
+            rom, Path(source_lock_path), expected_artifact_sha256.upper()
+        )
         self._rom_size = rom.stat().st_size
         if not worker.is_file():
             raise WorkerUnavailableError(f"mGBA worker executable is missing: {worker}")
@@ -172,7 +179,7 @@ class RomWorkerClient:
             raise
 
     @staticmethod
-    def _verify_identity(rom: Path, source_lock_path: Path) -> str:
+    def _verify_identity(rom: Path, source_lock_path: Path, expected_sha256: str = ROM_SHA256) -> str:
         if not rom.is_file():
             raise RomIdentityError(f"ROM file is missing: {rom}")
         try:
@@ -185,9 +192,9 @@ class RomWorkerClient:
                 f"local source lock commit {locked_commit!r} does not match pinned {SOURCE_SHA}"
             )
         actual = sha256_file(rom)
-        if actual != ROM_SHA256:
+        if actual != expected_sha256:
             raise RomIdentityError(
-                f"ROM SHA-256 {actual} does not match pinned build {ROM_SHA256}"
+                f"artifact SHA-256 {actual} does not match pinned artifact {expected_sha256}"
             )
         return actual
 
@@ -287,7 +294,14 @@ class RomWorkerClient:
     def run_frames(self, frames: int) -> dict[str, Any]:
         if type(frames) is not int or not 0 <= frames <= MAX_FRAMES_PER_REQUEST:
             raise ValueError(f"frames must be an integer from 0 to {MAX_FRAMES_PER_REQUEST}")
-        return self._request("run_frames", frames=frames)
+        reply = self._request("run_frames", frames=frames)
+        events = reply.get("trace_events")
+        if (not isinstance(events, list) or any(not isinstance(event, str) for event in events) or
+                type(reply.get("trace_overflow")) is not bool):
+            raise WorkerProtocolError("worker returned invalid trace event data")
+        if reply["trace_overflow"]:
+            raise WorkerProtocolError("worker trace event buffer overflowed")
+        return reply
 
     def reset(self) -> dict[str, Any]:
         return self._request("reset")
