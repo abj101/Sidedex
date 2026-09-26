@@ -1,0 +1,7 @@
+build/
+_deps/
+mgba-src/
+*.gba
+*.elf
+*.sav
+*.ss*
