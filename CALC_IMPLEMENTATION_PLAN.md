@@ -1,11 +1,26 @@
 # ROM-backed Calc: orchestration handoff
 
 Status: implementation plan, not a claim that ROM-backed results work yet.
-Working branch: `plan/rom-backed-calc-orchestration`.
+Working branch: `feat/rom-backed-calc` (branched from the saved plan commit).
 Recoverable pre-engine snapshot: `snapshot/pre-rom-engine-2026-09-26` at `bc66ce9`.
 Source of truth: `data/source_lock.json`, Emerald Imperium commit
 `2576d0f3f4c861c760f0c55198e37e6d7b91683e`. Keep this pin; do not
 silently update to upstream `master` or claim parity with a different played ROM.
+
+## Implementation checkpoint (2026-09-26)
+
+- A disposable full source checkout builds the pinned ROM under WSL. The built
+  ROM is local only; Gate 0 still requires the existing `make check` suite and
+  a repeatable fixed-seed complete-turn trace.
+- The Calc UI is moving to schema v2. `calc_service.py` now routes v2 requests
+  separately and returns unavailable cards until a ROM evaluator proves trace
+  parity. The v1 Python evaluator remains covered as a legacy model.
+- The mGBA worker is limited to process, reset, checkpoint, and memory
+  primitives until a battle hook can reconstruct state and compare full turns.
+  A working ROM build or emulator process alone does not pass Gate 1.
+- `python -m pytest -q` passes 178 tests and `python app.py --self-check`
+  passes at this checkpoint; these checks do not establish ROM prediction
+  accuracy or all-ability coverage.
 
 ## Objective and non-negotiable behavior
 
