@@ -21,6 +21,11 @@ silently update to upstream `master` or claim parity with a different played ROM
 - `python -m pytest -q` passes 178 tests and `python app.py --self-check`
   passes at this checkpoint; these checks do not establish ROM prediction
   accuracy or all-ability coverage.
+- `data/ability_coverage.csv` inventories all 328 extracted ability IDs. It
+  records species references and existing source test files, but every
+  singles-reachability decision remains unreviewed and every ROM replay remains
+  unverified. Regenerate it with `python tools/build_ability_coverage.py
+  PATH_TO_FULL_PINNED_SOURCE`.
 
 ## Objective and non-negotiable behavior
 
