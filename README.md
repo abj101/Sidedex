@@ -1,8 +1,10 @@
 # Sidedex
 
-The handoff plan for ROM-backed predictions and move recommendations is in
-[`CALC_IMPLEMENTATION_PLAN.md`](CALC_IMPLEMENTATION_PLAN.md). The current Calc
-implementation and its supported subset are described below.
+The implementation plan for ROM-backed predictions and move recommendations is
+in [`CALC_IMPLEMENTATION_PLAN.md`](CALC_IMPLEMENTATION_PLAN.md). The battle
+state editor is present, but the four Calc result cards remain unavailable for
+schema-v2 requests until complete ROM turn replay is verified. The older Python
+model is retained for legacy tests and is not presented as a ROM result.
 
 Local Emerald Imperium Box and type-coverage planner with Pokedex and Calc tabs.
 
@@ -44,10 +46,9 @@ as `200+n` are resolved from the highest simulated party level for the selected
 progression milestone (see the level-cap note below); affected trainers carry
 that rule in `context_required`.
 
-Enemy advantage badges use verified move power and type effectiveness only.
-Unknown builds or types are marked unknown. Exact KO odds and trainer AI action
-predictions are implemented for the subset described under **Calc head-to-head
-results**; Soul Link constraints are not supported. The upstream fork has no
+Enemy advantage badges use extracted move power and type effectiveness only.
+Unknown builds or types are marked unknown. Soul Link constraints are not
+supported. The upstream fork has no
 root license file at the pinned commit; confirm its terms before redistributing
 the generated snapshot.
 
@@ -57,21 +58,31 @@ another Pokémon. Player slot changes update the actual party,
 while trainer slot changes only reorder that trainer's display. The Box retains
 its hover preview, but clicking a Box Pokémon does not change Calc focus.
 Named configs save the party lineup, trainer, focus choices, display order,
-item switches, level cap milestone, and difficulty. Existing configs also retain
-their saved battle state and observed turn log. The Calc page currently has no
-battle-state or turn-log editor. The focused Pokémon on each side become the
-active pair; result cards report unavailable when HP, PP, or other required
-state is unknown. Configs written before the battle state existed load
-without inventing missing HP/IV/EV/history. Hard difficulty configs require an
-explicit Easy/Normal correction before an exact calculation.
+item switches, level cap milestone, difficulty, explicit battle actives,
+entered battle state, and observed turn log. Focus changes do not change
+actives. Current HP and both RNG streams stay unknown until entered; the
+explicit start-at-full-HP action initializes a battle-start scenario. Older
+configs load without inventing missing HP, IVs, EVs, or RNG. Hard difficulty
+configs require an explicit Easy/Normal correction.
 
 ## Calc head-to-head results
 
-The four result cards are computed independently from a narrow Python model
+The current UI sends schema-v2 snapshots to a separate ROM service path. It
+shows specific unavailable reasons while the battle hook and full-turn oracle
+comparison are unfinished. A built ROM or a running emulator alone does not
+establish prediction accuracy. Unknown-seed results will be labelled
+**model-based estimates** with sample count and uncertainty only after the ROM
+worker supports replay and sampling. See `CALC_CONTRACT.md` for the result
+contract and the implementation plan for the remaining gates.
+
+### Legacy Python model
+
+Legacy tests compute the four result cards from a narrow Python model
 transcribed from the pinned ROM source in `data/source_lock.json` (commit
 `2576d0f3f4c861c760f0c55198e37e6d7b91683e`). Returned fractions are
 exact for that model, but the model has not been checked against a running ROM.
-Nothing is sampled.
+Nothing is sampled in that model. The descriptions below document the legacy
+calculation and its limits; they are not claims about current v2 output.
 
 - **Your moves · KO probability / Enemy moves · KO probability** give the
   probability that the move knocks out the Pokémon that was active at the start
@@ -128,7 +139,7 @@ an entered maximum HP that differs from the computed stat is rejected.
 
 ### Supported subset and verification
 
-Supported today: singles with one active Pokémon per side,
+The legacy model's supported slice is singles with one active Pokémon per side,
 physical/special damaging moves with a known effect and no recoil, secondary
 effects, status moves or held items, abilities proven inert for the computed
 paths, and the ordinary `AI_FLAG_CHECK_BAD_MOVE` trainer logic plus trainers
@@ -140,10 +151,10 @@ machine. This is a model check, not a ROM oracle or broad performance benchmark.
 The pinned trainer table carries no bag items (every entry is `ITEM_NONE`), so
 the ported trainer-item path cannot be reached with the shipped data.
 
-**No emulator oracle exists in this checkout**: `make`, `gcc`,
-`arm-none-eabi-gcc`, `devkitARM` and every GBA emulator are absent from PATH and
-the usual install locations, and the pinned checkout has no `test/` directory.
-Every result is therefore labelled *source-transcribed, not emulator-verified*.
+The pinned source has a battle test suite. A disposable full checkout now
+builds its ROM under WSL; complete-turn replay and comparison are still in
+progress. The legacy Python output is labelled *source-transcribed, not
+emulator-verified*.
 The arithmetic is transcribed from cited `src/...:line` locations, hand-derived
 expectations live in `data/rom_fixtures.json` with their provenance, and
 `test_battle_engine.py`, `test_rom_source.py`, `test_calc_ui.py` and
