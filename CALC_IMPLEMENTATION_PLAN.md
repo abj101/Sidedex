@@ -41,6 +41,13 @@ silently update to upstream `master` or claim parity with a different played ROM
   active battlers, but lacks settled switch state, complete parties, volatile
   state, and secondary RNG. The broad upstream suite was stopped after about
   2,604 statuses with unrelated failures; no green aggregate is claimed.
+  Build the release ROM in a clean source checkout before applying the test
+  overlay; shared test artifacts can make a later release link fail.
+- The persistent worker now loads the instrumented test ELF and captures its
+  raw `ROMTRACE|` messages. Eight emitted lines match the fixture transport;
+  1,020 emulated frames took about 186 ms after roughly 500 ms startup in the
+  measured run. This validates trace transport, not state reconstruction in
+  the release ROM or full `TurnTrace` parity.
 
 ## Objective and non-negotiable behavior
 
