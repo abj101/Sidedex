@@ -1,4 +1,4 @@
-"""Background Calc evaluation: debounce, two-second budget, stale-result safety.
+"""Background Calc evaluation with legacy and ROM request isolation.
 
 Owned by the orchestrator. UI code calls request()/poll() and never blocks.
 Import of battle_engine is lazy so the UI keeps working before the engine lands.
@@ -46,7 +46,19 @@ def _unavailable(reason, detail):
 
 
 def snapshot_key(snapshot):
-    """Canonical key: normalized snapshot + source SHA + engine version."""
+    """Canonical key including the relevant evaluator identity."""
+    if snapshot.get("schema_version") == 2:
+        # v2 is a ROM request. Never normalize it through the legacy Python
+        # engine, which only understands v1 and loses the second RNG stream.
+        try:
+            import rom_bridge
+            identity = (getattr(rom_bridge, "ROM_SHA256", None),
+                        getattr(rom_bridge, "WORKER_VERSION", None),
+                        getattr(rom_bridge, "SAMPLER_VERSION", None))
+        except ImportError:
+            identity = (None, None, None)
+        payload = json.dumps(snapshot, sort_keys=True, separators=(",", ":"), default=str)
+        return hashlib.sha256(repr(("rom-v2", snapshot.get("source_sha"), identity, payload)).encode("utf-8")).hexdigest()
     engine, _ = _safe_engine()
     try:
         canonical = engine.normalize_snapshot(snapshot) if engine else snapshot
@@ -110,17 +122,32 @@ def _run(key, snapshot, game_data):
     # The budget starts when work actually starts, so a queued job still gets
     # its full two seconds. ponytail: queued work is not cancelled, only ignored.
     started = time.monotonic()
-    engine, error = _safe_engine()
-    if engine is None:
-        result = _unavailable("engine-error", f"battle engine unavailable: {error}")
-    else:
+    if snapshot.get("schema_version") == 2:
         try:
-            result = engine.evaluate_head_to_head(snapshot, game_data,
-                                                  deadline=started + BUDGET_SECONDS)
+            import rom_bridge
+            evaluate = getattr(rom_bridge, "evaluate", None)
+            if evaluate is None:
+                raise RuntimeError("ROM turn evaluator is not implemented")
+            result = evaluate(snapshot, game_data, deadline=started + 10.0)
             if not isinstance(result, dict):
-                raise TypeError("engine returned %s" % type(result).__name__)
-        except Exception as exc:  # engine bugs must not take the page down
-            result = _unavailable("engine-error", f"battle engine raised {type(exc).__name__}: {exc}")
+                raise TypeError("ROM evaluator did not return a result object")
+        except Exception as exc:
+            card = _unavailable("engine-error", f"ROM worker unavailable: {type(exc).__name__}: {exc}")
+            result = {kind: dict(card) for kind in
+                      ("player_moves", "enemy_moves", "ai_actions", "recommendation")}
+            result.update(status="unavailable", source_sha=snapshot.get("source_sha"))
+    else:
+        engine, error = _safe_engine()
+        if engine is None:
+            result = _unavailable("engine-error", f"battle engine unavailable: {error}")
+        else:
+            try:
+                result = engine.evaluate_head_to_head(snapshot, game_data,
+                                                      deadline=started + BUDGET_SECONDS)
+                if not isinstance(result, dict):
+                    raise TypeError("engine returned %s" % type(result).__name__)
+            except Exception as exc:  # engine bugs must not take the page down
+                result = _unavailable("engine-error", f"battle engine raised {type(exc).__name__}: {exc}")
     elapsed_ms = int((time.monotonic() - started) * 1000)
     with _LOCK:
         _CACHE[key] = result

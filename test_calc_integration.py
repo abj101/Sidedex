@@ -5,6 +5,7 @@ and calc_service against the generated data/game_data.json.
 """
 
 import io
+import copy
 import json
 import time
 import unittest
@@ -41,7 +42,7 @@ def rom_max_hp(species, level, nature, ivs, evs):
     return be.calc_mon_stats(DATA["species"][species]["stats"], level, nature, ivs, evs)["hp"]
 
 
-def snapshot(trainer_id, enemy_index=0, *, hp=120, enemy_hp=40, rng=(0x12345678, 0x9ABCDEF0, 0x0BADF00D, 1),
+def snapshot_v2(trainer_id, enemy_index=0, *, hp=120, enemy_hp=40, rng=(0x12345678, 0x9ABCDEF0, 0x0BADF00D, 1),
              ai_flags=(), move="MOVE_QUICK_ATTACK", trainer_items=None):
     """Build a BattleSnapshot through the UI builder, not by hand."""
     record = trainer(trainer_id)
@@ -71,6 +72,21 @@ def snapshot(trainer_id, enemy_index=0, *, hp=120, enemy_hp=40, rng=(0x12345678,
         level_cap_id="CAP_MAX", enemy_items=trainer_items,
         ai_flags=record.get("ai_flags") or list(ai_flags),
         enemy_levels=[member.get("level") for member in party])
+
+
+def as_legacy(snap):
+    """Keep v1 differential tests on the legacy model during the ROM migration."""
+    snap["schema_version"] = 1
+    snap.pop("state_origin", None)
+    snap["rng"] = {"state": snap["rng"]["main"]}
+    for member in snap["enemy"]["party"]:
+        if member["status"] is None:
+            member["status"] = "none"
+    return snap
+
+
+def snapshot(*args, **kwargs):
+    return as_legacy(snapshot_v2(*args, **kwargs))
 
 
 def evaluate(snap, deadline=BUDGET):
@@ -163,7 +179,9 @@ class SnapshotIntegration(unittest.TestCase):
             ai_flags=record.get("ai_flags"), enemy_levels=[m.get("level") for m in record["party"]])
         self.assertIsNone(snap["player"]["party"][0]["hp"])
         self.assertIsNone(snap["player"]["party"][0]["max_hp"])
-        self.assertIsNone(snap["rng"]["state"])
+        self.assertEqual(snap["schema_version"], 2)
+        self.assertIsNone(snap["rng"]["main"])
+        self.assertIsNone(snap["rng"]["secondary"])
 
 
 class RomFixtureDifferential(unittest.TestCase):
@@ -401,7 +419,8 @@ class SwitchRecommendationIntegration(unittest.TestCase):
             enemy_levels=[member.get("level") for member in party])
         self.assertTrue(snap["player"]["party"][0]["moves"],
                         "the UI builder dropped every move of the active Pokémon")
-        card = be.evaluate_head_to_head(snap, DATA, deadline=time.monotonic() + BUDGET)["recommendation"]
+        card = be.evaluate_head_to_head(as_legacy(snap), DATA,
+                                        deadline=time.monotonic() + BUDGET)["recommendation"]
         self.assertEqual(card["status"], "exact", card)
         best = max(fraction(action["score"]) for action in card["actions"])
         top = [action for action in card["actions"] if fraction(action["score"]) == best]
@@ -424,7 +443,7 @@ class CardRenderIntegration(unittest.TestCase):
         self.assertIn("100%", markup)
         self.assertIn("1/1", markup)
         self.assertIn("source-transcribed", markup)
-        self.assertIn("seed-independent", markup)
+        self.assertIn("identical for every RNG state", markup)
         self.assertNotIn("Not calculated", markup)
 
     def test_unavailable_card_renders_the_reason_and_missing_inputs(self):
@@ -473,6 +492,17 @@ class StaleRenderIntegration(unittest.TestCase):
         self.assertIsNotNone(fetched)
         self.assertEqual(fetched["source_sha"], be.SOURCE_SHA)
         self.assertIsNotNone(calc_service.cached(before))  # old key still cached, never rendered
+
+    def test_v2_rng_history_and_active_edits_change_the_cache_key(self):
+        initial = snapshot_v2("TRAINER_HALEY_1")
+        for path, value in (("rng", {"main": [1, 2, 3, 4], "secondary": None}),
+                            ("history", {"turns": [{"player_action": None, "enemy_action": None,
+                                                     "events": []}]}),
+                            ("enemy", {**initial["enemy"], "active_index": 1})):
+            edited = copy.deepcopy(initial)
+            edited[path] = value
+            self.assertNotEqual(calc_service.snapshot_key(initial),
+                                calc_service.snapshot_key(edited), path)
 
 
 class ServiceIntegration(unittest.TestCase):
@@ -541,6 +571,20 @@ class ServiceIntegration(unittest.TestCase):
                 break
             time.sleep(0.05)
         self.assertIn("engine", str(calc_service.poll(snap)))
+
+    def test_v2_never_falls_back_to_legacy_python_engine(self):
+        snap = snapshot_v2("TRAINER_HALEY_1")
+        calc_service.request(snap, DATA)
+        for _ in range(50):
+            result = calc_service.poll(snap)
+            if result:
+                break
+            time.sleep(0.05)
+        self.assertIsNotNone(result)
+        self.assertEqual(self._FakeEngine.calls, [])
+        for kind in ("player_moves", "enemy_moves", "ai_actions", "recommendation"):
+            self.assertEqual(result[kind]["status"], "unavailable")
+            self.assertIn(result[kind]["reason"], {"engine-error", "incomplete-state"})
 
 
 if __name__ == "__main__":
