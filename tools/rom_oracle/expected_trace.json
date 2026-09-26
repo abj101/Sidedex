@@ -1,0 +1,14 @@
+{
+  "events": [
+    {"type": "ability", "battler": 1, "ability": 22},
+    {"type": "action", "battler": 0, "action": "move", "move": 261, "target": 1},
+    {"type": "action", "battler": 1, "action": "move", "move": 33, "target": 0},
+    {"type": "hp", "battler": 0, "old_hp": 105, "new_hp": 88},
+    {"type": "action", "battler": 1, "action": "switch", "party_index": 1}
+  ],
+  "final_state": [
+    {"battler": 0, "species": 1, "hp": 88, "max_hp": 105, "status1": 0, "ability": 65, "attack_stage": 5, "moves": [261, 0, 0, 0], "pp": [14, 10, 5, 15]},
+    {"battler": 1, "species": 4, "hp": 99, "max_hp": 99, "status1": 0, "ability": 22, "attack_stage": 6, "moves": [33, 0, 0, 0], "pp": [34, 15, 15, 5]}
+  ],
+  "rng": [-941908513, -1199513784, 1513372196, 6]
+}

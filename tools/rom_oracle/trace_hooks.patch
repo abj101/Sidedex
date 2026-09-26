@@ -1,0 +1,99 @@
+diff --git a/test/test_runner_battle.c b/test/test_runner_battle.c
+index 4b4efed49f..f7366912c3 100644
+--- a/test/test_runner_battle.c
++++ b/test/test_runner_battle.c
+@@ -54,6 +54,34 @@ static void PushBattlerAction(u32 sourceLine, s32 battlerId, u32 actionType, u32
+ static void PrintAiMoveLog(u32 battlerId, u32 moveSlot, u32 moveId, s32 totalScore);
+ static void ClearAiLog(u32 battlerId);
+ static const char *BattlerIdentifier(s32 battlerId);
++static bool32 SidedexOracleTraceActive(void)
++{
++    static const u8 expected[] = "Sidedex oracle: deterministic smart AI trace";
++    const u8 *actual;
++    u32 i;
++
++    if (gTestRunnerState.test == NULL)
++        return FALSE;
++    actual = (const u8 *)gTestRunnerState.test->name;
++    for (i = 0; expected[i] != 0 && expected[i] == actual[i]; i++)
++        ;
++    return expected[i] == 0 && actual[i] == 0;
++}
++
++static void SidedexOracleTraceFinalState(void)
++{
++    u32 battler;
++
++    for (battler = 0; battler < 2; battler++)
++    {
++        const struct BattlePokemon *mon = &gBattleMons[battler];
++        Test_MgbaPrintf("ROMTRACE|final|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
++                        battler, mon->species, mon->hp, mon->maxHP, mon->status1, mon->ability,
++                        mon->statStages[STAT_ATK], mon->moves[0], mon->moves[1], mon->moves[2], mon->moves[3],
++                        mon->pp[0], mon->pp[1], mon->pp[2], mon->pp[3]);
++    }
++    Test_MgbaPrintf("ROMTRACE|rng|%d|%d|%d|%d", gRngValue.a, gRngValue.b, gRngValue.c, gRngValue.ctr);
++}
+ 
+ NAKED static void InvokeSingleTestFunctionWithStack(void *results, u32 i, struct BattlePokemon *player, struct BattlePokemon *opponent, SingleBattleTestFunction function, void *stack)
+ {
+@@ -561,6 +589,8 @@ static s32 TryAbilityPopUp(s32 i, s32 n, u32 battlerId, u32 ability)
+ 
+ void TestRunner_Battle_RecordAbilityPopUp(u32 battlerId, u32 ability)
+ {
++    if (SidedexOracleTraceActive())
++        Test_MgbaPrintf("ROMTRACE|ability|%d|%d", battlerId, ability);
+     s32 queuedEvent;
+     s32 match;
+     struct QueuedEvent *event;
+@@ -714,6 +744,8 @@ static s32 TryHP(s32 i, s32 n, u32 battlerId, u32 oldHP, u32 newHP)
+ 
+ void TestRunner_Battle_RecordHP(u32 battlerId, u32 oldHP, u32 newHP)
+ {
++    if (SidedexOracleTraceActive())
++        Test_MgbaPrintf("ROMTRACE|hp|%d|%d|%d", battlerId, oldHP, newHP);
+     s32 queuedEvent;
+     s32 match;
+     struct QueuedEvent *event;
+@@ -779,6 +811,8 @@ static u32 CountAiExpectMoves(struct ExpectedAIAction *expectedAction, u32 battl
+ 
+ void TestRunner_Battle_CheckChosenMove(u32 battlerId, u32 moveId, u32 target)
+ {
++    if (SidedexOracleTraceActive())
++        Test_MgbaPrintf("ROMTRACE|action|%d|move|%d|%d", battlerId, moveId, target);
+     const char *filename = gTestRunnerState.test->filename;
+     u32 id = DATA.trial.aiActionsPlayed[battlerId];
+     struct ExpectedAIAction *expectedAction = &DATA.expectedAiActions[battlerId][id];
+@@ -850,6 +884,8 @@ void TestRunner_Battle_CheckChosenMove(u32 battlerId, u32 moveId, u32 target)
+ 
+ void TestRunner_Battle_CheckSwitch(u32 battlerId, u32 partyIndex)
+ {
++    if (SidedexOracleTraceActive())
++        Test_MgbaPrintf("ROMTRACE|action|%d|switch|%d", battlerId, partyIndex);
+     const char *filename = gTestRunnerState.test->filename;
+     u32 id = DATA.trial.aiActionsPlayed[battlerId];
+     struct ExpectedAIAction *expectedAction = &DATA.expectedAiActions[battlerId][id];
+@@ -1254,6 +1290,8 @@ static s32 TryStatus(s32 i, s32 n, u32 battlerId, u32 status1)
+ 
+ void TestRunner_Battle_RecordStatus1(u32 battlerId, u32 status1)
+ {
++    if (SidedexOracleTraceActive())
++        Test_MgbaPrintf("ROMTRACE|status|%d|%d", battlerId, status1);
+     s32 queuedEvent;
+     s32 match;
+     struct QueuedEvent *event;
+@@ -1309,6 +1347,9 @@ void TestRunner_Battle_AfterLastTurn(void)
+ {
+     const struct BattleTest *test = GetBattleTest();
+ 
++    if (SidedexOracleTraceActive())
++        SidedexOracleTraceFinalState();
++
+     if (DATA.turns - 1 != DATA.trial.lastActionTurn)
+     {
+         const char *filename = gTestRunnerState.test->filename;
+@@ -2780,3 +2821,4 @@ void TestRunner_Battle_AIAdjustScore(const char *file, u32 line, u32 battlerId,
+ {
+     TestRunner_Battle_AILogScore(file, line, battlerId, moveIndex, score, FALSE);
+ }
++

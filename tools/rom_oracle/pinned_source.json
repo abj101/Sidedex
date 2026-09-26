@@ -1,0 +1,15 @@
+{
+  "source_repository": "https://github.com/iriv24/pokeemerald-expansion",
+  "source_commit": "2576d0f3f4c861c760f0c55198e37e6d7b91683e",
+  "rom_sha256": "0CCAAAD0878A9CBFB36FBEFFF800E9B6DD66055924B7595038EDE1E8771EC5A2",
+  "build": {
+    "make_target": "rom",
+    "flags": ["MODERN=1"],
+    "arm_none_eabi_gcc": "13.2.1",
+    "poryscript_version": "3.6.1",
+    "poryscript_commit": "d9bc56bc84db479dc14c872a5b65e1e773fce69b"
+  },
+  "trace_test": "Sidedex oracle: deterministic smart AI trace",
+  "trace_rom": "pokeemerald-test-headless.elf"
+}
+
