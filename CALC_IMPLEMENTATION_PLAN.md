@@ -34,6 +34,13 @@ silently update to upstream `master` or claim parity with a different played ROM
 - `rom_bridge.py` keeps one worker process alive, strictly validates responses,
   and checks the source lock and local ROM SHA-256 before launch. It exposes
   emulator primitives only; no card evaluation or battle state mapping exists.
+- `tools/rom_oracle/` now reproduces a fixed-seed AI test trace twice
+  byte-identically; the selected test passes 1/1 and an existing Wonder Guard
+  smart-switch test passes 2/2. The trace is emitted by a test-only ELF hook,
+  not the release ROM. It covers selected action/ability/HP callbacks and two
+  active battlers, but lacks settled switch state, complete parties, volatile
+  state, and secondary RNG. The broad upstream suite was stopped after about
+  2,604 statuses with unrelated failures; no green aggregate is claimed.
 
 ## Objective and non-negotiable behavior
 
