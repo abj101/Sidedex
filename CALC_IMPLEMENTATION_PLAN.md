@@ -18,14 +18,19 @@ silently update to upstream `master` or claim parity with a different played ROM
 - The mGBA worker is limited to process, reset, checkpoint, and memory
   primitives until a battle hook can reconstruct state and compare full turns.
   A working ROM build or emulator process alone does not pass Gate 1.
-- `python -m pytest -q` passes 178 tests and `python app.py --self-check`
+- `python -m pytest -q` passes 182 tests (one worker smoke test is skipped
+  without a local ROM path) and `python app.py --self-check`
   passes at this checkpoint; these checks do not establish ROM prediction
   accuracy or all-ability coverage.
 - `data/ability_coverage.csv` inventories all 328 extracted ability IDs. It
-  records species references and existing source test files, but every
-  singles-reachability decision remains unreviewed and every ROM replay remains
-  unverified. Regenerate it with `python tools/build_ability_coverage.py
+  records species references and existing source test files; 11 abilities now
+  have source-anchored singles-inert or unreachable classifications, 317 need
+  reachability review, and every ROM replay remains unverified. Regenerate it
+  with `python tools/build_ability_coverage.py
   PATH_TO_FULL_PINNED_SOURCE`.
+- A native Windows mGBA 0.10.5 worker now passes a real-ROM lifecycle smoke
+  test (load, frame advance, reset, checkpoint, and memory read). Its JSONL
+  interface is a feasibility spike only, without battle setup or `TurnTrace`.
 
 ## Objective and non-negotiable behavior
 
