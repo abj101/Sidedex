@@ -8,8 +8,9 @@ from unittest.mock import patch
 
 from app import apply_party_slots, connect, resolve_trainer_level, save_entry
 from planner_ui import (STAT_KEYS, build_calc_snapshot, calc_default_max_hp, calc_load_config, calc_result_card,
-                        calc_seed_hp, calc_state_for_focus, calc_state_for_trainer, card_result,
-                        fraction_text, history_from_log, level_cap_choices, level_cap_id_for,
+                        calc_seed_hp, calc_start_battle_at_full_hp, calc_state_for_focus,
+                        calc_state_for_trainer, card_result, fraction_text, history_from_log,
+                        history_to_log_rows, level_cap_choices, level_cap_id_for,
                         parse_flag_text, parse_rng_words, percent_text, probability_text,
                         simulate_highest_level)
 
@@ -63,7 +64,8 @@ class SnapshotTest(unittest.TestCase):
             enemy_item_flags={"calc_item_enemy_TRAINER_TEST_0": True},
             enemy_items={"ITEM_POTION": 2}, ai_flags=["AI_FLAG_SMART"], enemy_levels=[10])
 
-        self.assertEqual(snapshot["schema_version"], 1)
+        self.assertEqual(snapshot["schema_version"], 2)
+        self.assertEqual(snapshot["state_origin"], "manual-scenario")
         self.assertEqual(snapshot["source_sha"], SHA)
         self.assertEqual(snapshot["difficulty"], "Normal")
         self.assertEqual(snapshot["progress"], {"milestone_id": "CAP_1",
@@ -92,10 +94,31 @@ class SnapshotTest(unittest.TestCase):
                                              "player_screens": ["SCREEN_REFLECT"],
                                              "enemy_screens": None, "player_hazards": None,
                                              "enemy_hazards": None})
-        self.assertEqual(snapshot["rng"], {"state": [1, 2, 3, 4]})
+        self.assertEqual(snapshot["rng"], {"main": [1, 2, 3, 4], "secondary": None})
         self.assertEqual(len(snapshot["history"]["turns"]), 1)
         self.assertEqual(snapshot["planned_action"],
                          {"kind": "move", "move_id": "MOVE_TACKLE", "target_index": None})
+
+    def test_v2_snapshot_keeps_both_rng_streams_and_state_origin(self):
+        snapshot = build_calc_snapshot(
+            DATA, [player_row()], [enemy_member()],
+            {"player_active_slot": 0, "enemy_active_index": 0,
+             "state_origin": "battle-start",
+             "rng": {"main": [1, 2, 3, 4], "secondary": [5, 6, 7, 8]}},
+            trainer_id="TRAINER_TEST", difficulty="Normal")
+        self.assertEqual(snapshot["schema_version"], 2)
+        self.assertEqual(snapshot["state_origin"], "battle-start")
+        self.assertEqual(snapshot["rng"], {"main": [1, 2, 3, 4], "secondary": [5, 6, 7, 8]})
+
+    def test_unknown_rng_streams_and_current_hp_are_never_fabricated(self):
+        snapshot = build_calc_snapshot(
+            DATA, [player_row()], [enemy_member()],
+            {"player_active_slot": 0, "enemy_active_index": 0},
+            trainer_id="TRAINER_TEST", difficulty="Normal")
+        self.assertEqual(snapshot["rng"], {"main": None, "secondary": None})
+        self.assertIsNone(snapshot["player"]["party"][0]["hp"])
+        self.assertIsNone(snapshot["enemy"]["party"][0]["hp"])
+        self.assertIsNone(snapshot["player"]["party"][0]["status"])
 
     def test_bench_member_state_reaches_the_snapshot_and_unknown_stays_none(self):
         party = [player_row(entry_id=7), dict(player_row(entry_id=9), party_slot=1)]
@@ -119,9 +142,9 @@ class SnapshotTest(unittest.TestCase):
                                     enemy_levels=[10, 11])
         self.assertIsNone(blank["player"]["party"][1]["hp"])
         self.assertIsNone(blank["player"]["party"][1]["max_hp"])
-        self.assertEqual(blank["player"]["party"][1]["status"], "none")
+        self.assertIsNone(blank["player"]["party"][1]["status"])
         self.assertIsNone(blank["enemy"]["party"][1]["hp"])
-        self.assertEqual(blank["enemy"]["party"][1]["status"], "none")
+        self.assertIsNone(blank["enemy"]["party"][1]["status"])
 
     def test_unknown_hp_stays_none_and_form_stat_defaults_are_zero(self):
         state = {"player_active_slot": 0, "enemy_active_index": 0}
@@ -134,13 +157,13 @@ class SnapshotTest(unittest.TestCase):
         self.assertEqual(player["ivs"], dict.fromkeys(STAT_KEYS, 0))
         self.assertEqual(player["evs"], dict.fromkeys(STAT_KEYS, 0))
         self.assertEqual(player["stat_stages"], {})
-        self.assertEqual(player["status"], "none")
+        self.assertIsNone(player["status"])
         self.assertNotEqual(player["hp"], 0)
         enemy = snapshot["enemy"]["party"][0]
         self.assertIsNone(enemy["hp"])
         self.assertEqual(enemy["evs"], {"attack": 8})
         self.assertEqual(enemy["pp"], {})
-        self.assertIsNone(snapshot["rng"]["state"])
+        self.assertEqual(snapshot["rng"], {"main": None, "secondary": None})
         self.assertEqual(snapshot["history"]["turns"], [])
         self.assertIsNone(snapshot["planned_action"])
 
@@ -170,20 +193,20 @@ class SnapshotTest(unittest.TestCase):
         self.assertEqual(calc_state_for_trainer(state, "TRAINER_B"),
                          {"_trainer_id": "TRAINER_B"})
 
-    def test_focused_pair_becomes_active_and_clears_old_action(self):
+    def test_browsing_focus_does_not_change_battle_actives_or_action(self):
         party = [player_row(7), None, player_row(9)]
         state = {"_trainer_id": "TRAINER_TEST", "player_active_slot": 0,
                  "enemy_active_index": 0,
                  "planned_action": {"kind": "move", "move_id": "MOVE_TACKLE"},
                  "player": {"9": {"hp": 12}}}
         calc_state_for_focus(state, party, 9, 1)
-        self.assertEqual((state["player_active_slot"], state["enemy_active_index"]), (2, 1))
-        self.assertIsNone(state["planned_action"])
+        self.assertEqual((state["player_active_slot"], state["enemy_active_index"]), (0, 0))
+        self.assertEqual(state["planned_action"], {"kind": "move", "move_id": "MOVE_TACKLE"})
         self.assertEqual(state["player"]["9"]["hp"], 12)
         snap = build_calc_snapshot(DATA, party, [enemy_member(), enemy_member()], state,
                                    trainer_id="TRAINER_TEST", difficulty="Normal", ai_flags=[])
         self.assertEqual((snap["player"]["active_index"], snap["enemy"]["active_index"]),
-                         (1, 1))
+                         (0, 0))
 
     def test_unresolved_ai_flags_fail_closed(self):
         snap = build_calc_snapshot(
@@ -197,8 +220,9 @@ class SnapshotTest(unittest.TestCase):
         maximum = calc_default_max_hp(DATA, "SPECIES_TEST", 15, {"hp": 31}, {"hp": 0})
         self.assertEqual(maximum, 44)
         entry = calc_seed_hp(state, "player", 7, maximum)
-        self.assertEqual((entry["hp"], entry["max_hp"]), (44, 44))
-        entry.update(hp=12, max_hp=57, _auto_hp=False)
+        self.assertIsNone(entry.get("hp"))
+        self.assertEqual(entry["max_hp"], 44)
+        entry.update(hp=12, max_hp=57)
         calc_seed_hp(state, "player", 7, 60)
         self.assertEqual((entry["hp"], entry["max_hp"]), (12, 60))
         calc_seed_hp(state, "player", 7, 10)
@@ -207,9 +231,24 @@ class SnapshotTest(unittest.TestCase):
         calc_seed_hp(state, "player", 7, 10)
         self.assertEqual(entry["hp"], 0)
         enemy = calc_seed_hp(state, "enemy", 0, maximum)
-        self.assertEqual((enemy["hp"], enemy["max_hp"]), (44, 44))
+        self.assertIsNone(enemy.get("hp"))
+        self.assertEqual(enemy["max_hp"], 44)
+        enemy["hp"] = 44
         calc_seed_hp(state, "enemy", 0, 50)
-        self.assertEqual((enemy["hp"], enemy["max_hp"]), (50, 50))
+        self.assertEqual((enemy["hp"], enemy["max_hp"]), (44, 50))
+
+    def test_explicit_battle_start_sets_full_hp_and_resets_history_rng(self):
+        state = {"history": {"turns": [{"events": []}]},
+                 "rng": {"main": [1, 2, 3, 4], "secondary": [5, 6, 7, 8]},
+                 "player": {"7": {"hp": 3, "pp": {"MOVE_TACKLE": 2}}}}
+        calc_start_battle_at_full_hp(state, [player_row()], [enemy_member()], DATA,
+                                     [12], [10])
+        self.assertEqual(state["state_origin"], "battle-start")
+        self.assertEqual(state["history"], {"turns": []})
+        self.assertEqual(state["rng"], {"main": None, "secondary": None})
+        self.assertEqual(state["player"]["7"]["hp"], state["player"]["7"]["max_hp"])
+        self.assertEqual(state["enemy"]["0"]["hp"], state["enemy"]["0"]["max_hp"])
+        self.assertNotIn("pp", state["player"]["7"])
 
 
 class ConfigTest(unittest.TestCase):
@@ -258,6 +297,19 @@ class ConfigTest(unittest.TestCase):
             self.assertEqual(session["calc_battle_state"]["player"][str(self.member)]["hp"], 21)
             self.assertEqual(session["calc_battle_state"]["player"][str(self.member)]["pp"],
                              {"MOVE_TACKLE": 12})
+
+    def test_v2_config_preserves_unknown_battle_values(self):
+        session = {}
+        state = {"player_active_slot": 0, "enemy_active_index": 0,
+                 "player": {str(self.member): {"max_hp": 30, "hp": None}},
+                 "rng": None, "history": {"turns": []}}
+        with patch("planner_ui.st.session_state", session):
+            calc_load_config(self.db, self.payload(battle_state=state), DATA,
+                             apply_party_slots, self.trainers)
+        restored = session["calc_battle_state"]
+        self.assertIsNone(restored["player"][str(self.member)]["hp"])
+        self.assertIsNone(restored["rng"])
+        self.assertEqual(restored["history"], {"turns": []})
 
     def test_v1_config_loads_without_inventing_battle_values(self):
         session = {"calc_battle_state": {"player": {str(self.member): {"hp": 99, "ivs": {"hp": 31}}}},
@@ -357,8 +409,30 @@ class CardTest(unittest.TestCase):
         self.assertIn("unsupported-move", card)
         self.assertIn("sound-based stat drop", card)
         self.assertIn("Growl cannot be evaluated in this state.", card)
-        self.assertIn("the remaining entries are still exact", card)
+        self.assertIn("the remaining entries are shown with their own evidence", card)
         self.assertNotIn("sd-calc-result-card\"><strong>Your moves</strong>", card)
+
+    def test_estimate_card_shows_sample_count_interval_and_model_label(self):
+        card = {"status": "estimated", "sampler_id": "paired-rom-sampler-v1",
+                "num": 3, "den": 10, "effective_samples": 400,
+                "interval_95": {"low": 0.02, "high": 0.25},
+                "moves": [{"move_id": "MOVE_TACKLE", "move_name": "Tackle",
+                           "status": "estimated", "num": 3, "den": 10,
+                           "effective_samples": 400,
+                           "interval_95": {"low": 0.02, "high": 0.25}}]}
+        markup = calc_result_card("Your moves · KO result", "player_moves", card)
+        self.assertIn("Model-based estimate", markup)
+        self.assertIn("400 samples", markup)
+        self.assertIn("95% interval 2–25%", markup)
+        self.assertIn("paired-rom-sampler-v1", markup)
+
+    def test_unavailable_v2_result_has_specific_reason(self):
+        markup = calc_result_card("AI action", "ai_actions",
+                                  {"status": "unavailable", "reason": "incomplete-state",
+                                   "detail": "Observed history lacks a volatile effect.",
+                                   "missing": [], "mechanics": []})
+        self.assertIn("incomplete-state", markup)
+        self.assertIn("Observed history lacks a volatile effect", markup)
 
     def test_a_card_level_failure_still_hides_every_entry(self):
         result = self.result()
@@ -452,6 +526,7 @@ class PresentationTest(unittest.TestCase):
                          {"kind": "move", "move_id": "MOVE_GROWL", "target_index": None})
         self.assertEqual(turns[0]["events"], [{"kind": "damage", "side": "enemy", "value": 12}])
         self.assertEqual(turns[1]["player_action"], {"kind": "switch", "slot": 1})
+        self.assertEqual(history_from_log(history_to_log_rows(turns)), turns)
 
 
 if __name__ == "__main__":

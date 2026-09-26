@@ -491,6 +491,7 @@
 .sd-calc-top .sd-calc-percent { color:#8a5f00; }
 .sd-calc-unavailable { margin:0 0 6px; color:#8a3b2e; font:700 10px/1.4 monospace; }
 .sd-calc-pending { margin:0; color:#526b68; font:700 10px/1.4 monospace; }
+.sd-calc-estimate { margin:4px 0; color:#825e1e; font:700 9px/1.35 monospace; }
 .sd-calc-missing,.sd-calc-mechanics,.sd-calc-breakdown {
   margin:0; padding-left:16px; color:#526b68; font:700 9px/1.4 monospace;
 }

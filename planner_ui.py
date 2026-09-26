@@ -47,7 +47,7 @@ NATURES = {
     "timid": ("speed", "attack"),
 }
 
-CALC_STATE_VERSION = 2
+CALC_STATE_VERSION = 3
 CALC_DIFFICULTIES = ("Easy", "Normal")
 CALC_ITEM_PREFIX = {"player": "calc_item_player_", "enemy": "calc_item_enemy_"}
 STAT_KEYS = tuple(key for key, _ in STAT_FIELDS)
@@ -740,7 +740,7 @@ def calc_player_build(row, data, state, flags):
             "moves": moves,
             "pp": {move_id: _coerce_int(pp.get(move_id)) for move_id in moves if move_id in pp},
             "max_hp": _coerce_int(entry.get("max_hp")), "hp": _coerce_int(entry.get("hp")),
-            "status": entry.get("status") if isinstance(entry.get("status"), str) else "none",
+            "status": entry.get("status") if isinstance(entry.get("status"), str) else None,
             "stat_stages": stat_map(entry.get("stat_stages"), ALLOWED_STAGES),
             "use_item": use_item}
 
@@ -758,7 +758,7 @@ def calc_enemy_build(member, data, index, level, state, flags, trainer_id):
             "evs": stat_map(member.get("evs"), STAT_KEYS), "moves": moves,
             "pp": {move_id: _coerce_int(pp.get(move_id)) for move_id in moves if move_id in pp},
             "max_hp": _coerce_int(entry.get("max_hp")), "hp": _coerce_int(entry.get("hp")),
-            "status": entry.get("status") if isinstance(entry.get("status"), str) else "none",
+            "status": entry.get("status") if isinstance(entry.get("status"), str) else None,
             "stat_stages": stat_map(entry.get("stat_stages"), ALLOWED_STAGES),
             "use_item": use_item}
 
@@ -867,7 +867,17 @@ def build_calc_snapshot(data, player_party, enemy_party, state, *, trainer_id, d
         count = _coerce_int(value)
         if isinstance(key, str) and count is not None:
             items[key] = count
-    return {"schema_version": 1,
+    rng = state.get("rng") if isinstance(state.get("rng"), dict) else {}
+    # Version-2 snapshots keep both game RNG streams explicit. A legacy four-word
+    # value is treated as the main stream only when the user entered it.
+    legacy_rng = parse_rng_words(state.get("rng")) if not isinstance(state.get("rng"), dict) else None
+    rng_main = parse_rng_words(rng.get("main")) if isinstance(rng, dict) else None
+    rng_secondary = parse_rng_words(rng.get("secondary")) if isinstance(rng, dict) else None
+    if legacy_rng is not None:
+        rng_main = legacy_rng
+    return {"schema_version": 2,
+            "state_origin": ("battle-start" if state.get("state_origin") == "battle-start"
+                             else "manual-scenario"),
             "source_sha": str(source_sha) if source_sha is not None
                           else str((data.get("source") or {}).get("commit") or ""),
             "difficulty": difficulty,
@@ -878,7 +888,7 @@ def build_calc_snapshot(data, player_party, enemy_party, state, *, trainer_id, d
                       "ai_flags": ([str(flag) for flag in ai_flags if isinstance(flag, str)]
                                    if isinstance(ai_flags, list) else ["AI_FLAG_UNKNOWN"])},
             "field": calc_field(state),
-            "rng": {"state": parse_rng_words(state.get("rng"))},
+            "rng": {"main": rng_main, "secondary": rng_secondary},
             "history": {"turns": calc_history(state)},
             "planned_action": planned}
 
@@ -947,22 +957,36 @@ def move_entry_row(move, basis):
                 f'<small class="sd-calc-percent">Not calculated</small>'
                 f'{card_unavailable_markup(entry)}</li>')
     probability = move.get("probability") if isinstance(move.get("probability"), dict) else None
-    method = move.get("method") or ""
+    if probability is None and type(move.get("num")) is int and type(move.get("den")) is int:
+        probability = {"num": move["num"], "den": move["den"]}
+    method = move.get("method") or move.get("status") or ""
     notes = " · ".join(str(note) for note in (move.get("notes") or [])
                        if "seed" not in str(note))
+    estimated = move.get("status") == "estimated"
     outcome = ("KO in this simulation" if probability and probability.get("num") else
-               "No KO in this simulation") if method == "known-seed" else probability_text(probability)
+               "No KO in this simulation") if method in ("known-seed", "verified-fixed-seed") else probability_text(probability)
+    sample = move.get("effective_samples")
+    interval = move.get("interval_95") if isinstance(move.get("interval_95"), dict) else None
+    estimate_meta = ""
+    if estimated:
+        interval_text = (f"95% interval {round(float(interval.get('low', 0)) * 100)}–"
+                         f"{round(float(interval.get('high', 0)) * 100)}%" if interval else "")
+        estimate_meta = " · ".join(part for part in (
+            "model-based estimate", f"{sample} samples" if isinstance(sample, int) else "",
+            interval_text, str(move.get("sampler_id") or "")) if part)
     return (
         f'<li class="sd-calc-prob-row"><span class="sd-calc-prob-name">{esc(name)}</span>'
         f'<small class="sd-calc-percent">{esc(outcome)}</small>'
         f'<small class="sd-calc-ko">{esc(move.get("ko") or "")}</small>'
-        f'<small class="sd-calc-basis">{esc(" · ".join(part for part in (("simulated turn" if method == "known-seed" else method), basis) if part))}</small>'
+        f'<small class="sd-calc-basis">{esc(estimate_meta or " · ".join(part for part in (("verified ROM turn" if method == "verified-fixed-seed" else "simulated turn" if method == "known-seed" else basis), basis) if part))}</small>'
         + (f'<small class="sd-calc-notes">{esc(notes)}</small>' if notes else "") + "</li>")
 
 
 def move_card_body(card):
     """Moves are gated per entry, so an unsupported move never hides its siblings."""
-    basis = basis_text(card.get("evidence"))
+    basis = ("ROM-verified" if card.get("status") == "verified-fixed-seed" else
+             "model-based sampled outcomes" if card.get("status") == "estimated" else
+             basis_text(card.get("evidence")))
     moves = [move for move in (card.get("moves") or []) if isinstance(move, dict)]
     rows = [move_entry_row(move, basis) for move in moves]
     if not rows:
@@ -970,7 +994,7 @@ def move_card_body(card):
     gated = any(move.get("status") == "unavailable" for move in moves)
     return ('<ol class="sd-calc-rows">' + "".join(rows) + "</ol>"
             + ('<p class="sd-calc-notes">A move marked Not calculated carries its own reason; '
-               "the remaining entries are still exact.</p>" if gated else ""))
+               "the remaining entries are shown with their own evidence.</p>" if gated else ""))
 
 
 def ai_card_body(card):
@@ -979,13 +1003,15 @@ def ai_card_body(card):
         if not isinstance(action, dict):
             continue
         probability = action.get("probability") if isinstance(action.get("probability"), dict) else None
+        if probability is None and type(action.get("num")) is int and type(action.get("den")) is int:
+            probability = {"num": action["num"], "den": action["den"]}
         label = action.get("label") or human(action.get("id"))
         top = bool(action.get("top"))
         rows.append(
             f'<li class="sd-calc-prob-row{" sd-calc-top" if top else ""}">'
             f'<span class="sd-calc-prob-name">{esc(label)}</span>'
             f'<span class="sd-calc-prob-kind">{esc(str(action.get("kind") or ""))}</span>'
-            f'<small class="sd-calc-percent">{esc("Chosen in this simulation" if card.get("method") == "known-seed" else probability_text(probability))}</small>'
+            f'<small class="sd-calc-percent">{esc("Chosen in verified ROM turn" if card.get("status") == "verified-fixed-seed" else probability_text(probability))}</small>'
             f'<small class="sd-calc-basis">{esc("top tie" if top else "")}</small></li>')
     if not rows:
         return '<p class="sd-calc-unavailable">No legal AI action probabilities were returned.</p>'
@@ -1029,14 +1055,35 @@ def calc_card_body(kind, card, moves=None, pending=False):
                 for name in names) + "</ol>"
         return ('<p class="sd-calc-unavailable">Not calculated. '
                 "Choose an active Pokémon and an opponent.</p>")
-    if card.get("status") != "exact":
+    status = card.get("status")
+    if status == "unavailable":
         return card_unavailable_markup(card)
+    if status not in ("exact", "verified-fixed-seed", "estimated"):
+        return card_unavailable_markup({"reason": "incomplete-state",
+                                       "detail": "No verified or estimated result is available yet."})
+    if status == "estimated":
+        interval = card.get("interval_95") if isinstance(card.get("interval_95"), dict) else None
+        samples = card.get("effective_samples")
+        low = round(float(interval.get("low", 0)) * 100) if interval else None
+        high = round(float(interval.get("high", 0)) * 100) if interval else None
+        label = ("Model-based estimate" + (f" · {samples} samples" if isinstance(samples, int) else "")
+                 + (f" · 95% interval {low}–{high}%" if low is not None and high is not None else "")
+                 + (f" · {esc(card.get('sampler_id'))}" if card.get("sampler_id") else ""))
+        banner = f'<p class="sd-calc-estimate">{label}</p>'
+    elif status == "verified-fixed-seed":
+        banner = '<p class="sd-calc-basis">Verified fixed-seed ROM result</p>'
+    elif status == "exact":
+        banner = f'<p class="sd-calc-basis">{esc(basis_text(card.get("evidence")))}</p>'
+    else:
+        banner = ""
     if kind in ("player_moves", "enemy_moves"):
-        return move_card_body(card)
+        return banner + move_card_body(card)
     if kind == "ai_actions":
-        return ai_card_body(card)
+        return banner + ai_card_body(card)
     if kind == "recommendation":
-        return recommendation_card_body(card)
+        uncertainty = card.get("ranking_uncertain") is True
+        note = '<p class="sd-calc-estimate">Ranking remains uncertain across sampled trajectories.</p>' if uncertainty else ""
+        return banner + note + recommendation_card_body(card)
     return '<p class="sd-calc-unavailable">Unknown result card.</p>'
 
 
@@ -1272,6 +1319,37 @@ def history_from_log(rows):
     return turns
 
 
+def history_to_log_rows(turns):
+    """Flatten the saved observed-turn structure for the manual history editor."""
+    rows = []
+    for turn_no, turn in enumerate(turns or [], 1):
+        if not isinstance(turn, dict):
+            continue
+        for side, key in (("player", "player_action"), ("enemy", "enemy_action")):
+            action = turn.get(key)
+            if not isinstance(action, dict):
+                continue
+            kind = action.get("kind")
+            rows.append({"turn": turn_no, "side": side, "kind": kind or "move",
+                         "id": action.get("move_id") or "",
+                         "value": action.get("slot") if kind == "switch" else None})
+        for event in turn.get("events") or []:
+            if not isinstance(event, dict):
+                continue
+            rows.append({"turn": turn_no, "side": event.get("side") or "",
+                         "kind": event.get("kind") or "event",
+                         "id": event.get("id") or "", "value": event.get("value")})
+    return rows
+
+
+def set_rng_stream(state, stream, raw):
+    rng = state.setdefault("rng", {})
+    if not isinstance(rng, dict):
+        rng = {"main": parse_rng_words(rng), "secondary": None}
+        state["rng"] = rng
+    rng[stream] = parse_rng_words(raw)
+
+
 def calc_save_config(connect, payload, name, selected_id=None):
     with closing(connect()) as db:
         if selected_id:
@@ -1303,9 +1381,9 @@ def calc_delete_dialog(connect, config_id, config_name):
 def calc_validate_state(payload):
     """Validate the saved battle state. Older configs simply have none."""
     version = payload.get("calc_state_version", 1)
-    if type(version) is not int or version not in (1, CALC_STATE_VERSION):
+    if type(version) is not int or version not in (1, 2, CALC_STATE_VERSION):
         raise ValueError("Saved Calc state version is invalid.")
-    if version < CALC_STATE_VERSION or "battle_state" not in payload:
+    if version == 1 or "battle_state" not in payload:
         return {}
     state = payload.get("battle_state")
     if state is None:
@@ -1318,8 +1396,16 @@ def calc_validate_state(payload):
             raise ValueError("Saved battle state is invalid.")
     if state.get("planned_action") is not None and calc_planned_action(state) is None:
         raise ValueError("Saved planned action is invalid.")
-    if state.get("rng") is not None and parse_rng_words(state.get("rng")) is None:
-        raise ValueError("Saved RNG state is invalid.")
+    rng = state.get("rng")
+    if rng is not None:
+        if isinstance(rng, dict):
+            if any(rng.get(stream) is not None and parse_rng_words(rng.get(stream)) is None
+                   for stream in ("main", "secondary")):
+                raise ValueError("Saved RNG state is invalid.")
+        elif parse_rng_words(rng) is None:
+            raise ValueError("Saved RNG state is invalid.")
+    if state.get("state_origin") not in (None, "battle-start", "manual-scenario"):
+        raise ValueError("Saved battle state is invalid.")
     for side in ("player", "enemy"):
         if state.get(side) is not None and not isinstance(state.get(side), dict):
             raise ValueError("Saved battle state is invalid.")
@@ -1340,13 +1426,7 @@ def calc_state_for_trainer(state, trainer_id):
 
 
 def calc_state_for_focus(state, party_slots, player_focus, enemy_focus):
-    """The two focused Pokémon are the active battle pair."""
-    player_slot = next((slot for slot, row in enumerate(party_slots)
-                        if row and row["id"] == player_focus), None)
-    if (state.get("player_active_slot"), state.get("enemy_active_index")) != (player_slot, enemy_focus):
-        state["player_active_slot"] = player_slot
-        state["enemy_active_index"] = enemy_focus
-        state["planned_action"] = None
+    """Browsing focus is presentation state; it never selects battle actives."""
     return state
 
 
@@ -1360,23 +1440,57 @@ def calc_default_max_hp(data, species, level, ivs, evs):
 
 
 def calc_seed_hp(state, side, key, default_max):
+    """Keep derived maximum HP while leaving unentered current HP unknown."""
     entries = state.setdefault(side, {})
     entry = entries.setdefault(str(key), {})
     if default_max is not None:
-        old_max = _coerce_int(entry.get("max_hp"))
         current = _coerce_int(entry.get("hp"))
-        was_full = current == old_max and entry.get("_auto_hp", True)
         entry["max_hp"] = default_max
-        if current is None or (old_max != default_max and was_full):
-            entry["hp"] = default_max
-        else:
+        if current is not None:
             entry["hp"] = min(max(0, current), default_max)
-    if entry.get("hp") is None and entry.get("max_hp") is not None:
-        entry["hp"] = entry["max_hp"]
     return entry
 
 
-def calc_hp_badge(entry, side, key):
+def calc_start_battle_at_full_hp(state, player_party, enemy_party, data, player_levels, enemy_levels):
+    """Explicitly establish a battle-start scenario with every known member at full HP."""
+    state.setdefault("player", {})
+    state.setdefault("enemy", {})
+    for index, row in enumerate(player_party or []):
+        if not row:
+            continue
+        member = state["player"].setdefault(str(row["id"]), {})
+        level = _coerce_int(player_levels[index] if index < len(player_levels) else row.get("level"))
+        maximum = calc_default_max_hp(data, row.get("species"), level,
+                                      json_dict(row.get("ivs")), json_dict(row.get("evs")))
+        if maximum is not None:
+            member.update(max_hp=maximum, hp=maximum, status="none", stat_stages={})
+        else:
+            member.pop("hp", None)
+            member.pop("max_hp", None)
+            member.update(status="none", stat_stages={})
+        member.pop("pp", None)
+    for index, member_row in enumerate(enemy_party or []):
+        if not isinstance(member_row, dict):
+            continue
+        entry = state["enemy"].setdefault(str(index), {})
+        level = _coerce_int(enemy_levels[index] if index < len(enemy_levels)
+                            else member_row.get("raw_level", member_row.get("level")))
+        maximum = calc_default_max_hp(data, member_row.get("species"), level,
+                                      member_row.get("ivs"), member_row.get("evs"))
+        if maximum is not None:
+            entry.update(max_hp=maximum, hp=maximum, status="none", stat_stages={})
+        else:
+            entry.pop("hp", None)
+            entry.pop("max_hp", None)
+            entry.update(status="none", stat_stages={})
+        entry.pop("pp", None)
+    state.update(state_origin="battle-start", planned_action=None,
+                 history={"turns": []}, field={})
+    state["rng"] = {"main": None, "secondary": None}
+    return state
+
+
+def calc_hp_badge(entry, side, key, state=None):
     """Compact current/max HP editor beside the focused Pokémon's name."""
     current = _coerce_int(entry.get("hp"))
     maximum = _coerce_int(entry.get("max_hp"))
@@ -1387,7 +1501,9 @@ def calc_hp_badge(entry, side, key):
         st.session_state[token_key] = changed["token"]
         value = changed.get("value")
         if type(value) is int and maximum is not None and 0 <= value <= maximum:
-            entry.update(hp=value, _auto_hp=False)
+            entry["hp"] = value
+            if isinstance(state, dict):
+                state["state_origin"] = "manual-scenario"
             st.rerun()
 
 
@@ -1455,12 +1571,17 @@ def calc_load_config(db, record, data, apply_party_slots, trainer_rows):
     for key in list(st.session_state):
         if key.startswith("calc_state_") and key != "calc_battle_state":
             del st.session_state[key]
+        elif key.startswith(("calc_battle_", "calc_rng_", "calc_status_", "calc_field_",
+                            "calc_manual_hp_", "calc_manual_pp_", "calc_history_")):
+            del st.session_state[key]
     if state:
         state["_trainer_id"] = trainer_id
     st.session_state["calc_battle_state"] = state
     st.session_state.setdefault("calc_enemy_orders", {})[trainer_id] = order
-    note = ("" if payload.get("calc_state_version") == CALC_STATE_VERSION
-            else " This older config has no saved battle state.")
+    prior_version = payload.get("calc_state_version", 1)
+    note = ("" if prior_version == CALC_STATE_VERSION
+            else " Older saved battle values were preserved; unknown values remain unknown."
+            if state else " This older config has no saved battle state.")
     return "Loaded config. " + ("Skipped: " + ", ".join(missing) + "." if missing else "") + note
 
 
@@ -1526,8 +1647,13 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
             trainer_id, trainer, trainer_group, highest_level = trainer_selection(
                 trainer_rows, party, resolve_level, stacked=True, highest_level=simulated_level)
         previous_state = st.session_state.get("calc_battle_state")
-        if not isinstance(previous_state, dict) or previous_state.get("_trainer_id") != trainer_id:
+        trainer_changed = not isinstance(previous_state, dict) or previous_state.get("_trainer_id") != trainer_id
+        if trainer_changed:
             st.session_state.pop("calc_state_planned_action", None)
+            for key in list(st.session_state):
+                if key.startswith(("calc_battle_", "calc_rng_", "calc_status_", "calc_field_",
+                                   "calc_manual_hp_", "calc_manual_pp_", "calc_history_")):
+                    del st.session_state[key]
         battle_state = calc_state_for_trainer(previous_state, trainer_id)
         st.session_state["calc_battle_state"] = battle_state
         save_event = config_result.save
@@ -1580,13 +1706,11 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
         enemy_levels = [resolve_level(member.get("raw_level", member.get("level")), highest_level)
                         for member in enemies]
         level_cap_id = level_cap_id_for(data, st.session_state.get("calc_level_cap"))
-        next_player_slot = next((slot for slot, row in enumerate(party_slots)
-                                 if row and row["id"] == player_focus), None)
-        if (battle_state.get("player_active_slot"), battle_state.get("enemy_active_index")) != (next_player_slot, enemy_focus):
-            st.session_state.pop("calc_state_planned_action", None)
         battle_state = calc_state_for_focus(battle_state, party_slots, player_focus, enemy_focus)
-        battle_state["rng"] = (parse_rng_words(battle_state.get("rng"))
-                               or [random.getrandbits(32) for _ in range(4)])
+        if not isinstance(battle_state.get("rng"), dict):
+            battle_state["rng"] = {"main": parse_rng_words(battle_state.get("rng")),
+                                    "secondary": None}
+        battle_state.setdefault("state_origin", "manual-scenario")
         for member_row in party:
             calc_seed_hp(
                 battle_state, "player", member_row["id"],
@@ -1602,11 +1726,192 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
                                              member.get("ivs"), member.get("evs")))
 
         with trainer_settings_area:
-            if selected:
-                moves = known_moves(selected, data)[:4]
+            st.markdown("**Battle state**")
+            player_active_options = [slot for slot, row in enumerate(party_slots) if row]
+            enemy_active_options = list(range(len(enemies)))
+            player_active = battle_state.get("player_active_slot")
+            if player_active not in player_active_options:
+                player_active = None
+            enemy_active = battle_state.get("enemy_active_index")
+            if enemy_active not in enemy_active_options:
+                enemy_active = None
+            player_active = st.selectbox(
+                "Your active Pokémon", player_active_options,
+                index=player_active_options.index(player_active) if player_active is not None else None,
+                key="calc_battle_player_active", placeholder="Choose active Pokémon",
+                format_func=lambda slot: species_name(party_slots[slot]["species"], data))
+            enemy_active = st.selectbox(
+                "Opponent active Pokémon", enemy_active_options,
+                index=enemy_active_options.index(enemy_active) if enemy_active is not None else None,
+                key="calc_battle_enemy_active", placeholder="Choose active Pokémon",
+                format_func=lambda index: species_name(enemies[index].get("species"), data))
+            if (player_active, enemy_active) != (battle_state.get("player_active_slot"),
+                                                  battle_state.get("enemy_active_index")):
+                battle_state["planned_action"] = None
+                st.session_state.pop("calc_state_planned_action", None)
+            battle_state["player_active_slot"] = player_active
+            battle_state["enemy_active_index"] = enemy_active
+            player_active_row = party_slots[player_active] if player_active is not None else None
+            player_active_entry = (battle_state.get("player") or {}).get(str(player_active_row["id"]), {}) if player_active_row else {}
+            enemy_active_entry = (battle_state.get("enemy") or {}).get(str(enemy_active), {}) if enemy_active is not None else {}
+            if player_active_row and enemy_active is not None:
+                if st.button("Start battle at full HP", key="calc_start_full_hp",
+                             help="Explicitly set every party member to full HP and record this as the battle start."):
+                    player_hp_levels = [level_cap if level_cap_id else row.get("level") if row else None
+                                        for row in party_slots]
+                    enemy_start_levels = [
+                        max(1, _coerce_int(level) - 2)
+                        if _coerce_int(level) is not None and st.session_state.get("calc_difficulty") == "Easy"
+                        and trainer.get("is_boss") else level for level in enemy_levels]
+                    calc_start_battle_at_full_hp(battle_state, party_slots, enemies, data,
+                                                 player_hp_levels, enemy_start_levels)
+                    for key in list(st.session_state):
+                        if key.startswith(("calc_status_", "calc_manual_hp_", "calc_manual_pp_",
+                                           "calc_rng_", "calc_field_")):
+                            del st.session_state[key]
+                    st.rerun()
+                with st.expander("Manual battle details and observed turns"):
+                    status_options = [(None, "Unknown"), ("none", "No status"),
+                                      ("STATUS1_SLEEP", "Sleep"), ("STATUS1_POISON", "Poison"),
+                                      ("STATUS1_BURN", "Burn"), ("STATUS1_FREEZE", "Freeze"),
+                                      ("STATUS1_PARALYSIS", "Paralysis"), ("STATUS1_TOXIC_POISON", "Toxic")]
+                    player_status = st.selectbox(
+                        "Your active status", status_options,
+                        index=next((i for i, option in enumerate(status_options)
+                                    if option[0] == player_active_entry.get("status")), 0),
+                        key=f"calc_status_player_{player_active_row['id']}", format_func=lambda item: item[1])
+                    enemy_status = st.selectbox(
+                        "Opponent active status", status_options,
+                        index=next((i for i, option in enumerate(status_options)
+                                    if option[0] == enemy_active_entry.get("status")), 0),
+                        key=f"calc_status_enemy_{trainer_id}_{enemy_active}", format_func=lambda item: item[1])
+                    for side, entry, status_choice in (("player", player_active_entry, player_status),
+                                                       ("enemy", enemy_active_entry, enemy_status)):
+                        old_status = entry.get("status")
+                        if status_choice[0] is not None:
+                            entry["status"] = status_choice[0]
+                        else:
+                            entry.pop("status", None)
+                        if old_status != status_choice[0]:
+                            battle_state["state_origin"] = "manual-scenario"
+                    st.caption("Current HP, PP, status, and RNG are entered state. Blank values stay unknown.")
+                    for side, entry, row_key in (("player", player_active_entry, player_active_row["id"]),
+                                                  ("enemy", enemy_active_entry, f"{trainer_id}_{enemy_active}")):
+                        build = player_active_row if side == "player" else enemies[enemy_active]
+                        state_map = battle_state.setdefault(side, {})
+                        slot_key = str(row_key) if side == "player" else str(enemy_active)
+                        state_entry = state_map.setdefault(slot_key, entry)
+                        current_hp = _coerce_int(state_entry.get("hp"))
+                        hp_text = st.text_input(
+                            f"{side.title()} active current HP", value=str(current_hp) if current_hp is not None else "",
+                            key=f"calc_manual_hp_{side}_{slot_key}",
+                            help="Leave blank when current HP is unknown.")
+                        hp_value = _coerce_int(hp_text)
+                        maximum = _coerce_int(state_entry.get("max_hp"))
+                        if hp_text.strip() and (hp_value is None or hp_value < 0
+                                                or (maximum is not None and hp_value > maximum)):
+                            st.caption("Current HP must be a whole number within the displayed maximum.")
+                        elif not hp_text.strip():
+                            if "hp" in state_entry:
+                                state_entry.pop("hp", None)
+                                battle_state["state_origin"] = "manual-scenario"
+                        else:
+                            if current_hp != hp_value:
+                                battle_state["state_origin"] = "manual-scenario"
+                            state_entry["hp"] = hp_value
+                        moves = known_moves(build, data) if side == "player" else list(build.get("moves") or [])[:4]
+                        for move_id in moves[:4]:
+                            current_pp = _coerce_int((state_entry.get("pp") or {}).get(move_id))
+                            pp_text = st.text_input(
+                                f"{side.title()} PP · {human(move_id)}",
+                                value=str(current_pp) if current_pp is not None else "",
+                                key=f"calc_manual_pp_{side}_{slot_key}_{move_id}",
+                                help="Leave blank when current PP is unknown.")
+                            pp = _coerce_int(pp_text)
+                            if pp_text.strip() and (pp is None or not 0 <= pp <= 999):
+                                st.caption(f"{human(move_id)} PP must be an integer from 0 to 999.")
+                            elif pp is None:
+                                state_entry.get("pp", {}).pop(move_id, None)
+                            else:
+                                prior_pp = (state_entry.get("pp") or {}).get(move_id)
+                                state_entry.setdefault("pp", {})[move_id] = pp
+                                if prior_pp != pp:
+                                    battle_state["state_origin"] = "manual-scenario"
+                    rng = battle_state.setdefault("rng", {"main": None, "secondary": None})
+                    for stream, label in (("main", "Main RNG state"), ("secondary", "Secondary RNG state")):
+                        current = parse_rng_words(rng.get(stream))
+                        raw = st.text_input(label, value=" ".join(map(str, current)) if current else "",
+                                            key=f"calc_rng_{stream}",
+                                            help="Enter four unsigned 32-bit words, or leave blank when unknown.")
+                        previous_words = parse_rng_words(rng.get(stream))
+                        set_rng_stream(battle_state, stream, raw)
+                        if parse_rng_words(raw) != previous_words:
+                            battle_state["state_origin"] = "manual-scenario"
+                        if raw.strip() and parse_rng_words(raw) is None:
+                            st.caption(f"{label} is invalid and will be treated as unknown.")
+                    field = battle_state.setdefault("field", {})
+                    weather_options = [None, "WEATHER_SUN", "WEATHER_RAIN", "WEATHER_SANDSTORM",
+                                       "WEATHER_HAIL", "WEATHER_SNOW"]
+                    old_weather = field.get("weather")
+                    weather = st.selectbox(
+                        "Weather", weather_options,
+                        index=weather_options.index(field.get("weather"))
+                        if field.get("weather") in weather_options else 0,
+                        key="calc_field_weather", format_func=lambda item: "Unknown" if item is None else human(item))
+                    if weather != old_weather:
+                        battle_state["state_origin"] = "manual-scenario"
+                    field["weather"] = weather
+                    field_options = [(None, "Unknown"), (True, "Trick Room")]
+                    trick_room = st.selectbox(
+                        "Trick Room", field_options,
+                        index=next((i for i, option in enumerate(field_options)
+                                    if option[0] == field.get("trick_room")), 0),
+                        key="calc_field_trick_room", format_func=lambda item: item[1])
+                    if field.get("trick_room") != trick_room[0]:
+                        battle_state["state_origin"] = "manual-scenario"
+                    field["trick_room"] = trick_room[0]
+                    for field_key, label, options in (
+                            ("player_screens", "Your screens", ["SCREEN_REFLECT", "SCREEN_LIGHT_SCREEN", "SCREEN_AURORA_VEIL"]),
+                            ("enemy_screens", "Opponent screens", ["SCREEN_REFLECT", "SCREEN_LIGHT_SCREEN", "SCREEN_AURORA_VEIL"]),
+                            ("player_hazards", "Hazards on your side", ["HAZARD_SPIKES", "HAZARD_TOXIC_SPIKES", "HAZARD_STEALTH_ROCK", "HAZARD_STICKY_WEB"]),
+                            ("enemy_hazards", "Hazards on opponent side", ["HAZARD_SPIKES", "HAZARD_TOXIC_SPIKES", "HAZARD_STEALTH_ROCK", "HAZARD_STICKY_WEB"])):
+                        choices = field.get(field_key) if isinstance(field.get(field_key), list) else []
+                        selected_field = st.multiselect(
+                            label, options, default=[item for item in choices if item in options],
+                            key=f"calc_field_{field_key}", format_func=human)
+                        if selected_field != choices:
+                            battle_state["state_origin"] = "manual-scenario"
+                        field[field_key] = selected_field
+                    st.markdown("**Observed history**")
+                    log_turn = st.number_input("Turn", min_value=1, value=1, step=1,
+                                               key="calc_history_turn")
+                    log_side = st.selectbox("Side", ["player", "enemy"], key="calc_history_side")
+                    log_kind = st.selectbox("Event", ["move", "switch", "damage", "status",
+                                                       "item", "ability", "field"],
+                                            key="calc_history_kind")
+                    log_id = st.text_input("Move or event ID", key="calc_history_id")
+                    log_value_text = st.text_input("Value or switch slot", key="calc_history_value",
+                                                   help="Optional; switch entries need a target slot.")
+                    log_value = _coerce_int(log_value_text)
+                    history_turns = calc_history(battle_state)
+                    if st.button("Add observed event", key="calc_history_add"):
+                        rows = history_to_log_rows(history_turns)
+                        rows.append({"turn": int(log_turn), "side": log_side, "kind": log_kind,
+                                     "id": log_id.strip(), "value": log_value})
+                        battle_state["history"] = {"turns": history_from_log(rows)}
+                        if battle_state.get("state_origin") != "battle-start":
+                            battle_state["state_origin"] = "manual-scenario"
+                        st.rerun()
+                    if history_turns:
+                        st.caption(f"{len(history_turns)} observed turn(s) recorded.")
+                        if st.button("Clear observed history", key="calc_history_clear"):
+                            battle_state["history"] = {"turns": []}
+                            st.rerun()
+            if player_active_row:
+                moves = known_moves(player_active_row, data)[:4] if player_active_row else []
                 choices = [None] + [("move", move) for move in moves]
                 choices += [("switch", slot) for slot, row in enumerate(party_slots)
-                            if row and slot != next_player_slot]
+                            if row and slot != player_active]
                 planned = calc_planned_action(battle_state)
                 current_choice = ((planned["kind"], planned.get("move_id", planned.get("slot")))
                                   if planned else None)
@@ -1625,7 +1930,7 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
                     key="calc_state_planned_action", format_func=action_label,
                     help="Enemy move probabilities are conditioned on this action.")
                 battle_state["planned_action"] = (
-                    {"kind": "move", "move_id": choice[1], "target_index": enemy_focus}
+                    {"kind": "move", "move_id": choice[1], "target_index": enemy_active}
                     if choice and choice[0] == "move" else
                     {"kind": "switch", "slot": choice[1]} if choice else None)
 
@@ -1639,7 +1944,12 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
         result = calc_service_fetch(snapshot, data) if snapshot else None
         pending = snapshot is not None and result is None
         with result_area:
-            st.caption("Calc runs one simulated battle with automatic randomness; its outcome may differ from your game.")
+            if snapshot and snapshot.get("state_origin") == "battle-start":
+                st.caption("ROM prediction starts from your explicit full HP battle setup and recorded turns.")
+            elif snapshot:
+                st.caption("Manual scenario: results use only the battle state you entered.")
+            else:
+                st.caption("Choose both active Pokémon to calculate a battle result.")
             names = {"player_moves": [], "enemy_moves": []}
             active_slot = _coerce_int(battle_state.get("player_active_slot"))
             active_player = (party_slots[active_slot]
@@ -1708,7 +2018,7 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
                     if selected:
                         with st.container(horizontal=True, wrap=False, vertical_alignment="center", key="calc_player_heading"):
                             st.html(f'<div class="sd-calc-focused-title">{pokemon_icon(selected["species"], data, "sd-focused-sprite")}<span class="sd-calc-name-types"><strong>{esc(species_name(selected["species"], data))}</strong><span class="sd-calc-meta-types">{badges((data.get("species", {}).get(selected["species"]) or {}).get("types"))}</span></span></div>')
-                            calc_hp_badge(battle_state["player"][str(selected["id"])], "player", selected["id"])
+                            calc_hp_badge(battle_state["player"][str(selected["id"])], "player", selected["id"], battle_state)
                         flags = st.session_state.setdefault("calc_item_flags", {})
                         item_key = f"calc_item_player_{selected['id']}"
                         with st.container(horizontal=True, key="calc_player_item_row"):
@@ -1728,7 +2038,7 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
                     if enemy:
                         with st.container(horizontal=True, wrap=False, vertical_alignment="center", key="calc_enemy_heading"):
                             st.html(f'<div class="sd-calc-focused-title">{pokemon_icon(enemy.get("species"), data, "sd-focused-sprite")}<span class="sd-calc-name-types"><strong>{esc(species_name(enemy.get("species"), data))}</strong><span class="sd-calc-meta-types">{badges((data.get("species", {}).get(enemy.get("species")) or {}).get("types"))}</span></span></div>')
-                            calc_hp_badge(battle_state["enemy"][str(enemy_focus)], "enemy", f"{trainer_id}_{enemy_focus}")
+                            calc_hp_badge(battle_state["enemy"][str(enemy_focus)], "enemy", f"{trainer_id}_{enemy_focus}", battle_state)
                         flags = st.session_state.setdefault("calc_item_flags", {})
                         item_key = f"calc_item_enemy_{trainer_id}_{enemy_focus}"
                         with st.container(horizontal=True, key="calc_enemy_item_row"):
