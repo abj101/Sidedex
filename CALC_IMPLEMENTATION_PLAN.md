@@ -10,16 +10,18 @@ silently update to upstream `master` or claim parity with a different played ROM
 ## Implementation checkpoint (2026-09-26)
 
 - A disposable full source checkout builds the pinned ROM under WSL. The built
-  ROM is local only; Gate 0 still requires the existing `make check` suite and
-  a repeatable fixed-seed complete-turn trace.
-- The Calc UI is moving to schema v2. `calc_service.py` now routes v2 requests
+  ROM is local only; targeted `make check` tests and repeatable fixed-seed test
+  ELF traces pass. The broad upstream suite has unrelated failures and no green
+  aggregate result.
+- The Calc UI produces schema v2 snapshots. `calc_service.py` routes them
   separately and returns unavailable cards until a ROM evaluator proves trace
   parity. The v1 Python evaluator remains covered as a legacy model.
-- The mGBA worker is limited to process, reset, checkpoint, and memory
-  primitives until a battle hook can reconstruct state and compare full turns.
-  A working ROM build or emulator process alone does not pass Gate 1.
-- `python -m pytest -q` passes 192 tests with `SIDEDEX_ROM_PATH` pointing to
-  the locally built pinned ROM, and `python app.py --self-check`
+- The mGBA worker provides process, reset, checkpoint, memory-read, and
+  instrumented test-ELF trace transport primitives. It cannot initialize an
+  arbitrary legal battle from the v2 snapshot or replay a release-ROM turn.
+- `python -m pytest -q` passes 198 tests with `SIDEDEX_ROM_PATH` pointing to
+  the pinned release ROM and `SIDEDEX_TRACE_ELF_PATH` to the pinned test ELF;
+  `python app.py --self-check`
   passes at this checkpoint; these checks do not establish ROM prediction
   accuracy or all-ability coverage.
 - `data/ability_coverage.csv` inventories all 328 extracted ability IDs. It
@@ -37,17 +39,30 @@ silently update to upstream `master` or claim parity with a different played ROM
 - `tools/rom_oracle/` now reproduces a fixed-seed AI test trace twice
   byte-identically; the selected test passes 1/1 and an existing Wonder Guard
   smart-switch test passes 2/2. The trace is emitted by a test-only ELF hook,
-  not the release ROM. It covers selected action/ability/HP callbacks and two
-  active battlers, but lacks settled switch state, complete parties, volatile
-  state, and secondary RNG. The broad upstream suite was stopped after about
+  not the release ROM. The current 170-record trace covers two test turns,
+  switch settlement, both parties, active and volatile structs, field/side
+  timers, and both RNG streams. It remains a scripted scenario, not arbitrary
+  snapshot reconstruction. The broad upstream suite was stopped after about
   2,604 statuses with unrelated failures; no green aggregate is claimed.
   Build the release ROM in a clean source checkout before applying the test
   overlay; shared test artifacts can make a later release link fail.
 - The persistent worker now loads the instrumented test ELF and captures its
-  raw `ROMTRACE|` messages. Eight emitted lines match the fixture transport;
-  1,020 emulated frames took about 186 ms after roughly 500 ms startup in the
-  measured run. This validates trace transport, not state reconstruction in
-  the release ROM or full `TurnTrace` parity.
+  raw `ROMTRACE|` messages. All 170 records match the pinned fixture with no
+  overflow; capture took about 0.77 seconds including startup in one measured
+  run. This validates test trace transport, not state reconstruction in the
+  release ROM or full `TurnTrace` parity.
+
+### Current Gate 1 blockers
+
+The worker has no write-memory, controller/action injection, or battle-entry
+harness to put a `BattleSnapshot` into a legal pre-choice state. v2 source IDs,
+parties, progression, hidden volatiles, and both RNG streams are not mapped to
+ROM fields or replayed through observed history. The test-only trace hook does
+not expose events from the release ROM. No generic `TurnTrace`, multi-seed
+sampler, two-turn recommendation, or broad ability replay exists. The next
+proof is one controlled pre-choice battle and complete turn, followed by the
+same state/trace through the release ROM. Until then all v2 cards remain
+unavailable.
 
 ## Objective and non-negotiable behavior
 
