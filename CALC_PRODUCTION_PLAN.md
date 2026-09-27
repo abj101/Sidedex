@@ -7,31 +7,37 @@ agent schedule in CALC_IMPLEMENTATION_PLAN.md.
 
 ## Implementation checkpoint (2026-09-27)
 
-Gates 1-5 are implemented in the working tree. The v4 dynamic hook
+Gates 1-5 are implemented in the working tree. The v5 dynamic hook
 (`run_dynamic.py`, `dynamic_request.patch`, `numeric_id_map.json`) encodes
 complete trainer-single parties, legal move/switch candidates, IVs/EVs, HP, PP,
-status, and one replayed history turn. `rom_bridge.batch_turns` and the worker
-batch path carry the fixture without dropped events. The UI focuses battlers as
-the active pair and defaults new scenarios to full editable HP.
+status, one replayed history turn, and an optional second candidate turn for
+two-turn lookahead. `rom_bridge.batch_turns` and the worker batch path carry the
+fixture without dropped events. The UI focuses battlers as the active pair and
+defaults new scenarios to full editable HP.
 
 Gate 4's evaluator (`rom_eval.py`, `test_rom_eval.py`) now executes: it was
 shipped with an `IndentationError` and had no test, so no card could be
 produced. It now parses complete turns, counts conditional KO and AI-action
 frequencies with Wilson intervals, scores candidates with a paired bootstrap,
 and returns `engine-fixed-seed` or `estimated` per card. Verified against the
-pinned artifacts: a known-seed battle-start snapshot filled all four cards in
-0.28 s, and an unknown-seed snapshot filled them as `estimated` with
-effective_samples 8 in 5.45 s (under the 10 s ceiling).
+pinned v5 artifacts (engine ELF
+`639059d550ab0fe3fc616f9277f7b170053d685cbd9fa11d692c6a8faa77a6f7`): a
+known-seed battle-start snapshot filled all four cards in 2.6 s, and an
+unknown-seed snapshot filled them as `estimated` with 3 samples in 7.7 s, both
+under the 10 s ceiling.
 
-**Open blocker (two-turn scoring).** The v4 hook completes at
-`battleTurnCounter >= replayCount + 1` and emits that counter's after-turn
-snapshot, so exactly one candidate turn resolves per request. The
-recommendation therefore reports `scored_turns: 1` and labels itself
-`One-turn HP and survivor objective`; it does not fake the plan's two-turn
-objective. Closing it needs a hook/overlay change that resolves a second
-candidate turn and a rebuilt, re-pinned ELF.
+**Two-turn lookahead is delivered.** `dynamic_request.patch` v5 adds a fourth
+halfword-encoded optional player action, so one engine request resolves the
+candidate turn and a follow-up turn. The recommendation now scores the best
+legal follow-up move for the monster active after the candidate, reports
+`scored_turns: 2` and the label `two-turn lookahead`, and falls back to its
+one-turn score when the player's active cannot act again. Second-turn switches
+are deliberately not scored: the ten-second ceiling cannot pay for a full
+switch cross-product. Because one sample now costs one first turn plus one turn
+per legal follow-up, the adaptive unknown-seed sample count is lower than on the
+one-turn path; each card reports its own `effective_samples`.
 
-Checks at this checkpoint: `python -m pytest -q` (218 passed, 4 skipped, 7
+Checks at this checkpoint: `python -m pytest -q` (220 passed, 4 skipped, 7
 subtests) and `python app.py --self-check` both pass.
 
 ## What is proven

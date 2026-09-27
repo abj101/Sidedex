@@ -81,10 +81,15 @@ result that also passes a controlled release-ROM comparison.
 
 Measured limits at this checkpoint:
 
-- The recommendation scores **one** resolved candidate turn. The v4 engine
-  hook completes after `replayCount + 1` turns, so the plan's two-turn
-  HP/survivor objective is not yet reachable; the card labels itself
-  `One-turn HP and survivor objective` instead of overstating the score.
+- The recommendation scores **two** resolved turns: the candidate action and
+  the best legal follow-up move for the monster active after it. The engine
+  request carries one optional `second_action`, so second-turn switches are not
+  scored and a candidate falls back to its one-turn score when the player's
+  active cannot act again. The card labels itself `two-turn lookahead` with
+  `scored_turns: 2`.
+- Unknown-seed sampling adapts to the measured turn cost (~0.22 s per engine
+  turn), so a two-turn cross-product usually returns fewer samples than the
+  one-turn path did. The card always reports its actual sample count.
 - The engine request represents one active Pokémon per side (slot 0), Easy or
   Normal difficulty, a real level-cap milestone, a clear field, no trainer
   items, no stat stages, and at most one replayed history turn. Anything else

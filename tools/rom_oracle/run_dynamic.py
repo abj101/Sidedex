@@ -17,9 +17,9 @@ from rom_bridge import RomWorkerClient  # noqa: E402
 
 
 MAGIC = 0x53445831  # SDX1
-VERSION = 4
+VERSION = 5
 SUBMITTED = 1
-MAILBOX_BYTES = 740
+MAILBOX_BYTES = 748
 MAX_TRACE_RECORDS = 256
 ID_MAP = json.loads((Path(__file__).with_name("numeric_id_map.json")).read_text(encoding="utf-8"))
 PIN = json.loads((Path(__file__).with_name("pinned_source.json")).read_text(encoding="utf-8"))
@@ -50,7 +50,9 @@ def _ints(values, count: int, maximum: int) -> list[int]:
 
 
 def encode_request(request: dict) -> bytes:
-    """Encode a six-slot trainer-single state and optional one-turn replay."""
+    """Encode a six-slot trainer-single state, an optional replay, and an
+    optional second candidate turn (two-turn lookahead).
+    """
     for side in ("player", "opponent"):
         active_index = request.get(f"{side}_active_index", 0)
         if type(active_index) is not int or active_index != 0:
@@ -96,10 +98,25 @@ def encode_request(request: dict) -> bytes:
         raise ValueError("unrepresentable-history: recorded player move is not in the active set")
     if opponent_replay[0] == 0 and replay and opponent_replay[1] not in [numeric_id("moves", value) for value in request["opponent_party"][0]["moves"]]:
         raise ValueError("unrepresentable-history: recorded enemy move is not in the active set")
+    second = request.get("second_action")
+    if second is None:
+        second_kind, second_move, second_slot = 0, 0, 0
+    else:
+        second_kind, second_move, second_slot = _action(second)
+        # After a first-turn switch the active monster is the switch target, so
+        # the second-turn move is validated against that slot's moves.
+        active = request["player_party"][slot if kind == 1 else 0]
+        if second_kind == 1 and not 0 < second_slot < counts[0]:
+            raise ValueError("no-legal-actions: second switch slot is outside the player party")
+        if second_kind == 0 and second_move not in [
+                numeric_id("moves", value) for value in active["moves"]]:
+            raise ValueError("no-legal-actions: second move is not in the active player moves")
     header = struct.pack("<IHHI4H8I2H", MAGIC, VERSION, SUBMITTED, ai_flags,
                          kind, move, slot, len(replay), *rng, *counts)
     payload = header + b"".join(sides)
     payload += struct.pack("<6H", *player_replay, *opponent_replay)
+    payload += struct.pack("<4H", second_kind, second_move, second_slot,
+                           0 if second is None else 1)
     assert len(payload) == MAILBOX_BYTES
     return payload
 

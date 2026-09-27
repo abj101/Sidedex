@@ -59,28 +59,33 @@ At switch settlement and after the next turn, the trace records all six party sl
 
 The trace does not snapshot every global byte or prove that the release ROM follows the same path. It is a deterministic, broad state capture for this bounded test scenario, not a full RAM snapshot, universal replay format, or the complete calculation contract.
 
-## Dynamic battle request v4
+## Dynamic battle request v5
 
-`dynamic_request.patch` applies after `trace_hooks.patch` and adds a test-only,
-versioned 740-byte EWRAM mailbox. Build the pinned test ELF with the recipe in
-`pinned_source.json`; do not commit either generated ELF. The host runner checks
-the pinned headless ELF hash and source-derived IDs before writing any request.
+`dynamic_request.patch` applies to the pinned source on its own; it already
+contains the trace hooks, so `trace_hooks.patch` is only used for the separate
+170-record oracle. It adds a test-only, versioned 748-byte EWRAM mailbox.
+Build the pinned test ELF with the recipe in `pinned_source.json`; do not
+commit either generated ELF. The host runner checks the pinned headless ELF
+hash and source-derived IDs before writing any request.
 
 The bounded fixtures are `dynamic_sample.json` (opening),
 `dynamic_switch.json` (candidate switch), and `dynamic_replay.json` (one
 observed player/enemy action pair followed by a candidate turn). Up to six
 party slots per side carry species, level, natural ability, item, nature, HP,
 status, moves/PP, IVs, and EVs. Requests carry both RNG states, source-mapped
-AI flags, and a verified clear battle-start field. The compiled hook validates
-party state and emits bounded ROMTRACE records; the host checks for a completed
-turn and required action, party, active, and RNG records. Focused host tests
-cover encoding, switch/replay shape, and invalid IDs/state.
+AI flags, a verified clear battle-start field, and an optional `second_action`
+that resolves one further turn for two-turn lookahead. The compiled hook
+validates party state and the second action, and emits bounded ROMTRACE
+records; the host checks for a completed turn and required action, party,
+active, and RNG records. Focused host tests cover encoding, switch/replay
+shape, second-turn encoding, and invalid IDs/state.
 
 The active slot is fixed at party index 0 on both sides. Any explicit nonzero
 `player_active_index` or `opponent_active_index` is rejected. Trainer identity
 and trainer item usage are not applied by the hook; nonempty `trainer_items`
 are rejected. Only clear weather/terrain, no trick room, no screens/hazards,
-and at most one replayed turn are supported. The result currently exposes the
-bounded raw ROMTRACE event list rather than a normalized full-contract outcome.
-These boundaries are explicit and must not be treated as trainer-battle
-parity or full state coverage.
+and at most one replayed turn are supported. When a first-turn switch changes
+the active monster, a second-turn move is validated against that slot's moves.
+The result currently exposes the bounded raw ROMTRACE event list rather than a
+normalized full-contract outcome. These boundaries are explicit and must not be
+treated as trainer-battle parity or full state coverage.

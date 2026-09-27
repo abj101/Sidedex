@@ -12,9 +12,10 @@ No executable or ROM is committed to this repository.
 `BattleRequest` has `protocol_version: 3`, `request_id`, all three identities,
 `battle_start` (difficulty, milestone ID, trainer singles, both complete parties,
 focused active indices, full editable HP, PP/status, field, items and AI flags),
-ordered `replay_turns`, one `candidate_action` (legal move or switch),
-`rng_main` and `rng_secondary` (four unsigned 32-bit words each), and an
-absolute monotonic `deadline_ms`. Source string IDs are converted through a
+ordered `replay_turns`, one `candidate_action` (legal move or switch), an
+optional `second_action` (the player's follow-up move on the next resolved
+turn), `rng_main` and `rng_secondary` (four unsigned 32-bit words each), and
+an absolute monotonic `deadline_ms`. Source string IDs are converted through a
 pinned extracted numeric-ID map; unknown IDs fail with `invalid-id`. The first
 supported state is a fresh trainer single. A replayed state is supported only
 when all consequential fields can be reconstructed by running its recorded
@@ -36,7 +37,10 @@ The four cards (`player_moves`, `enemy_moves`, `ai_actions`,
 fixed-seed release-ROM comparison for that state. The UI calls the general
 case “compiled game engine”. An `estimated` card names its sampler and actual
 sample count and gives a reproducible 95% interval; overlapping recommendation
-scores say “ranking uncertain”. Required unavailable codes are
+scores say “ranking uncertain”. The `recommendation` scores two resolved turns:
+the candidate action and the best legal follow-up move for the monster active
+after it. Second-turn switches are not scored, and a candidate falls back to
+its one-turn score when the player's active cannot act again. Required unavailable codes are
 `missing-artifact`, `artifact-mismatch`, `invalid-id`, `incomplete-state`,
 `insufficient-samples`, `timeout`, `source-mismatch`, and `engine-error`.
 Errors are per-card where possible. A snapshot edit invalidates older work;

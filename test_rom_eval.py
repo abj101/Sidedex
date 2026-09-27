@@ -111,6 +111,12 @@ def _decode(payload):
     return {"kind": "move" if kind == 0 else "switch", "move_id": move, "slot": slot}
 
 
+def _decode_second(payload):
+    """Second candidate turn lives in the four halfwords after the replay slot."""
+    kind, move, slot, present = struct.unpack_from("<4H", payload, run_dynamic.MAILBOX_BYTES - 8)
+    return bool(present), {"kind": "move" if kind == 0 else "switch", "move_id": move, "slot": slot}
+
+
 def _engine(outcomes, *, complete=True):
     class Engine:
         batches = 0
@@ -216,8 +222,54 @@ class KnownSeedEvaluation(unittest.TestCase):
         for kind in rom_eval._CARDS:
             self.assertEqual(result[kind]["status"], "engine-fixed-seed", result[kind])
         self.assertTrue(_no_exact(result))
-        self.assertEqual(result["recommendation"]["scored_turns"], 1)
+        self.assertEqual(result["recommendation"]["scored_turns"], 2)
+        self.assertEqual(result["recommendation"]["label"], "two-turn lookahead")
         self.assertEqual(result["player_moves"]["moves"][0]["method"], "known-seed")
+
+
+class TwoTurnLookahead(unittest.TestCase):
+    def test_recommendation_scores_the_best_second_turn(self):
+        """A two-turn payload is scored from its second-turn state, not turn one."""
+        snapshot = snapshot_v2("TRAINER_HALEY_1",
+                               rng={"main": KNOWN_MAIN, "secondary": KNOWN_SECONDARY})
+        player_party = snapshot["player"]["party"]
+        enemy_party = snapshot["enemy"]["party"]
+        player_hps = _party_hps(snapshot, "player")
+        enemy_hps = _party_hps(snapshot, "enemy")
+        absorb = _enemy_move("MOVE_ABSORB")
+        asked_for_second = []
+
+        class Engine:
+            def __call__(self, deadline):
+                return self
+
+            def __enter__(self):
+                return self, 0x02000000
+
+            def __exit__(self, *exc):
+                return False
+
+            def batch_turns(self, address, payloads, **kwargs):
+                turns = []
+                for payload in payloads:
+                    present, _second = _decode_second(payload)
+                    asked_for_second.append(present)
+                    # Only the second turn removes the enemy active.
+                    hp = [0, *enemy_hps[1:]] if present else list(enemy_hps)
+                    turns.append({"complete": True, "events": _trace(
+                        {"action": _decode(payload), "player_hp": player_hps, "enemy_hp": hp,
+                         "enemy_action": {"kind": "move", "move_id": absorb}},
+                        turn=2 if present else 1)})
+                return {"turns": turns}
+
+        result = _run(snapshot, Engine())
+        self.assertIn(True, asked_for_second, "no two-turn request was issued")
+        self.assertEqual(result["recommendation"]["scored_turns"], 2)
+        self.assertEqual(result["recommendation"]["status"], "engine-fixed-seed")
+        one_turn = {"parties": {0: {0: {"hp": player_hps[0]}},
+                               1: {i: {"hp": hp} for i, hp in enumerate(enemy_hps)}}}
+        self.assertGreater(result["recommendation"]["actions"][0]["score"]["mean"],
+                           rom_eval._score(one_turn, player_party, enemy_party))
 
 
 class SampledEvaluation(unittest.TestCase):
@@ -357,7 +409,7 @@ class PinnedEngineEvaluation(unittest.TestCase):
             self.assertEqual(result[kind]["status"], "engine-fixed-seed", (kind, result[kind]))
         self.assertLess(elapsed, 10.0)
         self.assertTrue(_no_exact(result))
-        self.assertEqual(result["recommendation"]["scored_turns"], 1)
+        self.assertEqual(result["recommendation"]["scored_turns"], 2)
         self.assertEqual(result["player_moves"]["moves"][0]["method"], "known-seed")
 
 

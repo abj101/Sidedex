@@ -1,14 +1,14 @@
 diff --git a/include/test/sidedex_dynamic.h b/include/test/sidedex_dynamic.h
 new file mode 100644
-index 0000000000..ddc9e9221a
+index 0000000000..dc53ca48fd
 --- /dev/null
 +++ b/include/test/sidedex_dynamic.h
-@@ -0,0 +1,61 @@
+@@ -0,0 +1,62 @@
 +#ifndef SIDEDEX_DYNAMIC_H
 +#define SIDEDEX_DYNAMIC_H
 +
 +#define SIDEDEX_DYNAMIC_MAGIC 0x53445831
-+#define SIDEDEX_DYNAMIC_VERSION 4
++#define SIDEDEX_DYNAMIC_VERSION 5
 +#define SIDEDEX_DYNAMIC_TEST_NAME "Sidedex oracle: dynamic AI singles request"
 +#define SIDEDEX_DYNAMIC_PARTY_LIMIT PARTY_SIZE
 +
@@ -59,6 +59,7 @@ index 0000000000..ddc9e9221a
 +    struct SidedexDynamicMon player[SIDEDEX_DYNAMIC_PARTY_LIMIT];
 +    struct SidedexDynamicMon opponent[SIDEDEX_DYNAMIC_PARTY_LIMIT];
 +    struct SidedexDynamicTurn replay;
++    unsigned short secondKind, secondMove, secondSlot, secondPresent;
 +};
 +
 +extern volatile struct SidedexDynamicRequest gSidedexDynamicRequest;
@@ -107,10 +108,10 @@ index 39cc0803bb..0895e8c9e4 100644
          && gBattleMons[battler].maxHP / 2 >= gBattleMons[battler].hp
 diff --git a/test/battle/ai/sidedex_dynamic.c b/test/battle/ai/sidedex_dynamic.c
 new file mode 100644
-index 0000000000..0bbc239454
+index 0000000000..6525b9250e
 --- /dev/null
 +++ b/test/battle/ai/sidedex_dynamic.c
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,95 @@
 +#include "global.h"
 +#include "test/battle.h"
 +#include "test/sidedex_dynamic.h"
@@ -195,11 +196,19 @@ index 0000000000..0bbc239454
 +            else
 +                SWITCH(player, request->playerSlot);
 +        }
++        if (request->secondPresent) {
++            TURN {
++                if (request->secondKind == SIDEDEX_DYNAMIC_MOVE)
++                    MOVE(player, request->secondMove);
++                else
++                    SWITCH(player, request->secondSlot);
++            }
++        }
 +    } SCENE {
 +    }
 +}
 diff --git a/test/test_runner.c b/test/test_runner.c
-index ced86196f0..0d557db970 100644
+index ced86196f0..46d33959b3 100644
 --- a/test/test_runner.c
 +++ b/test/test_runner.c
 @@ -6,9 +6,13 @@
@@ -225,7 +234,7 @@ index ced86196f0..0d557db970 100644
  
  enum {
      CURRENT_TEST_STATE_ESTIMATE,
-@@ -27,6 +33,118 @@ __attribute__((section(".persistent"))) static struct {
+@@ -27,6 +33,140 @@ __attribute__((section(".persistent"))) static struct {
      u32 state:1;
  } sCurrentTest = {0};
  
@@ -325,6 +334,28 @@ index ced86196f0..0d557db970 100644
 +    else if (request->playerSlot == 0 || request->playerSlot >= request->playerCount)
 +        return FALSE;
 +
++    if (request->secondPresent)
++    {
++        u32 active = request->candidateKind == SIDEDEX_DYNAMIC_SWITCH ? request->playerSlot : 0;
++        bool32 secondMoveFound = FALSE;
++
++        if (request->secondKind > SIDEDEX_DYNAMIC_SWITCH)
++            return FALSE;
++        if (request->secondKind == SIDEDEX_DYNAMIC_SWITCH)
++        {
++            if (request->secondSlot == 0 || request->secondSlot >= request->playerCount)
++                return FALSE;
++        }
++        else
++        {
++            for (i = 0; i < MAX_MON_MOVES; i++)
++                if (request->player[active].moves[i] == request->secondMove)
++                    secondMoveFound = TRUE;
++            if (!secondMoveFound)
++                return FALSE;
++        }
++    }
++
 +    if (request->replayCount)
 +    {
 +        const volatile struct SidedexDynamicTurn *turn = &request->replay;
@@ -344,7 +375,7 @@ index ced86196f0..0d557db970 100644
  void TestRunner_Battle(const struct Test *);
  
  static bool32 MgbaOpen_(void);
-@@ -180,6 +298,41 @@ top:
+@@ -180,6 +320,41 @@ top:
              else
                  break;
          }
@@ -386,7 +417,7 @@ index ced86196f0..0d557db970 100644
  
          Test_MgbaPrintf(":N%s", gTestRunnerState.test->name);
          Test_MgbaPrintf(":L%s:%d", gTestRunnerState.test->filename);
-@@ -379,7 +532,16 @@ top:
+@@ -379,7 +554,16 @@ top:
  
      case STATE_NEXT_TEST:
          gTestRunnerState.state = STATE_ASSIGN_TEST;

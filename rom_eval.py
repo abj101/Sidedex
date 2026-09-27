@@ -19,6 +19,8 @@ _CARDS = ("player_moves", "enemy_moves", "ai_actions", "recommendation")
 _STATS = ("hp", "attack", "defense", "sp_attack", "sp_defense", "speed")
 _MAX_BATCH = 8
 _MAX_SAMPLES = 8
+# Measured marginal cost of one batched engine turn on the pinned worker.
+_TURN_MS = 240
 
 
 def _unavailable(reason, detail, missing=()):
@@ -131,19 +133,29 @@ def _mon(mon, game_data, origin):
             "evs": [evs.get(stat, 0) for stat in _STATS]}
 
 
-def _request(snapshot, game_data, action, seed):
+def _request(snapshot, game_data, action, seed, second=None):
     turns = (snapshot.get("history") or {}).get("turns", [])
     party = snapshot["player"]["party"]
     enemy = snapshot["enemy"]
-    return {"ai_flags": _mask(enemy["ai_flags"]), "candidate_action": action,
-            "replay_turns": turns,
-            "player_active_index": snapshot["player"]["active_index"],
-            "opponent_active_index": enemy["active_index"],
-            "trainer_items": enemy.get("items") or {},
-            "rng_main": seed[0], "rng_secondary": seed[1], "field": _field(snapshot),
-            "player_party": [_mon(mon, game_data, snapshot.get("state_origin")) for mon in party],
-            "opponent_party": [_mon(mon, game_data, snapshot.get("state_origin"))
-                               for mon in enemy["party"]]}
+    request = {"ai_flags": _mask(enemy["ai_flags"]), "candidate_action": action,
+               "replay_turns": turns,
+               "player_active_index": snapshot["player"]["active_index"],
+               "opponent_active_index": enemy["active_index"],
+               "trainer_items": enemy.get("items") or {},
+               "rng_main": seed[0], "rng_secondary": seed[1], "field": _field(snapshot),
+               "player_party": [_mon(mon, game_data, snapshot.get("state_origin")) for mon in party],
+               "opponent_party": [_mon(mon, game_data, snapshot.get("state_origin"))
+                                  for mon in enemy["party"]]}
+    if second is not None:
+        request["second_action"] = second
+    return request
+
+
+def _run_batch(client, mailbox, payloads, deadline, request_id):
+    return client.batch_turns(
+        mailbox, payloads, mailbox_bytes=run_dynamic.MAILBOX_BYTES,
+        engine_elf_sha256=rom_bridge.ENGINE_ELF_SHA256,
+        deadline_ms=int(deadline * 1000), request_id=request_id, max_frames=24_000)
 
 
 def _actions(snapshot):
@@ -165,6 +177,34 @@ def _actions(snapshot):
 def _action_key(action):
     fields = ("kind", "move_id") if action.get("kind") == "move" else ("kind", "slot")
     return json.dumps({key: action[key] for key in fields}, sort_keys=True)
+
+
+def _follow_ups(snapshot, action):
+    """Legal second-turn moves for the monster active after `action` resolves.
+
+    A first-turn switch moves the second-turn decision to the switch target, so
+    the follow-up set is that slot's usable moves. Second-turn switches are not
+    scored: the ten-second ceiling cannot pay for a full switch cross-product.
+    """
+    party = snapshot["player"]["party"]
+    slot = action.get("slot", 0) if action.get("kind") == "switch" else 0
+    if not 0 <= slot < len(party):
+        return []
+    active = party[slot]
+    pp = active.get("pp") if isinstance(active.get("pp"), dict) else {}
+    moves = []
+    for move_id in active.get("moves") or []:
+        if move_id != "MOVE_NONE" and (pp.get(move_id, 1) or 0) > 0 and move_id not in moves:
+            moves.append(move_id)
+    return [{"kind": "move", "move_id": move_id} for move_id in moves]
+
+
+def _continuable(turn):
+    """A second turn is only chainable while the player's active can still act."""
+    player = turn["parties"].get(0, {})
+    enemy = turn["parties"].get(1, {})
+    return player.get(0, {}).get("hp", 0) > 0 and any(
+        mon.get("hp", 0) > 0 for mon in enemy.values())
 
 
 def _parse_turn(events, party_sizes):
@@ -237,7 +277,7 @@ def _label(action, game_data):
     return f"Switch to party slot {action['slot'] + 1}"
 
 
-def _summarize(snapshot, game_data, actions, samples, outcomes, known_seed):
+def _summarize(snapshot, game_data, actions, samples, outcomes, scores, known_seed):
     enemy_party = snapshot["enemy"]["party"]
     player_party = snapshot["player"]["party"]
     move_rows = []
@@ -308,7 +348,9 @@ def _summarize(snapshot, game_data, actions, samples, outcomes, known_seed):
     score_rows = []
     summaries = []
     for action in actions:
-        values = [_score(sample, player_party, enemy_party) for sample in outcomes[_action_key(action)]]
+        values = scores[_action_key(action)]
+        if not values:
+            continue
         mean = sum(values) / len(values)
         variance = sum((value - mean) ** 2 for value in values) / max(1, len(values) - 1)
         radius = 0.0 if known_seed else 1.96 * math.sqrt(variance / len(values))
@@ -333,7 +375,7 @@ def _summarize(snapshot, game_data, actions, samples, outcomes, known_seed):
                        "conditioned_on": "the planned player action",
                        "actions": ai_rows},
         "recommendation": {"status": status, **meta, "ranking_uncertain": uncertain,
-                           "label": "One-turn HP and survivor objective", "scored_turns": 1,
+                           "label": "two-turn lookahead", "scored_turns": 2,
                            "actions": score_rows},
     }
 
@@ -402,43 +444,85 @@ def evaluate(snapshot, game_data, deadline, cancelled=None):
         card = _unavailable("incomplete-state", "No legal move or switch is available.", ["player.party[0].moves"])
         return _result(source, "unavailable", **{kind: card for kind in _CARDS})
     known = all((snapshot.get("rng") or {}).get(key) is not None for key in ("main", "secondary"))
-    estimated_turn_ms = 200
-    count = 1 if known else min(_MAX_SAMPLES, max(1, int(max(0, deadline - time.monotonic() - 1.0) * 1000
-                                                           / max(1, estimated_turn_ms * len(actions)))))
+    party_sizes = (len(snapshot["player"]["party"]), len(snapshot["enemy"]["party"]))
+    initial_parties = (snapshot["player"]["party"], snapshot["enemy"]["party"])
+    # The recommendation resolves a second turn for every legal first action, so
+    # one sample costs a first turn plus one turn per legal follow-up move.
+    per_seed = max(1, len(actions) * (1 + max(len(_follow_ups(snapshot, a)) for a in actions)))
+    count = 1 if known else min(_MAX_SAMPLES, max(1, int(
+        max(0, deadline - time.monotonic() - 1.0) * 1000 / (_TURN_MS * per_seed))))
     action_keys = {_action_key(action): action for action in actions}
     outcomes = {key: [] for key in action_keys}
+    scores = {key: [] for key in action_keys}
     elapsed_turns = 0
     request_no = 0
+
+    def _guard():
+        if cancelled and cancelled():
+            raise TimeoutError("timeout: calculation was cancelled after a snapshot edit")
+        if time.monotonic() >= deadline:
+            raise TimeoutError("timeout: calculation deadline expired")
+
     try:
         seeds, known = _seed_pairs(snapshot, count)
         with _engine_session(deadline) as (client, mailbox):
-            for sample_index, seed in enumerate(seeds):
+            for seed in seeds:
+                seed_turns = {}
                 for start in range(0, len(actions), _MAX_BATCH):
-                    if cancelled and cancelled():
-                        raise TimeoutError("timeout: calculation was cancelled after a snapshot edit")
-                    if time.monotonic() >= deadline:
-                        raise TimeoutError("timeout: calculation deadline expired")
-                    batch_actions = actions[start:start + _MAX_BATCH]
-                    requests = [_request(snapshot, game_data, action, seed) for action in batch_actions]
-                    payloads = [run_dynamic.encode_request(request) for request in requests]
+                    _guard()
+                    batch = actions[start:start + _MAX_BATCH]
+                    payloads = [run_dynamic.encode_request(_request(snapshot, game_data, action, seed))
+                                for action in batch]
                     request_no += 1
-                    reply = client.batch_turns(
-                        mailbox, payloads, mailbox_bytes=run_dynamic.MAILBOX_BYTES,
-                        engine_elf_sha256=rom_bridge.ENGINE_ELF_SHA256,
-                        deadline_ms=int(deadline * 1000), request_id=f"calc-{request_no}",
-                        max_frames=24_000)
+                    reply = _run_batch(client, mailbox, payloads, deadline, f"calc-{request_no}")
                     elapsed_turns += len(payloads)
-                    for action, turn in zip(batch_actions, reply["turns"]):
+                    for action, turn in zip(batch, reply["turns"]):
+                        if turn.get("complete"):
+                            seed_turns[_action_key(action)] = _parse_turn(turn.get("events"), party_sizes)
+                for key, turn in seed_turns.items():
+                    outcomes[key].append(turn)
+                # Second candidate turn: score the best follow-up move for the
+                # monster that is active once the first action has resolved.
+                jobs, fallback = [], {}
+                for action in actions:
+                    key = _action_key(action)
+                    turn = seed_turns.get(key)
+                    if turn is None:
+                        continue
+                    follows = _follow_ups(snapshot, action) if _continuable(turn) else []
+                    if not follows:
+                        fallback[key] = _score(turn, *initial_parties)
+                        continue
+                    jobs.extend((key, run_dynamic.encode_request(
+                        _request(snapshot, game_data, action, seed, follow))) for follow in follows)
+                best = {}
+                for start in range(0, len(jobs), _MAX_BATCH):
+                    _guard()
+                    chunk = jobs[start:start + _MAX_BATCH]
+                    request_no += 1
+                    reply = _run_batch(client, mailbox, [payload for _key, payload in chunk],
+                                       deadline, f"calc-{request_no}")
+                    elapsed_turns += len(chunk)
+                    for (key, _payload), turn in zip(chunk, reply["turns"]):
                         if not turn.get("complete"):
                             continue
-                        outcomes[_action_key(action)].append(
-                            _parse_turn(turn.get("events"),
-                                        (len(snapshot["player"]["party"]), len(snapshot["enemy"]["party"]))))
+                        try:
+                            parsed = _parse_turn(turn.get("events"), party_sizes)
+                        except ValueError:
+                            continue
+                        value = _score(parsed, *initial_parties)
+                        if key not in best or value > best[key]:
+                            best[key] = value
+                for key in action_keys:
+                    if key in best:
+                        scores[key].append(best[key])
+                    elif key in fallback:
+                        scores[key].append(fallback[key])
         if not all(outcomes.values()):
             card = _unavailable("insufficient-samples", "No complete engine trajectory was returned.")
             return _result(source, "unavailable", **{kind: card for kind in _CARDS})
         return _result(source, "engine-fixed-seed" if known else "estimated",
-                       **_summarize(snapshot, game_data, actions, seeds, outcomes, known))
+                       **_summarize(snapshot, game_data, actions, seeds, outcomes, scores, known))
     except FileNotFoundError as exc:
         reason = "missing-artifact" if "missing-artifact" in str(exc) else "engine-error"
         card = _unavailable(reason, str(exc))

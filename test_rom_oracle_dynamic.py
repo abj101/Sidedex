@@ -1,6 +1,7 @@
 """Focused checks for the dynamic oracle request and pinned source IDs."""
 import importlib.util
 import json
+import struct
 from pathlib import Path
 
 ROOT = Path(__file__).parent
@@ -15,7 +16,7 @@ SPEC.loader.exec_module(RUNNER)
 def test_source_ids_encode_to_the_pinned_mailbox():
     request = json.loads((ROOT / "tools/rom_oracle/dynamic_sample.json").read_text(encoding="utf-8"))
     payload = RUNNER.encode_request(request)
-    assert len(payload) == RUNNER.MAILBOX_BYTES == 740
+    assert len(payload) == RUNNER.MAILBOX_BYTES == 748
     assert RUNNER.numeric_id("species", "SPECIES_BULBASAUR") == 1
     assert RUNNER.numeric_id("moves", "MOVE_TACKLE") == 33
 
@@ -28,7 +29,24 @@ def test_switch_and_one_replayed_turn_are_encoded():
         "enemy_action": {"kind": "move", "move_id": "MOVE_TACKLE"},
     }]
     payload = RUNNER.encode_request(request)
-    assert len(payload) == 740
+    assert len(payload) == 748
+
+
+def test_second_candidate_turn_is_encoded():
+    request = json.loads((ROOT / "tools/rom_oracle/dynamic_sample.json").read_text(encoding="utf-8"))
+    request["second_action"] = {"kind": "move", "move_id": "MOVE_TACKLE"}
+    payload = RUNNER.encode_request(request)
+    assert len(payload) == 748
+    kind, move, _slot, present = struct.unpack_from("<4H", payload, 748 - 8)
+    assert present == 1 and kind == 0 and move == RUNNER.numeric_id("moves", "MOVE_TACKLE")
+
+    request["second_action"] = {"kind": "move", "move_id": "MOVE_NOT_IN_PINNED_SOURCE"}
+    try:
+        RUNNER.encode_request(request)
+    except ValueError as error:
+        assert "invalid-id" in str(error)
+    else:
+        raise AssertionError("unknown second move was accepted")
 
 
 def test_unknown_source_id_fails_closed():
