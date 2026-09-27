@@ -9,6 +9,24 @@ silently update to upstream `master` or claim parity with a different played ROM
 
 ## Implementation checkpoint (2026-09-26)
 
+### Product inputs clarified at wrap-up
+
+Treat the two focused Pokémon as the active battlers. Use the UI's complete
+party builds, selected abilities, item-use toggles, and other visible settings
+as the scenario input. Current HP defaults to 100% of max HP and remains
+editable by the user. Predictions and recommendations are conditioned on those
+explicit UI values. An unknown RNG state is sampled and reported as an
+estimate with its sample count and uncertainty; it does not prevent a
+recommendation by itself. This replaces the earlier plan's separate active
+selection and unknown-HP defaults. Update the UI and tests to this behavior
+before enabling the four ROM-backed cards.
+
+For a fresh battle, these inputs can define an assumed starting scenario.
+For a midbattle scenario, unentered volatile effects, action history, and RNG
+still cannot be inferred from HP, party, ability, and item settings alone.
+The evaluator may either replay a supplied history or clearly label an
+assumed scenario; it must not claim to reproduce an unseen live game state.
+
 - A disposable full source checkout builds the pinned ROM under WSL. The built
   ROM is local only; targeted `make check` tests and repeatable fixed-seed test
   ELF traces pass. The broad upstream suite has unrelated failures and no green
@@ -79,8 +97,9 @@ and hosted deployment are outside this delivery.
 Unknown RNG produces **model-based estimates**, never an `exact` percentage.
 Display sample count, uncertainty, source/ROM identity, and the assumed sampler.
 A fixed-seed result may be called ROM-verified only after full trace parity.
-Missing consequential state is unknown, not zero or full HP. The UI must not
-invent an RNG state. A newer state must never show a cached older result.
+The UI defaults current HP to full as an explicit scenario assumption, and
+the user may edit it. It must not invent an RNG state. A newer state must
+never show a cached older result.
 
 ## Ground truth and architecture
 
@@ -105,8 +124,10 @@ invent an RNG state. A newer state must never show a cached older result.
 - The current four-word snapshot does not represent every volatile battle
   field or the second RNG stream. The bridge must establish state sufficiency
   through battle-start setup plus replay or a verified emulator checkpoint.
-  Arbitrary midbattle HP edits are scenario inputs, not proof of the actual
-  game's hidden state. Return `incomplete-state` where reconstruction fails.
+  Midbattle HP edits are scenario inputs. Replay known history when available;
+  otherwise label the result as conditional on the entered scenario. Return
+  `incomplete-state` only when a consequential state required by the chosen
+  replay method cannot be represented or safely assumed.
 
 ## Contract to freeze before parallel edits
 
@@ -175,17 +196,17 @@ stop and report the exact missing state or instrumentation obstacle.
 ### Gate 2 — Truthful Calc state (UI agent, parallel with Gate 1)
 
 Ownership: `planner_ui.py`, `calc_config_component.py`, `ui.css`, and
-`test_calc_ui.py`. Start after the v2 contract. Add explicit battle actives
-separate from browsing focus; battle-start inputs, planned action, and ordered
-turn history; visible unknown values; an explicit “start at full HP” action;
-optional known RNG state entry. Remove `random.getrandbits` at
-`planner_ui.py:1588` and automatic current-HP-to-max filling. Bump config
-version and migrate old configs without inventing state. Render verified,
-estimated, pending, uncertain, and unavailable cards distinctly.
+`test_calc_ui.py`. The focused Pokémon on each side is the active battler.
+Provide battle-start inputs, planned action, ordered turn history, and optional
+known RNG state entry. Default current HP to 100% of max HP as an editable
+scenario value; do not generate RNG. Bump config version and migrate old
+configs while preserving explicit saved HP. Render verified, estimated,
+pending, uncertain, and unavailable cards distinctly.
 
-Pass: focus changes do not change actives; old/blank configs retain unknown HP
-and RNG; save/load round-trips state and history; every relevant edit changes
-the snapshot key and hides stale results.
+Pass: focus changes update actives; new configs default HP to full while saved
+HP values survive reload; unknown RNG remains unknown; save/load round-trips
+state and history; every relevant edit changes the snapshot key and hides
+stale results.
 
 ### Gate 3 — Sampling and recommendation (evaluation agent)
 
@@ -233,6 +254,6 @@ isolated emulator cores only if a benchmark demonstrates throughput gain.
 Measure build, reset, replay, per-turn, and full recommendation costs separately.
 
 Do not publish sampled numbers as exact, silently discard unsupported actions,
-infer unknown HP/RNG, or use source-transcribed Python fixtures as a ROM oracle.
+invent RNG, or use source-transcribed Python fixtures as a ROM oracle.
 If Gate 0 or Gate 1 fails, preserve the current working Calc and report the
 feasibility evidence; dependent claims and cards remain unavailable.

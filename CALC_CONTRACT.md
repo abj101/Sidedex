@@ -20,11 +20,13 @@ history, and planned action. New fields are:
 }
 ```
 
-`None` means unknown, including current HP and either RNG stream. The UI only
-uses `state_origin: "battle-start"` after the user explicitly starts a battle
-at full HP; observed turns replay from that setup. Direct midbattle edits use
-`manual-scenario` and are labelled as such. Focused roster cards do not change
-the snapshot's active indexes. The worker may reject either origin with
+`None` means unknown, including either RNG stream. New scenarios default
+current HP to 100% of max HP, and the user may edit it; explicit saved HP
+values take precedence. The focused Pokémon on each side determines that
+side's active index. The UI uses `state_origin: "battle-start"` for a fresh
+battle scenario; observed turns replay from that setup. Direct midbattle
+edits use `manual-scenario` and are labelled as such. The worker may reject
+either origin with
 `incomplete-state` when it cannot reconstruct consequential volatile state.
 
 The local worker exchanges one JSON object per line with `rom_bridge.py`:
