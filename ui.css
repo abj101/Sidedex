@@ -363,19 +363,36 @@
   color:#17303a; background:#e9eedb; border:3px solid #a7d6c5;
   box-shadow:inset 0 0 0 2px #fff,0 4px 0 #071d24;
 }
-.st-key-calc_trainer_settings label { color:#17303a !important; }
-.st-key-calc_trainer_settings :is([data-testid="stSelectbox"] .react-aria-ComboBox > div:has(> input),[data-testid="stNumberInputContainer"]) {
-  color:#17303a !important; background:#e9eedb !important;
+[data-testid="stSelectbox"] label,[data-testid="stMultiSelect"] label { color:#17303a !important; }
+[data-testid="stSelectbox"] .react-aria-ComboBox > div:has(> input),
+[data-testid="stMultiSelect"] .react-aria-ComboBox > div:has(> input),
+.st-key-calc_trainer_settings [data-testid="stNumberInputContainer"] {
+  min-height:23px; color:#17303a !important; background:#e9eedb !important;
   border:1px solid #9bb0a4 !important; border-radius:0;
-  box-shadow:none !important; font:800 10px monospace;
+  box-shadow:none !important; font:700 11px/1.2 monospace;
 }
-.st-key-calc_trainer_settings :is([data-testid="stSelectbox"] .react-aria-ComboBox > div:has(> input),[data-testid="stNumberInputContainer"]):is(:hover,:focus-within) {
+[data-testid="stSelectbox"] .react-aria-ComboBox > div:has(> input):is(:hover,:focus-within),
+[data-testid="stMultiSelect"] .react-aria-ComboBox > div:has(> input):is(:hover,:focus-within),
+.st-key-calc_trainer_settings [data-testid="stNumberInputContainer"]:is(:hover,:focus-within) {
   color:#17303a !important; background:#e9eedb !important;
   border-color:#9bb0a4 !important; outline:1px solid #17303a; outline-offset:1px;
 }
-.st-key-calc_trainer_settings :is(input[role="combobox"],[data-testid="stNumberInputField"],button[aria-label="Open"],[data-testid^="stNumberInputStep"]) {
+[data-testid="stSelectbox"] input[role="combobox"],[data-testid="stMultiSelect"] input[role="combobox"],
+.st-key-calc_trainer_settings :is([data-testid="stNumberInputField"],button[aria-label="Open"],[data-testid^="stNumberInputStep"]) {
   color:#17303a !important; font:800 10px monospace;
 }
+[data-testid="stSelectbox"] input[role="combobox"],[data-testid="stMultiSelect"] input[role="combobox"] {
+  background:transparent !important; border:0 !important;
+}
+.react-aria-Popover:has([role="listbox"]) {
+  color:#17303a; background:#e9eedb; border:1px solid #9bb0a4;
+  border-radius:0; box-shadow:0 3px 0 #071d24;
+}
+.react-aria-ListBox [role="option"] { color:#17303a; font:700 11px/1.2 monospace; }
+.react-aria-ListBox [role="option"]:is(:hover,[data-focused="true"],[aria-selected="true"]) {
+  color:#17303a; background:#d8e5dc;
+}
+.st-key-calc_trainer_settings [data-testid^="stNumberInputStep"] { display:none; }
 .st-key-calc_player_trainer_panel .st-key-calc-config-picker { position:absolute; z-index:40; top:7px; right:7px; width:auto; }
 .sd-config-picker { position:relative; font-family:monospace; }
 .sd-config-trigger {

@@ -1,5 +1,9 @@
 # ROM-backed Calc: orchestration handoff
 
+Current local-production orchestration is in CALC_PRODUCTION_PLAN.md. The
+agent schedule and sampling target below are historical checkpoints; use the
+new plan to start the next implementation run.
+
 Status: implementation plan, not a claim that ROM-backed results work yet.
 Working branch: `feat/rom-backed-calc` (branched from the saved plan commit).
 Recoverable pre-engine snapshot: `snapshot/pre-rom-engine-2026-09-26` at `bc66ce9`.

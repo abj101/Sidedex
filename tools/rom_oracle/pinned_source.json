@@ -15,5 +15,16 @@
   "trace_rom": "pokeemerald-test-headless.elf",
   "test_elf_sha256": "846f60cf129b6af77444f781e204e7174d86a81830a7313d3c275511c693a0c7",
   "test_headless_elf_sha256": "44bdbe5aa7a071064a1dca20c411b0e3ab56c8e4d8fca00857f3b50d56c5bd93",
-  "raw_trace_sha256": "e4051f1eb74a2dc61089c0bf15cf98a5472ad3b985a19f178235dfb98ae38034"
+  "raw_trace_sha256": "e4051f1eb74a2dc61089c0bf15cf98a5472ad3b985a19f178235dfb98ae38034",
+  "dynamic_oracle": {
+    "protocol_version": 4,
+    "test_elf_sha256": "631f82a9e9e7b02deaeba5804797bee2d537aeead5abc0f78e66dc16b20b26cd",
+    "headless_elf_sha256": "af4dc9b68e02d2b377fb0eb1fe38765158e2f9d55174369990fa26827512ce71",
+    "recipe": [
+      "apply trace_hooks.patch and dynamic_request.patch to the pinned source",
+      "make -j4 pokeemerald-test.elf TESTS='Sidedex oracle: dynamic AI singles request'",
+      "copy pokeemerald-test.elf to pokeemerald-test-headless.elf",
+      "tools/patchelf/patchelf pokeemerald-test-headless.elf gTestRunnerHeadless '\\x01'"
+    ]
+  }
 }

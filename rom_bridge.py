@@ -10,24 +10,32 @@ import hashlib
 import json
 import os
 import queue
+import re
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Any, Sequence
 
 
 PROTOCOL_VERSION = 1
-WORKER_VERSION = "sidedex-mgba-worker/0.1.0"
+WORKER_VERSION = "sidedex-mgba-worker/0.1.2"
 MGBA_VERSION = "0.10.5+26b7884"
 SAMPLER_VERSION = None
 SOURCE_SHA = "2576d0f3f4c861c760f0c55198e37e6d7b91683e"
 # Gate 0 artifact: default source pin and build configuration, SHA-256.
 ROM_SHA256 = "0CCAAAD0878A9CBFB36FBEFFF800E9B6DD66055924B7595038EDE1E8771EC5A2"
+ENGINE_ELF_SHA256 = "AF4DC9B68E02D2B377FB0EB1FE38765158E2F9D55174369990FA26827512CE71"
+WORKER_SHA256 = "B49A8DE1BECACCC6B0CB5B670D25105BA5769EA4FE0BDF9F0A29F1D1B52978C9"
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_SOURCE_LOCK = ROOT / "data" / "source_lock.json"
 DEFAULT_WORKER = ROOT / "native" / "rom_worker" / "build" / "mingw" / "rom_worker.exe"
 MAX_FRAMES_PER_REQUEST = 100_000
+EWRAM_START = 0x02000000
+EWRAM_END = 0x02040000
+MAX_MEMORY_WRITE_BYTES = 2048
+MAX_BATCH_TURNS = 8
 # 256 bounded trace events (up to 510 bytes each, JSON escaped) fit below 1 MiB.
 MAX_MESSAGE_BYTES = 1_048_576
 
@@ -127,6 +135,7 @@ class RomWorkerClient:
         timeout: float = 5.0,
         source_lock_path: str | os.PathLike[str] = DEFAULT_SOURCE_LOCK,
         expected_artifact_sha256: str = ROM_SHA256,
+        expected_worker_sha256: str = WORKER_SHA256,
         worker_args: Sequence[str] = (),
     ):
         if type(timeout) not in (int, float) or timeout <= 0:
@@ -145,6 +154,11 @@ class RomWorkerClient:
         self.rom_sha256 = self._verify_identity(
             rom, Path(source_lock_path), expected_artifact_sha256.upper()
         )
+        if not isinstance(expected_worker_sha256, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", expected_worker_sha256):
+            raise ValueError("expected_worker_sha256 must be a 64-character SHA-256 hex digest")
+        self.worker_sha256 = sha256_file(worker)
+        if self.worker_sha256 != expected_worker_sha256.upper():
+            raise RomIdentityError(f"worker SHA-256 {self.worker_sha256} does not match pinned worker {expected_worker_sha256.upper()}")
         self._rom_size = rom.stat().st_size
         if not worker.is_file():
             raise WorkerUnavailableError(f"mGBA worker executable is missing: {worker}")
@@ -172,6 +186,7 @@ class RomWorkerClient:
         )
         self._stdout_reader.start()
         self._stderr_reader.start()
+        self._has_checkpoint = False
 
         try:
             self._status = self._read_status()
@@ -211,9 +226,9 @@ class RomWorkerClient:
     def is_running(self) -> bool:
         return not self._closed and self._process.poll() is None
 
-    def _read_line(self) -> str:
+    def _read_line(self, timeout: float | None = None) -> str:
         try:
-            line = self._stdout_lines.get(timeout=self._timeout)
+            line = self._stdout_lines.get(timeout=self._timeout if timeout is None else timeout)
         except queue.Empty as exc:
             self._terminate()
             raise WorkerTimeoutError("mGBA worker response timed out") from exc
@@ -256,7 +271,7 @@ class RomWorkerClient:
             raise WorkerProtocolError("worker status is missing ROM title or code")
         return reply
 
-    def _request(self, op: str, **fields) -> dict[str, Any]:
+    def _request(self, op: str, *, _timeout: float | None = None, **fields) -> dict[str, Any]:
         with self._lock:
             if self._closed or self._process.poll() is not None:
                 raise WorkerExitedError("mGBA worker is not running")
@@ -269,8 +284,8 @@ class RomWorkerClient:
                 self._process.stdin.flush()
             except (BrokenPipeError, OSError) as exc:
                 raise WorkerExitedError("mGBA worker closed its input pipe") from exc
-            reply = _parse_reply(self._read_line())
-            if op in {"status", "run_frames", "reset", "load_state"}:
+            reply = _parse_reply(self._read_line(_timeout))
+            if op in {"status", "run_frames", "reset", "load_state", "write_memory"}:
                 self._status = self._validate_status_reply(reply)
             return reply
 
@@ -312,10 +327,87 @@ class RomWorkerClient:
         size = reply.get("state_bytes")
         if type(size) is not int or size <= 0:
             raise WorkerProtocolError("worker returned an invalid saved state size")
+        self._has_checkpoint = True
         return size
 
     def load_state(self) -> dict[str, Any]:
         return self._request("load_state")
+
+    def batch_turns(
+        self,
+        address: int,
+        payloads: Sequence[bytes],
+        *,
+        mailbox_bytes: int,
+        engine_elf_sha256: str,
+        deadline_ms: int,
+        request_id: str,
+        max_frames: int = 24_000,
+    ) -> dict[str, Any]:
+        """Run bounded mailbox turns from one saved pre-choice checkpoint."""
+        if not self._has_checkpoint:
+            raise ValueError("save a pre-choice checkpoint before batch_turns")
+        if type(address) is not int or not EWRAM_START <= address < EWRAM_END:
+            raise ValueError("mailbox address must be within EWRAM")
+        if type(mailbox_bytes) is not int or not 1 <= mailbox_bytes <= MAX_MEMORY_WRITE_BYTES:
+            raise ValueError("mailbox_bytes is outside the bounded mailbox limit")
+        if not isinstance(payloads, Sequence) or isinstance(payloads, (str, bytes)) or not 1 <= len(payloads) <= MAX_BATCH_TURNS:
+            raise ValueError(f"payloads must contain 1 to {MAX_BATCH_TURNS} byte strings")
+        if any(type(payload) is not bytes or len(payload) != mailbox_bytes or len(payload) > EWRAM_END - address for payload in payloads):
+            raise ValueError("each payload must match the announced EWRAM mailbox length")
+        if type(max_frames) is not int or not 1 <= max_frames <= MAX_FRAMES_PER_REQUEST:
+            raise ValueError("max_frames is outside the worker limit")
+        if type(deadline_ms) is not int:
+            raise ValueError("deadline_ms must be an absolute monotonic millisecond integer")
+        if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", request_id):
+            raise ValueError("request_id must be 1 to 128 safe ASCII characters")
+        if not isinstance(engine_elf_sha256, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", engine_elf_sha256):
+            raise ValueError("engine_elf_sha256 must be a 64-character SHA-256 hex digest")
+        if engine_elf_sha256.upper() != self.rom_sha256:
+            raise RomIdentityError("batch engine ELF identity differs from the artifact loaded by this worker")
+        remaining = (deadline_ms - int(time.monotonic() * 1000)) / 1000
+        if remaining <= 0:
+            raise WorkerTimeoutError("batch deadline has expired")
+        budget_ms = max(1, int(remaining * 1000))
+        started = time.monotonic()
+        reply = self._request(
+            "batch_turns",
+            _timeout=min(self._timeout, remaining),
+            address=address,
+            mailbox_bytes=mailbox_bytes,
+            budget_ms=budget_ms,
+            max_frames=max_frames,
+            payloads="|".join(payload.hex() for payload in payloads),
+            request_id=request_id,
+            source_sha=SOURCE_SHA,
+            engine_elf_sha256=engine_elf_sha256.upper(),
+            worker_sha256=self.worker_sha256,
+        )
+        expected = {
+            "request_id": request_id,
+            "source_sha": SOURCE_SHA,
+            "engine_elf_sha256": engine_elf_sha256.upper(),
+            "worker_sha256": self.worker_sha256,
+        }
+        for key, value in expected.items():
+            if reply.get(key) != value:
+                raise WorkerProtocolError(f"batch response {key} mismatch")
+        turns = reply.get("turns")
+        if not isinstance(turns, list) or len(turns) != len(payloads):
+            raise WorkerProtocolError("batch response has a mismatched turn count")
+        for turn in turns:
+            events = turn.get("events") if isinstance(turn, dict) else None
+            if (type(turn.get("complete")) is not bool or type(turn.get("frames")) is not int or
+                    not 0 <= turn["frames"] <= max_frames or type(turn.get("trace_overflow")) is not bool or
+                    not isinstance(events, list) or len(events) > 256 or
+                    any(not isinstance(event, str) or len(event.encode("utf-8")) >= 512 for event in events) or
+                    turn["trace_overflow"]):
+                raise WorkerProtocolError("batch response contains an invalid or oversized turn")
+            if not turn["complete"]:
+                raise WorkerResponseError("incomplete_turn")
+        elapsed_ms = (time.monotonic() - started) * 1000
+        return {"protocol_version": 3, **expected, "turns": turns,
+                "elapsed_ms": elapsed_ms, "mean_turn_ms": elapsed_ms / len(turns)}
 
     def read_memory(self, address: int, width: int = 4) -> int:
         if type(address) is not int or not 0 <= address <= 0xFFFFFFFF:
@@ -330,6 +422,15 @@ class RomWorkerClient:
         if type(value) is not int or not 0 <= value < (1 << (8 * width)):
             raise WorkerProtocolError("worker returned an invalid memory value")
         return value
+
+    def write_memory(self, address: int, data: bytes) -> dict[str, Any]:
+        if type(address) is not int or not EWRAM_START <= address < EWRAM_END:
+            raise ValueError("address must be within EWRAM (0x02000000..0x0203ffff)")
+        if type(data) is not bytes or not 1 <= len(data) <= MAX_MEMORY_WRITE_BYTES:
+            raise ValueError("data must be 1 to 256 bytes")
+        if len(data) > EWRAM_END - address:
+            raise ValueError("write must stay within EWRAM (0x02000000..0x0203ffff)")
+        return self._request("write_memory", address=address, data=data.hex())
 
     def close(self) -> None:
         with self._lock:

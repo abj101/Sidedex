@@ -1058,7 +1058,7 @@ def calc_card_body(kind, card, moves=None, pending=False):
     status = card.get("status")
     if status == "unavailable":
         return card_unavailable_markup(card)
-    if status not in ("exact", "verified-fixed-seed", "estimated"):
+    if status not in ("exact", "engine-fixed-seed", "verified-fixed-seed", "estimated"):
         return card_unavailable_markup({"reason": "incomplete-state",
                                        "detail": "No verified or estimated result is available yet."})
     if status == "estimated":
@@ -1072,6 +1072,8 @@ def calc_card_body(kind, card, moves=None, pending=False):
         banner = f'<p class="sd-calc-estimate">{label}</p>'
     elif status == "verified-fixed-seed":
         banner = '<p class="sd-calc-basis">Verified fixed-seed ROM result</p>'
+    elif status == "engine-fixed-seed":
+        banner = '<p class="sd-calc-basis">Compiled game engine · fixed seed</p>'
     elif status == "exact":
         banner = f'<p class="sd-calc-basis">{esc(basis_text(card.get("evidence")))}</p>'
     else:
@@ -1190,7 +1192,9 @@ def calc_snapshot(data, party_slots, trainer_id, enemy_order, battle_state=None,
             "level_cap_id": level_cap_id,
             "difficulty": st.session_state.get("calc_difficulty", "Normal"),
             "calc_state_version": CALC_STATE_VERSION,
-            "battle_state": battle_state if isinstance(battle_state, dict) else {},
+            "battle_state": ({key: value for key, value in battle_state.items()
+                              if key != "_preserve_unknown_hp"}
+                             if isinstance(battle_state, dict) else {}),
             "item_flags": st.session_state.get("calc_item_flags", {}).copy()}
 
 
@@ -1221,15 +1225,10 @@ def level_cap_choices(data, current):
     return levels, labels
 
 
-def level_cap_widget(data):
-    """ROM progression milestone when the extractor supplies one, else the old number input."""
-    levels, labels = level_cap_choices(data, _coerce_int(st.session_state.get("calc_level_cap")))
-    if levels is None:
-        return st.number_input("Level cap", min_value=1, max_value=100, value=100,
-                               key="calc_level_cap", persist_state="session")
-    seed_choice("calc_level_cap", levels, levels[-1])
-    return st.selectbox("Level cap", levels, key="calc_level_cap", persist_state="session",
-                        format_func=lambda value: f"{labels[value]} · Lv {value}")
+def level_cap_widget():
+    """Set a level directly, matching the editable level badge in the focused panel."""
+    return st.number_input("Level cap", min_value=1, max_value=100, value=100,
+                           step=1, key="calc_level_cap", persist_state="session")
 
 
 def difficulty_widget():
@@ -1426,7 +1425,14 @@ def calc_state_for_trainer(state, trainer_id):
 
 
 def calc_state_for_focus(state, party_slots, player_focus, enemy_focus):
-    """Browsing focus is presentation state; it never selects battle actives."""
+    """Keep the battle active pair aligned with the two focused battlers."""
+    player_slot = next((slot for slot, row in enumerate(party_slots)
+                        if row and row.get("id") == player_focus), None)
+    enemy_index = enemy_focus if type(enemy_focus) is int and enemy_focus >= 0 else None
+    if (state.get("player_active_slot"), state.get("enemy_active_index")) != (player_slot, enemy_index):
+        state["planned_action"] = None
+    state["player_active_slot"] = player_slot
+    state["enemy_active_index"] = enemy_index
     return state
 
 
@@ -1440,7 +1446,7 @@ def calc_default_max_hp(data, species, level, ivs, evs):
 
 
 def calc_seed_hp(state, side, key, default_max):
-    """Keep derived maximum HP while leaving unentered current HP unknown."""
+    """Seed fresh scenarios at full HP while preserving saved unknown values."""
     entries = state.setdefault(side, {})
     entry = entries.setdefault(str(key), {})
     if default_max is not None:
@@ -1448,6 +1454,9 @@ def calc_seed_hp(state, side, key, default_max):
         entry["max_hp"] = default_max
         if current is not None:
             entry["hp"] = min(max(0, current), default_max)
+        elif ("hp" not in entry and state.get("state_origin") == "battle-start"
+              and not state.get("_preserve_unknown_hp")):
+            entry["hp"] = default_max
     return entry
 
 
@@ -1526,6 +1535,10 @@ def calc_load_config(db, record, data, apply_party_slots, trainer_rows):
     if type(level_cap) is not int or not 1 <= level_cap <= 100 or difficulty not in CALC_DIFFICULTIES:
         raise ValueError("Saved Calc settings are invalid.")
     state = calc_validate_state(payload)
+    had_saved_state = bool(state)
+    # Older configs may intentionally have no recorded HP; do not fill it from
+    # current profile data when those configs are opened.
+    state["_preserve_unknown_hp"] = True
     flags = payload.get("item_flags") or {}
     if not isinstance(flags, dict) or any(
         not isinstance(key, str) or not key.startswith(("calc_item_player_", "calc_item_enemy_"))
@@ -1581,7 +1594,7 @@ def calc_load_config(db, record, data, apply_party_slots, trainer_rows):
     prior_version = payload.get("calc_state_version", 1)
     note = ("" if prior_version == CALC_STATE_VERSION
             else " Older saved battle values were preserved; unknown values remain unknown."
-            if state else " This older config has no saved battle state.")
+            if had_saved_state else " This older config has no saved battle state.")
     return "Loaded config. " + ("Skipped: " + ", ".join(missing) + "." if missing else "") + note
 
 
@@ -1638,12 +1651,11 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
                 calc_delete_dialog(connect, record["id"], record["name"])
         with trainer_settings_area:
             st.markdown("**Trainer selector**")
-            level_cap = level_cap_widget(data)
+            level_cap = level_cap_widget()
+            if level_cap_id_for(data, level_cap) is None:
+                st.caption(f"Level {level_cap} is not a ROM progression milestone; compiled battle calculations are unavailable at this cap.")
             difficulty_widget()
             simulated_level = simulate_highest_level(party, level_cap, data)
-            if simulated_level is not None:
-                st.caption(f"Highest simulated party level: {simulated_level} "
-                           f"(Level cap {level_cap})")
             trainer_id, trainer, trainer_group, highest_level = trainer_selection(
                 trainer_rows, party, resolve_level, stacked=True, highest_level=simulated_level)
         previous_state = st.session_state.get("calc_battle_state")
@@ -1710,7 +1722,7 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
         if not isinstance(battle_state.get("rng"), dict):
             battle_state["rng"] = {"main": parse_rng_words(battle_state.get("rng")),
                                     "secondary": None}
-        battle_state.setdefault("state_origin", "manual-scenario")
+        battle_state.setdefault("state_origin", "battle-start")
         for member_row in party:
             calc_seed_hp(
                 battle_state, "player", member_row["id"],

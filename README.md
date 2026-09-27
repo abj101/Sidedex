@@ -1,10 +1,11 @@
 # Sidedex
 
-The implementation plan for ROM-backed predictions and move recommendations is
-in [`CALC_IMPLEMENTATION_PLAN.md`](CALC_IMPLEMENTATION_PLAN.md). The battle
-state editor is present, but the four Calc result cards remain unavailable for
-schema-v2 requests until complete ROM turn replay is verified. The older Python
-model is retained for legacy tests and is not presented as a ROM result.
+The current local production plan for ROM-backed predictions and move
+recommendations is in [`CALC_PRODUCTION_PLAN.md`](CALC_PRODUCTION_PLAN.md).
+The battle state editor is present, but the four Calc result cards remain
+unavailable for schema-v2 requests until complete engine-turn replay and
+integration are verified. The older Python model is retained for legacy tests
+and is not presented as a ROM result.
 
 Local Emerald Imperium Box and type-coverage planner with Pokedex and Calc tabs.
 
@@ -58,22 +59,45 @@ another Pokémon. Player slot changes update the actual party,
 while trainer slot changes only reorder that trainer's display. The Box retains
 its hover preview, but clicking a Box Pokémon does not change Calc focus.
 Named configs save the party lineup, trainer, focus choices, display order,
-item switches, level cap milestone, difficulty, explicit battle actives,
-entered battle state, and observed turn log. Focus changes do not change
-actives. Current HP and both RNG streams stay unknown until entered; the
-explicit start-at-full-HP action initializes a battle-start scenario. Older
-configs load without inventing missing HP, IVs, EVs, or RNG. Hard difficulty
-configs require an explicit Easy/Normal correction.
+item switches, level cap milestone, difficulty, entered battle state, and
+observed turn log. The focused Pokémon on each side are the active battlers;
+changing focus clears a planned move for the old pair. New scenarios start at
+full editable HP. Both RNG streams remain unknown until entered. Older configs
+preserve unknown HP, IVs, EVs, and RNG. A numeric cap that has no ROM
+progression milestone shows a specific unsupported-context message. Hard
+difficulty configs require an explicit Easy/Normal correction.
 
 ## Calc head-to-head results
 
-The current UI sends schema-v2 snapshots to a separate ROM service path. It
-shows specific unavailable reasons while the battle hook and full-turn oracle
-comparison are unfinished. A built ROM or a running emulator alone does not
-establish prediction accuracy. Unknown-seed results will be labelled
-**model-based estimates** with sample count and uncertainty only after the ROM
-worker supports replay and sampling. See `CALC_CONTRACT.md` for the result
-contract and the implementation plan for the remaining gates.
+The UI sends schema-v2 snapshots to a separate compiled-engine path. A local
+build of the pinned source, an instrumented ARM test ELF, and the mGBA worker
+drive real game battle code; the evaluator replays the requested scenario and
+counts complete turns. For a supported battle-start trainer single the four
+cards now fill: a known-seed request returns `engine-fixed-seed`, and an
+unknown-seed request returns `estimated` with its actual sample count, sampler
+ID, and 95% interval. A built ROM or a running emulator alone does not
+establish prediction accuracy, so `verified-fixed-seed` stays reserved for a
+result that also passes a controlled release-ROM comparison.
+
+Measured limits at this checkpoint:
+
+- The recommendation scores **one** resolved candidate turn. The v4 engine
+  hook completes after `replayCount + 1` turns, so the plan's two-turn
+  HP/survivor objective is not yet reachable; the card labels itself
+  `One-turn HP and survivor objective` instead of overstating the score.
+- The engine request represents one active Pokémon per side (slot 0), Easy or
+  Normal difficulty, a real level-cap milestone, a clear field, no trainer
+  items, no stat stages, and at most one replayed history turn. Anything else
+  returns `unavailable` with a specific reason (`incomplete-state`,
+  `invalid-id`, `unrepresentable-history`, `no-legal-actions`,
+  `insufficient-samples`, `timeout`, `missing-artifact`, `artifact-mismatch`,
+  `source-mismatch`, `engine-error`).
+- Setup: apply `tools/rom_oracle/trace_hooks.patch` and
+  `tools/rom_oracle/dynamic_request.patch` to a disposable full checkout at the
+  pinned source, build the test ELF, build `native/rom_worker`, then set
+  `SIDEDEX_ENGINE_ELF_PATH` (and `SIDEDEX_ROM_PATH` for the real-ROM checks).
+  See `tools/rom_oracle/README.md` and `CALC_CONTRACT.md` for the contract.
+
 
 ### Legacy Python model
 

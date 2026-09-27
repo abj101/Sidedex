@@ -14,12 +14,43 @@ status record. Requests use protocol version 1:
     {"protocol":1,"op":"save_state"}
     {"protocol":1,"op":"load_state"}
     {"protocol":1,"op":"read_memory","address":33554432,"width":4}
+    {"protocol":1,"op":"write_memory","address":33554432,"data":"01020304"}
     {"protocol":1,"op":"quit"}
 
 read_memory reads only mapped GBA memory and accepts widths 1, 2, or 4. State
-save/load uses mGBA's state serializer and remains in worker memory. The worker
-does not interpret game memory as a battle state and returns no damage, AI,
+save/load uses mGBA's state serializer and remains in worker memory.
+`write_memory` accepts 1–2048 bytes encoded as lowercase hexadecimal and writes
+only to EWRAM (`0x02000000` through `0x0203ffff`); its address and full byte
+range must remain inside that region. Requests are handled between frames, so
+the core is idle while the bytes are copied. A successful write returns a
+status record. The worker does not interpret game memory as a battle state and returns no damage, AI,
 probability, or recommendation results.
+
+`batch_turns` is the bounded oracle transport. After `save_state` captures the
+pre-choice checkpoint, it restores that checkpoint for each of up to eight
+opaque, equal-length mailbox payloads, writes each into EWRAM, and runs until
+`ROMTRACE|complete|`, the frame cap, or the supplied time budget. The reply
+contains ordered trace events for each run and echoes the request and artifact
+identities for bridge validation. Mailboxes are capped at 2048 bytes; request,
+trace, batch, and deadline limits are checked before the bridge accepts results.
+Its Python surface is:
+
+    RomWorkerClient.batch_turns(address, payloads, *, mailbox_bytes,
+        engine_elf_sha256, deadline_ms, request_id, max_frames=24000)
+
+It returns `protocol_version: 3`, the request/source/ELF/worker identities,
+`turns` with `complete`, `frames`, and ordered `events`, plus `elapsed_ms` and
+`mean_turn_ms`. `deadline_ms` is an absolute `time.monotonic()` deadline in
+milliseconds. The bridge enforces it while waiting; the worker also checks the
+remaining millisecond budget between frames. Each call must use the same
+artifact hash as the ELF loaded into that worker.
+
+Build the pinned worker with `./native/rom_worker/build.ps1`. Its executable
+SHA-256 is pinned in `rom_bridge.WORKER_SHA256`; a changed binary is rejected
+at startup. On worker exit or timeout, the bridge returns a bounded error and
+terminates the process. Recovery is to construct a new `RomWorkerClient`, run
+the fixture's normal boot/mailbox discovery again, and save a new checkpoint;
+the old in-memory checkpoint cannot survive process exit.
 
 Build on Windows through MSYS2 MinGW64. Install MSYS2, open its shell once, and
 run:

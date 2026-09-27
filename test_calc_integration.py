@@ -8,9 +8,11 @@ import io
 import copy
 import json
 import time
+import types
 import unittest
 from fractions import Fraction
 from pathlib import Path
+from unittest.mock import patch
 
 import battle_engine as be
 import calc_service
@@ -592,6 +594,25 @@ class ServiceIntegration(unittest.TestCase):
         result = calc_service._run(calc_service.snapshot_key(snap), snap, DATA)
         self.assertEqual(result["player_moves"]["reason"], "source-mismatch")
         self.assertEqual(self._FakeEngine.calls, [])
+
+    def test_v2_accepts_compiled_engine_status_without_legacy_fallback(self):
+        snap = snapshot_v2("TRAINER_HALEY_1")
+        cards = {kind: {"status": "engine-fixed-seed"} for kind in
+                 ("player_moves", "enemy_moves", "ai_actions", "recommendation")}
+        fake = types.SimpleNamespace(evaluate=lambda snapshot, data, deadline, cancelled: cards)
+        with patch.dict("sys.modules", {"rom_eval": fake}):
+            result = calc_service._run(calc_service.snapshot_key(snap), snap, DATA)
+        self.assertEqual(result["player_moves"]["status"], "engine-fixed-seed")
+        self.assertEqual(self._FakeEngine.calls, [])
+
+    def test_v2_missing_artifact_names_local_setup(self):
+        snap = snapshot_v2("TRAINER_HALEY_1")
+        def missing(*args, **kwargs):
+            raise FileNotFoundError("engine ELF is missing")
+        with patch.dict("sys.modules", {"rom_eval": types.SimpleNamespace(evaluate=missing)}):
+            result = calc_service._run(calc_service.snapshot_key(snap), snap, DATA)
+        self.assertEqual(result["player_moves"]["reason"], "missing-artifact")
+        self.assertIn("tools/rom_oracle/README.md", result["player_moves"]["detail"])
 
 
 if __name__ == "__main__":

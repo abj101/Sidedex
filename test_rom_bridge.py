@@ -86,6 +86,68 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             client.read_memory(0x02000000, 3)
 
+    def test_write_memory_validates_bytes_and_ewram_range_before_write(self):
+        client = object.__new__(rom_bridge.RomWorkerClient)
+        requests = []
+        client._request = lambda *args, **kwargs: requests.append((args, kwargs)) or {"ok": True}
+        invalid = (
+            (-1, b"x"),
+            (0x02000000, bytearray(b"x")),
+            (0x02000000, b""),
+            (0x02000000, b"x" * 2049),
+            (0x0203FFFF, b"xy"),
+            (0x02040000, b"x"),
+            (True, b"x"),
+        )
+        for address, data in invalid:
+            with self.subTest(address=address, data_type=type(data).__name__), self.assertRaises(ValueError):
+                client.write_memory(address, data)
+        self.assertEqual(requests, [])
+
+        client.write_memory(0x02000010, bytes((0, 15, 160, 255)))
+        self.assertEqual(
+            requests,
+            [(('write_memory',), {"address": 0x02000010, "data": "000fa0ff"})],
+        )
+
+    def test_write_memory_sends_hex_and_validates_status_reply(self):
+        with tempfile.TemporaryDirectory() as temp:
+            temp = Path(temp)
+            rom = temp / "test.gba"
+            rom.write_bytes(b"placeholder ROM for protocol test")
+            digest = rom_bridge.sha256_file(rom)
+            lock = temp / "source_lock.json"
+            lock.write_text(json.dumps({"commit": rom_bridge.SOURCE_SHA}), encoding="utf-8")
+            fake_worker = r"""
+import json, os, sys
+rom = sys.argv[-1]
+status = {
+    "protocol": 1, "ok": True,
+    "worker": "sidedex-mgba-worker/0.1.2", "mgba": "0.10.5+26b7884",
+    "platform": "gba", "rom_title": "TEST", "rom_code": "TEST",
+    "rom_bytes": os.path.getsize(rom), "frame_count": 7,
+}
+print(json.dumps(status), flush=True)
+request = json.loads(sys.stdin.readline())
+print(json.dumps({**status, "op": request["op"], "address": request["address"], "data": request["data"]}), flush=True)
+sys.stdin.readline()
+print(json.dumps({"protocol": 1, "ok": True}), flush=True)
+"""
+            with patch.object(rom_bridge, "ROM_SHA256", digest):
+                with rom_bridge.RomWorkerClient(
+                    sys.executable,
+                    rom,
+                    source_lock_path=lock,
+                    expected_artifact_sha256=digest,
+                    expected_worker_sha256=rom_bridge.sha256_file(sys.executable),
+                    worker_args=("-c", fake_worker),
+                ) as client:
+                    reply = client.write_memory(0x02000010, bytes((0, 15, 160, 255)))
+                    self.assertEqual(reply["op"], "write_memory")
+                    self.assertEqual(reply["address"], 0x02000010)
+                    self.assertEqual(reply["data"], "000fa0ff")
+                    self.assertEqual(client.status["frame_count"], 7)
+
     def test_request_timeout_terminates_the_worker(self):
         with tempfile.TemporaryDirectory() as temp:
             temp = Path(temp)
@@ -99,7 +161,7 @@ import json, sys, time
 rom = sys.argv[-1]
 print(json.dumps({
     "protocol": 1, "ok": True,
-    "worker": "sidedex-mgba-worker/0.1.0",
+    "worker": "sidedex-mgba-worker/0.1.2",
     "mgba": "0.10.5+26b7884", "platform": "gba",
     "rom_title": "TEST", "rom_code": "TEST",
     "rom_bytes": __import__("os").path.getsize(rom), "frame_count": 0
@@ -114,11 +176,60 @@ time.sleep(3)
                     source_lock_path=lock,
                     timeout=0.2,
                     expected_artifact_sha256=digest,
+                    expected_worker_sha256=rom_bridge.sha256_file(sys.executable),
                     worker_args=("-c", fake_worker),
                 )
                 with self.assertRaises(rom_bridge.WorkerTimeoutError):
                     client.status_request()
                 self.assertFalse(client.is_running)
+
+    def test_batch_turns_reuses_checkpoint_and_validates_reply_identity(self):
+        with tempfile.TemporaryDirectory() as temp:
+            temp = Path(temp)
+            rom = temp / "test.gba"
+            rom.write_bytes(b"placeholder ROM for batch test")
+            digest = rom_bridge.sha256_file(rom)
+            lock = temp / "source_lock.json"
+            lock.write_text(json.dumps({"commit": rom_bridge.SOURCE_SHA}), encoding="utf-8")
+            fake_worker = r"""
+import json, os, sys
+rom = sys.argv[-1]
+status = {"protocol":1,"ok":True,"worker":"sidedex-mgba-worker/0.1.2","mgba":"0.10.5+26b7884","platform":"gba","rom_title":"TEST","rom_code":"TEST","rom_bytes":os.path.getsize(rom),"frame_count":0}
+print(json.dumps(status), flush=True)
+for line in sys.stdin:
+    req = json.loads(line)
+    if req["op"] == "save_state":
+        out = {"protocol":1,"ok":True,"state_bytes":123}
+    elif req["op"] == "batch_turns":
+        out = {"protocol":1,"ok":True,"request_id":req["request_id"],"source_sha":req["source_sha"],"engine_elf_sha256":req["engine_elf_sha256"],"worker_sha256":req["worker_sha256"],"turns":[{"complete":True,"frames":17,"events":["ROMTRACE|complete|1"],"trace_overflow":False} for _ in req["payloads"].split("|")]}
+    else:
+        out = {"protocol":1,"ok":True}
+    print(json.dumps(out), flush=True)
+    if req["op"] == "quit": break
+"""
+            with patch.object(rom_bridge, "ROM_SHA256", digest):
+                with rom_bridge.RomWorkerClient(
+                    sys.executable, rom, source_lock_path=lock,
+                    expected_artifact_sha256=digest,
+                    expected_worker_sha256=rom_bridge.sha256_file(sys.executable),
+                    worker_args=("-c", fake_worker),
+                ) as client:
+                    client.save_state()
+                    result = client.batch_turns(
+                        0x02000100, [b"abcd", b"efgh"], mailbox_bytes=4,
+                        engine_elf_sha256=digest,
+                        deadline_ms=int(__import__("time").monotonic() * 1000) + 5000,
+                        request_id="batch-1",
+                    )
+                    self.assertEqual(result["protocol_version"], 3)
+                    self.assertEqual(len(result["turns"]), 2)
+                    self.assertEqual([turn["frames"] for turn in result["turns"]], [17, 17])
+                    self.assertGreaterEqual(result["elapsed_ms"], 0)
+                    with self.assertRaises(ValueError):
+                        client.batch_turns(
+                            0x02000100, [b"abc"], mailbox_bytes=4,
+                            engine_elf_sha256=digest, deadline_ms=0, request_id="bad",
+                        )
 
     def test_persistent_worker_client_against_actual_rom_when_available(self):
         if not PINNED_WORKER.is_file() or not PINNED_ROM.is_file():

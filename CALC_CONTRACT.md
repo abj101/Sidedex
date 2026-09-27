@@ -1,10 +1,54 @@
 # Calc interface contract
 
-## v2 ROM-backed interface (implementation target)
+## v3 local compiled-engine contract (2026-09-26)
 
-This section is the shared interface for the workstreams in
-`CALC_IMPLEMENTATION_PLAN.md`. The v1 section below describes the existing
-Python model only. The current Calc must not label v1 output as ROM-verified.
+The UI may keep its schema-v2 `BattleSnapshot`; v3 is the validated evaluator
+request and result, not a new saved-config format. `source_sha` identifies the
+pinned source. `engine_elf_sha256` and `worker_sha256` identify separate local
+executables. Both are required and checked at startup and on each request.
+The release ROM hash is separate evidence, never substituted for the ELF hash.
+No executable or ROM is committed to this repository.
+
+`BattleRequest` has `protocol_version: 3`, `request_id`, all three identities,
+`battle_start` (difficulty, milestone ID, trainer singles, both complete parties,
+focused active indices, full editable HP, PP/status, field, items and AI flags),
+ordered `replay_turns`, one `candidate_action` (legal move or switch),
+`rng_main` and `rng_secondary` (four unsigned 32-bit words each), and an
+absolute monotonic `deadline_ms`. Source string IDs are converted through a
+pinned extracted numeric-ID map; unknown IDs fail with `invalid-id`. The first
+supported state is a fresh trainer single. A replayed state is supported only
+when all consequential fields can be reconstructed by running its recorded
+turns. Direct midbattle edits that cannot be reconstructed fail with
+`incomplete-state` and named missing fields.
+
+The worker returns one bounded `TurnOutcome` for each candidate/seed:
+`protocol_version`, `request_id`, identities, `complete`, ordered `events`
+(choices, damage, status, abilities, items, switches, field changes),
+`enemy_action`, resulting parties/actives/field, both resulting RNG streams,
+and terminal outcome. Partial traces have `complete: false` and cannot be
+counted. Malformed length/version/identity, timeout, worker exit, and invalid
+state are errors, not usable trajectories. One request and its batch must
+finish within its deadline; recommendation has a ten-second ceiling.
+
+The four cards (`player_moves`, `enemy_moves`, `ai_actions`,
+`recommendation`) each return `engine-fixed-seed`, `verified-fixed-seed`,
+`estimated`, or `unavailable`. `verified-fixed-seed` requires an ordered
+fixed-seed release-ROM comparison for that state. The UI calls the general
+case “compiled game engine”. An `estimated` card names its sampler and actual
+sample count and gives a reproducible 95% interval; overlapping recommendation
+scores say “ranking uncertain”. Required unavailable codes are
+`missing-artifact`, `artifact-mismatch`, `invalid-id`, `incomplete-state`,
+`insufficient-samples`, `timeout`, `source-mismatch`, and `engine-error`.
+Errors are per-card where possible. A snapshot edit invalidates older work;
+the cache key includes the entire snapshot, planned action, and all evaluator
+and executable identities. The Python v1 model is only for explicit v1 calls.
+
+## v2 snapshot and earlier ROM interface (historical)
+
+This section records the earlier interface from `CALC_IMPLEMENTATION_PLAN.md`.
+Where it differs from v3 above, v3 governs implementation. The v1 section
+below describes the existing Python model only; Calc must not label v1 output
+as ROM-verified.
 
 The UI builds a `BattleSnapshot` with `schema_version: 2` by extending the v1
 shape below. It retains `source_sha`, difficulty, progress, parties, field,

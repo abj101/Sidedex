@@ -60,13 +60,14 @@ def snapshot_key(snapshot):
         # engine, which only understands v1 and loses the second RNG stream.
         try:
             import rom_bridge
-            identity = (getattr(rom_bridge, "ROM_SHA256", None),
+            identity = (getattr(rom_bridge, "ENGINE_ELF_SHA256", None),
+                        getattr(rom_bridge, "WORKER_SHA256", None),
                         getattr(rom_bridge, "WORKER_VERSION", None),
                         getattr(rom_bridge, "SAMPLER_VERSION", None))
         except ImportError:
             identity = (None, None, None)
         payload = json.dumps(snapshot, sort_keys=True, separators=(",", ":"), default=str)
-        return hashlib.sha256(repr(("rom-v2", snapshot.get("source_sha"), identity, payload)).encode("utf-8")).hexdigest()
+        return hashlib.sha256(repr(("rom-v3", snapshot.get("source_sha"), identity, payload)).encode("utf-8")).hexdigest()
     engine, _ = _safe_engine()
     try:
         canonical = engine.normalize_snapshot(snapshot) if engine else snapshot
@@ -96,6 +97,7 @@ def invalidate():
         _TIMERS.clear()
         _LATEST["key"] = None
         _LATEST["ms"] = None
+        _CURRENT["key"] = None
 
 
 def request(snapshot, game_data):
@@ -138,21 +140,29 @@ def _run(key, snapshot, game_data):
                                       source_sha)
         else:
             try:
-                import rom_bridge
-                evaluate = getattr(rom_bridge, "evaluate", None)
+                import rom_eval
+                evaluate = getattr(rom_eval, "evaluate", None)
                 if evaluate is None:
-                    raise RuntimeError("ROM turn evaluator is not implemented")
-                result = evaluate(snapshot, game_data, deadline=started + 10.0)
+                    raise RuntimeError("compiled-engine turn evaluator is not implemented")
+                result = evaluate(
+                    snapshot, game_data, deadline=started + 10.0,
+                    cancelled=lambda: _CURRENT["key"] != key,
+                )
                 if not isinstance(result, dict):
                     raise TypeError("ROM evaluator did not return a result object")
                 if any(result.get(kind, {}).get("status") not in
-                       {"verified-fixed-seed", "estimated", "unavailable"} for kind in
+                       {"engine-fixed-seed", "verified-fixed-seed", "estimated", "unavailable"} for kind in
                        ("player_moves", "enemy_moves", "ai_actions", "recommendation")):
                     raise ValueError("ROM evaluator returned an invalid card status")
             except Exception as exc:
-                result = _rom_unavailable("engine-error",
-                                          f"ROM worker unavailable: {type(exc).__name__}: {exc}",
-                                          source_sha)
+                detail = f"Compiled engine unavailable: {type(exc).__name__}: {exc}"
+                reason = ("timeout" if type(exc).__name__ == "WorkerTimeoutError" else
+                          "missing-artifact" if isinstance(exc, FileNotFoundError) or "is missing" in str(exc) else
+                          "artifact-mismatch" if type(exc).__name__ == "RomIdentityError" else
+                          "engine-error")
+                if reason == "missing-artifact":
+                    detail += " See tools/rom_oracle/README.md and run native/rom_worker/build.ps1."
+                result = _rom_unavailable(reason, detail, source_sha)
     else:
         engine, error = _safe_engine()
         if engine is None:

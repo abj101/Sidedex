@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from app import apply_party_slots, connect, resolve_trainer_level, save_entry
 from planner_ui import (STAT_KEYS, build_calc_snapshot, calc_default_max_hp, calc_load_config, calc_result_card,
+                        calc_snapshot,
                         calc_seed_hp, calc_start_battle_at_full_hp, calc_state_for_focus,
                         calc_state_for_trainer, card_result, fraction_text, history_from_log,
                         history_to_log_rows, level_cap_choices, level_cap_id_for,
@@ -193,20 +194,20 @@ class SnapshotTest(unittest.TestCase):
         self.assertEqual(calc_state_for_trainer(state, "TRAINER_B"),
                          {"_trainer_id": "TRAINER_B"})
 
-    def test_browsing_focus_does_not_change_battle_actives_or_action(self):
+    def test_focus_selects_active_pair_and_clears_old_action(self):
         party = [player_row(7), None, player_row(9)]
         state = {"_trainer_id": "TRAINER_TEST", "player_active_slot": 0,
                  "enemy_active_index": 0,
                  "planned_action": {"kind": "move", "move_id": "MOVE_TACKLE"},
                  "player": {"9": {"hp": 12}}}
         calc_state_for_focus(state, party, 9, 1)
-        self.assertEqual((state["player_active_slot"], state["enemy_active_index"]), (0, 0))
-        self.assertEqual(state["planned_action"], {"kind": "move", "move_id": "MOVE_TACKLE"})
+        self.assertEqual((state["player_active_slot"], state["enemy_active_index"]), (2, 1))
+        self.assertIsNone(state["planned_action"])
         self.assertEqual(state["player"]["9"]["hp"], 12)
         snap = build_calc_snapshot(DATA, party, [enemy_member(), enemy_member()], state,
                                    trainer_id="TRAINER_TEST", difficulty="Normal", ai_flags=[])
         self.assertEqual((snap["player"]["active_index"], snap["enemy"]["active_index"]),
-                         (0, 0))
+                         (1, 1))
 
     def test_unresolved_ai_flags_fail_closed(self):
         snap = build_calc_snapshot(
@@ -216,11 +217,11 @@ class SnapshotTest(unittest.TestCase):
         self.assertEqual(snap["enemy"]["ai_flags"], ["AI_FLAG_UNKNOWN"])
 
     def test_hp_uses_species_max_and_preserves_current_damage(self):
-        state = {}
+        state = {"state_origin": "battle-start"}
         maximum = calc_default_max_hp(DATA, "SPECIES_TEST", 15, {"hp": 31}, {"hp": 0})
         self.assertEqual(maximum, 44)
         entry = calc_seed_hp(state, "player", 7, maximum)
-        self.assertIsNone(entry.get("hp"))
+        self.assertEqual(entry.get("hp"), maximum)
         self.assertEqual(entry["max_hp"], 44)
         entry.update(hp=12, max_hp=57)
         calc_seed_hp(state, "player", 7, 60)
@@ -231,11 +232,24 @@ class SnapshotTest(unittest.TestCase):
         calc_seed_hp(state, "player", 7, 10)
         self.assertEqual(entry["hp"], 0)
         enemy = calc_seed_hp(state, "enemy", 0, maximum)
-        self.assertIsNone(enemy.get("hp"))
+        self.assertEqual(enemy.get("hp"), maximum)
         self.assertEqual(enemy["max_hp"], 44)
         enemy["hp"] = 44
         calc_seed_hp(state, "enemy", 0, 50)
         self.assertEqual((enemy["hp"], enemy["max_hp"]), (44, 50))
+
+    def test_saved_unknown_hp_remains_unknown_while_max_hp_is_updated(self):
+        state = {"_preserve_unknown_hp": True, "player": {"7": {"hp": None}}}
+        entry = calc_seed_hp(state, "player", 7, 44)
+        self.assertIsNone(entry["hp"])
+        self.assertEqual(entry["max_hp"], 44)
+
+    def test_manual_unknown_hp_stays_blank_and_save_omits_runtime_marker(self):
+        state = {"state_origin": "manual-scenario", "_preserve_unknown_hp": True}
+        self.assertNotIn("hp", calc_seed_hp(state, "player", 7, 44))
+        with patch("planner_ui.st.session_state", {}):
+            saved = calc_snapshot(DATA, [], "TRAINER_TEST", [], state)
+        self.assertNotIn("_preserve_unknown_hp", saved["battle_state"])
 
     def test_explicit_battle_start_sets_full_hp_and_resets_history_rng(self):
         state = {"history": {"turns": [{"events": []}]},
@@ -321,7 +335,8 @@ class ConfigTest(unittest.TestCase):
         with patch("planner_ui.st.session_state", session):
             notice = calc_load_config(self.db, record, DATA, apply_party_slots, self.trainers)
         self.assertIn("no saved battle state", notice)
-        self.assertEqual(session["calc_battle_state"], {})
+        self.assertTrue(session["calc_battle_state"]["_preserve_unknown_hp"])
+        self.assertNotIn("player", session["calc_battle_state"])
         self.assertNotIn("calc_state_hp_p_7", session)
         self.assertNotIn("calc_state_status_p_7", session)
         self.assertIsNone(session["calc_battle_state"].get("history"))
@@ -425,6 +440,11 @@ class CardTest(unittest.TestCase):
         self.assertIn("400 samples", markup)
         self.assertIn("95% interval 2–25%", markup)
         self.assertIn("paired-rom-sampler-v1", markup)
+
+    def test_engine_fixed_seed_card_names_compiled_engine(self):
+        for kind in ("player_moves", "enemy_moves", "ai_actions", "recommendation"):
+            markup = calc_result_card("Result", kind, {"status": "engine-fixed-seed"})
+            self.assertIn("Compiled game engine", markup)
 
     def test_unavailable_v2_result_has_specific_reason(self):
         markup = calc_result_card("AI action", "ai_actions",
