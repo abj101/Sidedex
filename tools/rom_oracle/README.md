@@ -1,6 +1,6 @@
 # Pinned pokeemerald AI oracle
 
-This directory pins the ROM source and carries a one-turn smart-AI trace fixture plus a small overlay for the upstream battle test runner. The overlay emits test-only trace events; it does not change the release ROM or Sidedex runtime dependencies. The checked-in release ROM hash is a build identity, not evidence that the release ROM itself emits this trace. Trace capture currently uses `pokeemerald-test-headless.elf`.
+This directory pins the ROM source and carries a deterministic smart-AI battle fixture with test-only trace hooks. The release ROM hash is a build identity. The trace is emitted by the separate upstream test ELF, `pokeemerald-test-headless.elf`; no release-ROM trace parity is claimed. The hook patch compiles only for the test build.
 
 ## Pin and build
 
@@ -34,13 +34,13 @@ The verified build used `arm-none-eabi-gcc 13.2.1` on Ubuntu 24.04. The source M
 
 ## Run the targeted oracle
 
-From a Python 3 environment with `pytest` for the unit test, run the oracle under WSL/Linux. The runner refuses any source revision other than the pin, overlays the fixture and trace hooks, runs the selected ROM test, executes mGBA headlessly, and checks the captured trace against `expected_trace.json`:
+Run under WSL/Linux with Python 3 and `pytest` available for the parser tests:
 
 ```sh
 python3 tools/rom_oracle/run_trace.py --source /home/$USER/pokeemerald-oracle
 ```
 
-The generated trace ELF is built by upstream `make check`. The selected test must report exactly 1 passing test. The test-only instrumentation is applied by `trace_hooks.patch` and reports ability popups, chosen move/switch callbacks, HP/status callbacks, a two-active-battler snapshot after the turn, and the main RNG state. No fixed RAM address is exposed by this source hook.
+The runner requires the exact source commit, refuses unrelated dirty paths, and verifies the source diff against `trace_hooks.patch` before building. It installs the fixture into the disposable checkout, runs upstream `make check` with the single test selected, checks both generated test ELF hashes, executes mGBA headlessly, byte-compares the raw records with `expected_trace.raw.txt`, then compares parsed state with `expected_trace.json`. The selected test must report exactly one pass.
 
 An existing upstream smart-switch test is also a useful regression gate after the overlay is applied:
 
@@ -51,6 +51,10 @@ make -j4 check TESTS="AI_FLAG_SMART_SWITCHING: AI will switch out if it can't de
 
 At the recorded pin this test passes its 2 parametrizations. The broad upstream `make check` was started but stopped after roughly 2,604 status lines; it had unrelated failures and no aggregate result. It is not represented as green by this gate.
 
-## Trace scope
+## Trace contents and boundary
 
-The initial fixed-seed trace uses Bulbasaur versus Charmander with Heatran on the opponent's bench. It records Intimidate, Will-O-Wisp, Tackle, the HP change, and the AI's selected switch to opponent party slot 1. The test runner's post-turn snapshot still shows Charmander active even though the switch callback selected slot 1; the switch selection is a decision event, not proof that the bench member finished entering. The snapshot contains only both active battlers' species, HP, status, ability, Attack stage, moves, and PP, plus the main RNG tuple. It omits full party state, volatile battle state, secondary RNG streams, and post-switch state. This is a deterministic integration slice, not the complete calculation contract or a full replay surface.
+The fixture runs two turns with Bulbasaur, Charmander, and bench Heatran. Its turn-indexed events include Intimidate, the player's Will-O-Wisp, Charmander's Tackle and HP loss, the AI selecting opponent party slot 1, the player's next move selection, the settled switch-in, and Heatran's subsequent Tackle. The `switch-settled` hook runs immediately after upstream `SwitchInClearSetData`; it records battler 1 as species 485 (Heatran). The upstream party-order mapping reports that active battler as internal party index 0 after selecting slot 1, so the settled species and full party snapshot are included to disambiguate it.
+
+At switch settlement and after the next turn, the trace records all six party slots per side (readable battle fields plus chunked raw `struct Pokemon` bytes), active `BattlePokemon` state (readable combat fields plus raw bytes), `DisableStruct`, `ProtectStruct`, `SpecialStatus`, side timers, field/weather values, and both RNG streams. Raw records are pinned-build byte layouts intended for exact comparisons; their meaning depends on the source commit and toolchain pin. `run_trace.py` compares all 170 newline-delimited records byte-for-byte with the raw capture (SHA-256 `e4051f1eb74a2dc61089c0bf15cf98a5472ad3b985a19f178235dfb98ae38034`) and compares their parsed state with the JSON capture. The generated test ELF and headless ELF hashes are also pinned in `pinned_source.json`.
+
+The trace does not snapshot every global byte or prove that the release ROM follows the same path. It is a deterministic, broad state capture for this bounded test scenario, not a full RAM snapshot, universal replay format, or the complete calculation contract.

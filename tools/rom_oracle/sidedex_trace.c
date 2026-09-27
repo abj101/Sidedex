@@ -11,6 +11,7 @@ AI_SINGLE_BATTLE_TEST("Sidedex oracle: deterministic smart AI trace")
         OPPONENT(SPECIES_HEATRAN) { Level(50); Speed(80); Ability(ABILITY_FLASH_FIRE); Moves(MOVE_TACKLE); }
     } WHEN {
         TURN { MOVE(player, MOVE_WILL_O_WISP, hit: TRUE); EXPECT_MOVE(opponent, MOVE_TACKLE); }
+        TURN { MOVE(player, MOVE_WILL_O_WISP, hit: TRUE); EXPECT_SWITCH(opponent, 1); }
     } SCENE {
     }
 }

@@ -1,14 +1,1807 @@
 {
   "events": [
-    {"type": "ability", "battler": 1, "ability": 22},
-    {"type": "action", "battler": 0, "action": "move", "move": 261, "target": 1},
-    {"type": "action", "battler": 1, "action": "move", "move": 33, "target": 0},
-    {"type": "hp", "battler": 0, "old_hp": 105, "new_hp": 88},
-    {"type": "action", "battler": 1, "action": "switch", "party_index": 1}
+    {
+      "type": "ability",
+      "turn": 0,
+      "battler": 1,
+      "ability": 22
+    },
+    {
+      "type": "action",
+      "turn": 0,
+      "battler": 0,
+      "action": "move",
+      "move": 261,
+      "target": 1
+    },
+    {
+      "type": "action",
+      "turn": 0,
+      "battler": 1,
+      "action": "move",
+      "move": 33,
+      "target": 0
+    },
+    {
+      "type": "hp",
+      "turn": 0,
+      "battler": 0,
+      "old_hp": 105,
+      "new_hp": 88
+    },
+    {
+      "type": "action",
+      "turn": 1,
+      "battler": 1,
+      "action": "switch",
+      "party_index": 1
+    },
+    {
+      "type": "action",
+      "turn": 1,
+      "battler": 0,
+      "action": "move",
+      "move": 261,
+      "target": 1
+    },
+    {
+      "type": "switch-settled",
+      "turn": 1,
+      "battler": 1,
+      "party_index": 0,
+      "species": 485
+    },
+    {
+      "type": "action",
+      "turn": 2,
+      "battler": 1,
+      "action": "move",
+      "move": 33,
+      "target": 0
+    }
   ],
-  "final_state": [
-    {"battler": 0, "species": 1, "hp": 88, "max_hp": 105, "status1": 0, "ability": 65, "attack_stage": 5, "moves": [261, 0, 0, 0], "pp": [14, 10, 5, 15]},
-    {"battler": 1, "species": 4, "hp": 99, "max_hp": 99, "status1": 0, "ability": 22, "attack_stage": 6, "moves": [33, 0, 0, 0], "pp": [34, 15, 15, 5]}
+  "phases": [
+    {
+      "turn": 1,
+      "phase": "switch-settled"
+    },
+    {
+      "turn": 2,
+      "phase": "after-turn"
+    }
   ],
-  "rng": [-941908513, -1199513784, 1513372196, 6]
+  "fields": [
+    {
+      "turn": 1,
+      "battle_type_flags": 16777228,
+      "weather": 0
+    },
+    {
+      "turn": 2,
+      "battle_type_flags": 16777228,
+      "weather": 0
+    }
+  ],
+  "party": [
+    {
+      "turn": 1,
+      "side": 0,
+      "slot": 0,
+      "species": 1,
+      "hp": 88,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        261,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        14,
+        10,
+        5
+      ]
+    },
+    {
+      "turn": 1,
+      "side": 0,
+      "slot": 1,
+      "species": 0,
+      "hp": 0,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "turn": 1,
+      "side": 0,
+      "slot": 2,
+      "species": 0,
+      "hp": 0,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "turn": 1,
+      "side": 0,
+      "slot": 3,
+      "species": 0,
+      "hp": 0,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "turn": 1,
+      "side": 0,
+      "slot": 4,
+      "species": 0,
+      "hp": 0,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "turn": 1,
+      "side": 0,
+      "slot": 5,
+      "species": 0,
+      "hp": 0,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "turn": 1,
+      "side": 1,
+      "slot": 0,
+      "species": 4,
+      "hp": 99,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        33,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        34,
+        15,
+        15
+      ]
+    },
+    {
+      "turn": 1,
+      "side": 1,
+      "slot": 1,
+      "species": 485,
+      "hp": 151,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        33,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        35,
+        5,
+        5
+      ]
+    },
+    {
+      "turn": 1,
+      "side": 1,
+      "slot": 2,
+      "species": 0,
+      "hp": 0,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "turn": 1,
+      "side": 1,
+      "slot": 3,
+      "species": 0,
+      "hp": 0,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "turn": 1,
+      "side": 1,
+      "slot": 4,
+      "species": 0,
+      "hp": 0,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "turn": 1,
+      "side": 1,
+      "slot": 5,
+      "species": 0,
+      "hp": 0,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "turn": 2,
+      "side": 0,
+      "slot": 0,
+      "species": 1,
+      "hp": 88,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        261,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        13,
+        10,
+        5
+      ]
+    },
+    {
+      "turn": 2,
+      "side": 0,
+      "slot": 1,
+      "species": 0,
+      "hp": 0,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "turn": 2,
+      "side": 0,
+      "slot": 2,
+      "species": 0,
+      "hp": 0,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "turn": 2,
+      "side": 0,
+      "slot": 3,
+      "species": 0,
+      "hp": 0,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "turn": 2,
+      "side": 0,
+      "slot": 4,
+      "species": 0,
+      "hp": 0,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "turn": 2,
+      "side": 0,
+      "slot": 5,
+      "species": 0,
+      "hp": 0,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "turn": 2,
+      "side": 1,
+      "slot": 0,
+      "species": 4,
+      "hp": 99,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        33,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        34,
+        15,
+        15
+      ]
+    },
+    {
+      "turn": 2,
+      "side": 1,
+      "slot": 1,
+      "species": 485,
+      "hp": 151,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        33,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        35,
+        5,
+        5
+      ]
+    },
+    {
+      "turn": 2,
+      "side": 1,
+      "slot": 2,
+      "species": 0,
+      "hp": 0,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "turn": 2,
+      "side": 1,
+      "slot": 3,
+      "species": 0,
+      "hp": 0,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "turn": 2,
+      "side": 1,
+      "slot": 4,
+      "species": 0,
+      "hp": 0,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "turn": 2,
+      "side": 1,
+      "slot": 5,
+      "species": 0,
+      "hp": 0,
+      "status1": 0,
+      "item": 0,
+      "ability_num": 0,
+      "moves": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "active": [
+    {
+      "turn": 1,
+      "battler": 0,
+      "party_index": 0,
+      "species": 1,
+      "hp": 88,
+      "max_hp": 105,
+      "status1": 0,
+      "status2": 0,
+      "status3": 0,
+      "ability": 65,
+      "item": 0,
+      "stat_stages": [
+        6,
+        5,
+        6,
+        6,
+        6,
+        6,
+        6
+      ],
+      "moves": [
+        261,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        14,
+        10,
+        5,
+        15
+      ],
+      "types": [
+        13,
+        4,
+        10
+      ]
+    },
+    {
+      "turn": 1,
+      "battler": 1,
+      "party_index": 0,
+      "species": 485,
+      "hp": 151,
+      "max_hp": 151,
+      "status1": 0,
+      "status2": 0,
+      "status3": 0,
+      "ability": 18,
+      "item": 0,
+      "stat_stages": [
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6
+      ],
+      "moves": [
+        33,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        35,
+        5,
+        5,
+        5
+      ],
+      "types": [
+        11,
+        9,
+        10
+      ]
+    },
+    {
+      "turn": 2,
+      "battler": 0,
+      "party_index": 0,
+      "species": 1,
+      "hp": 88,
+      "max_hp": 105,
+      "status1": 0,
+      "status2": 0,
+      "status3": 0,
+      "ability": 65,
+      "item": 0,
+      "stat_stages": [
+        6,
+        5,
+        6,
+        6,
+        6,
+        6,
+        6
+      ],
+      "moves": [
+        261,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        13,
+        10,
+        5,
+        15
+      ],
+      "types": [
+        13,
+        4,
+        10
+      ]
+    },
+    {
+      "turn": 2,
+      "battler": 1,
+      "party_index": 0,
+      "species": 485,
+      "hp": 151,
+      "max_hp": 151,
+      "status1": 0,
+      "status2": 0,
+      "status3": 0,
+      "ability": 18,
+      "item": 0,
+      "stat_stages": [
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6
+      ],
+      "moves": [
+        33,
+        0,
+        0,
+        0
+      ],
+      "pp": [
+        35,
+        5,
+        5,
+        5
+      ],
+      "types": [
+        11,
+        9,
+        10
+      ]
+    }
+  ],
+  "blobs": [
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 0,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "ff14000000000000bce9e0d6d5e7d5e9e6ff020200000000000000008fa81100"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 0,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "ff13e401ff140000ff140000ff140000ff140000ff140000fa150000ff140000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 0,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "f11e050ffe7c00008fdee11aff2241020000000032ff58006900360036009600"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 0,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "46004600"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 1,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 1,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 1,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 1,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "00000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 2,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 2,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 2,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 2,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "00000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 3,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 3,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 3,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 3,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "00000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 4,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 4,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 4,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 4,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "00000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 5,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 5,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 5,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 5,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "00000000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 0,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "ff14000000000000bddcd5e6e1d5e2d8d9e602020000000000000000cc930000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 0,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "ff13e401ff140000ff140000ff140000ff140000ff140000de140000ff140000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 0,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "dd1b0f05fb4c00008fdee11fff2641020000000032ff63006300390030004600"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 0,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "41003700"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 1,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "ff14000000000000c2d9d5e8e6d5e2ff0054020200000000000000008f500000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 1,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "ff13e401ff140000ff140000ff140000ff140000ff140000de140000ff140000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 1,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "dc1105051a4d0000a576e21aff7041020000000032ff970097005f006f005000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 1,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "87006f00"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 2,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 2,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 2,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 2,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "00000000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 3,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 3,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 3,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 3,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "00000000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 4,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 4,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 4,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 4,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "00000000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 5,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 5,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 5,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 5,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "00000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 0,
+      "kind": "battle-mon",
+      "chunk": 0,
+      "hex": "0100360036009600460046000501000000000000000000000605060606060606"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 0,
+      "kind": "battle-mon",
+      "chunk": 1,
+      "hex": "41000d040a0e0a050f005800323669000000bce9e0d6d5e7d5e9e6ff02030400"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 0,
+      "kind": "battle-mon",
+      "chunk": 2,
+      "hex": "00000000000000ff70ca0100ff14000000000000000000000000000064000025"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 0,
+      "kind": "disable",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 0,
+      "kind": "disable",
+      "chunk": 1,
+      "hex": "0000001f00000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 0,
+      "kind": "protect",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 0,
+      "index": 0,
+      "kind": "special",
+      "chunk": 0,
+      "hex": "000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 0,
+      "kind": "battle-mon",
+      "chunk": 0,
+      "hex": "e5015f006f00500087006f002100000000000000000000000606060606060606"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 0,
+      "kind": "battle-mon",
+      "chunk": 1,
+      "hex": "12000b090a23050505009700326497000000c2d9d5e8e6d5e2ff3c0815140700"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 0,
+      "kind": "battle-mon",
+      "chunk": 2,
+      "hex": "00000000000000ff5a620200ff14000000000000000000000000000064000020"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 0,
+      "kind": "disable",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000020000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 0,
+      "kind": "disable",
+      "chunk": 1,
+      "hex": "0000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 0,
+      "kind": "protect",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 1,
+      "index": 0,
+      "kind": "special",
+      "chunk": 0,
+      "hex": "000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 2,
+      "index": 0,
+      "kind": "side-timer",
+      "chunk": 0,
+      "hex": "000000000000000000000000ff00000000000000000000000000000000000000"
+    },
+    {
+      "turn": 1,
+      "owner": 2,
+      "index": 1,
+      "kind": "side-timer",
+      "chunk": 0,
+      "hex": "000000000000000000000000ff00000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 0,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "ff14000000000000bce9e0d6d5e7d5e9e6ff020200000000000000008ea81100"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 0,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "ff13e401ff140000ff140000ff140000ff140000ff140000fa150000ff140000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 0,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "f21e050ffe7c00008fdee11aff2241020000000032ff58006900360036009600"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 0,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "46004600"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 1,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 1,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 1,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 1,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "00000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 2,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 2,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 2,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 2,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "00000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 3,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 3,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 3,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 3,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "00000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 4,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 4,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 4,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 4,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "00000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 5,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 5,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 5,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 5,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "00000000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 0,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "ff14000000000000bddcd5e6e1d5e2d8d9e602020000000000000000cc930000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 0,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "ff13e401ff140000ff140000ff140000ff140000ff140000de140000ff140000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 0,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "dd1b0f05fb4c00008fdee11fff2641020000000032ff63006300390030004600"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 0,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "41003700"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 1,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "ff14000000000000c2d9d5e8e6d5e2ff0054020200000000000000008f500000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 1,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "ff13e401ff140000ff140000ff140000ff140000ff140000de140000ff140000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 1,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "dc1105051a4d0000a576e21aff7041020000000032ff970097005f006f005000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 1,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "87006f00"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 2,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 2,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 2,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 2,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "00000000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 3,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 3,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 3,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 3,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "00000000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 4,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 4,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 4,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 4,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "00000000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 5,
+      "kind": "party-raw",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 5,
+      "kind": "party-raw",
+      "chunk": 1,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 5,
+      "kind": "party-raw",
+      "chunk": 2,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 5,
+      "kind": "party-raw",
+      "chunk": 3,
+      "hex": "00000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 0,
+      "kind": "battle-mon",
+      "chunk": 0,
+      "hex": "0100360036009600460046000501000000000000000000000605060606060606"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 0,
+      "kind": "battle-mon",
+      "chunk": 1,
+      "hex": "41000d040a0d0a050f005800323669000000bce9e0d6d5e7d5e9e6ff02030400"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 0,
+      "kind": "battle-mon",
+      "chunk": 2,
+      "hex": "00000000000000ff70ca0100ff14000000000000000000000000000064000025"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 0,
+      "kind": "disable",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 0,
+      "kind": "disable",
+      "chunk": 1,
+      "hex": "0000001f00000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 0,
+      "kind": "protect",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 0,
+      "index": 0,
+      "kind": "special",
+      "chunk": 0,
+      "hex": "000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 0,
+      "kind": "battle-mon",
+      "chunk": 0,
+      "hex": "e5015f006f00500087006f002100000000000000000000000606060606060606"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 0,
+      "kind": "battle-mon",
+      "chunk": 1,
+      "hex": "12000b090a23050505009700326497000000c2d9d5e8e6d5e2ff3c0815140700"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 0,
+      "kind": "battle-mon",
+      "chunk": 2,
+      "hex": "00000000000000ff5a620200ff14000000000000000000000000000064000020"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 0,
+      "kind": "disable",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000000000010000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 0,
+      "kind": "disable",
+      "chunk": 1,
+      "hex": "0000000f00000000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 0,
+      "kind": "protect",
+      "chunk": 0,
+      "hex": "0000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 1,
+      "index": 0,
+      "kind": "special",
+      "chunk": 0,
+      "hex": "000000000000000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 2,
+      "index": 0,
+      "kind": "side-timer",
+      "chunk": 0,
+      "hex": "000000000000000000000000ff00000000000000000000000000000000000000"
+    },
+    {
+      "turn": 2,
+      "owner": 2,
+      "index": 1,
+      "kind": "side-timer",
+      "chunk": 0,
+      "hex": "000000000000000000000000ff00000000000000000000000000000000000000"
+    }
+  ],
+  "rng": [
+    {
+      "turn": 1,
+      "main": [
+        -941908513,
+        -1199513784,
+        1513372196,
+        6
+      ],
+      "secondary": [
+        -1722918098,
+        433879038,
+        187326948,
+        493
+      ]
+    },
+    {
+      "turn": 2,
+      "main": [
+        734257217,
+        -333061804,
+        1531660138,
+        8
+      ],
+      "secondary": [
+        -1722918098,
+        433879038,
+        187326948,
+        493
+      ]
+    }
+  ]
 }

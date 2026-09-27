@@ -4,12 +4,16 @@
   "rom_sha256": "0CCAAAD0878A9CBFB36FBEFFF800E9B6DD66055924B7595038EDE1E8771EC5A2",
   "build": {
     "make_target": "rom",
-    "flags": ["MODERN=1"],
+    "flags": [
+      "MODERN=1"
+    ],
     "arm_none_eabi_gcc": "13.2.1",
     "poryscript_version": "3.6.1",
     "poryscript_commit": "d9bc56bc84db479dc14c872a5b65e1e773fce69b"
   },
   "trace_test": "Sidedex oracle: deterministic smart AI trace",
-  "trace_rom": "pokeemerald-test-headless.elf"
+  "trace_rom": "pokeemerald-test-headless.elf",
+  "test_elf_sha256": "846f60cf129b6af77444f781e204e7174d86a81830a7313d3c275511c693a0c7",
+  "test_headless_elf_sha256": "44bdbe5aa7a071064a1dca20c411b0e3ab56c8e4d8fca00857f3b50d56c5bd93",
+  "raw_trace_sha256": "e4051f1eb74a2dc61089c0bf15cf98a5472ad3b985a19f178235dfb98ae38034"
 }
-

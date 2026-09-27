@@ -1,11 +1,24 @@
+diff --git a/include/test_runner.h b/include/test_runner.h
+index f61f26b66e..c363bcdbe5 100644
+--- a/include/test_runner.h
++++ b/include/test_runner.h
+@@ -18,0 +19 @@ void TestRunner_Battle_CheckSwitch(u32 battlerId, u32 partyIndex);
++void TestRunner_Battle_TraceSwitchSettled(u32 battlerId);
+@@ -39,0 +41 @@ u32 TestRunner_Battle_GetChosenGimmick(u32 side, u32 partyIndex);
++#define TestRunner_Battle_TraceSwitchSettled(...) (void)0
+diff --git a/src/battle_script_commands.c b/src/battle_script_commands.c
+index 39cc0803bb..0895e8c9e4 100644
+--- a/src/battle_script_commands.c
++++ b/src/battle_script_commands.c
+@@ -4,0 +5 @@
++#include "test_runner.h"
+@@ -7056,0 +7058 @@ static void Cmd_switchindataupdate(void)
++    TestRunner_Battle_TraceSwitchSettled(battler);
 diff --git a/test/test_runner_battle.c b/test/test_runner_battle.c
-index 4b4efed49f..f7366912c3 100644
+index 4b4efed49f..eb422b2c3b 100644
 --- a/test/test_runner_battle.c
 +++ b/test/test_runner_battle.c
-@@ -54,6 +54,34 @@ static void PushBattlerAction(u32 sourceLine, s32 battlerId, u32 actionType, u32
- static void PrintAiMoveLog(u32 battlerId, u32 moveSlot, u32 moveId, s32 totalScore);
- static void ClearAiLog(u32 battlerId);
- static const char *BattlerIdentifier(s32 battlerId);
+@@ -56,0 +57,83 @@ static const char *BattlerIdentifier(s32 battlerId);
 +static bool32 SidedexOracleTraceActive(void)
 +{
 +    static const u8 expected[] = "Sidedex oracle: deterministic smart AI trace";
@@ -20,80 +33,103 @@ index 4b4efed49f..f7366912c3 100644
 +    return expected[i] == 0 && actual[i] == 0;
 +}
 +
-+static void SidedexOracleTraceFinalState(void)
++static void SidedexOracleTraceBlob(u32 turn, u32 owner, u32 index, const char *kind, const void *data, u32 size)
 +{
-+    u32 battler;
++    static const char digits[] = "0123456789abcdef";
++    const u8 *bytes = data;
++    char hex[65];
++    u32 offset, i, count;
 +
-+    for (battler = 0; battler < 2; battler++)
++    for (offset = 0; offset < size; offset += 32)
++    {
++        count = min(32, size - offset);
++        for (i = 0; i < count; i++)
++        {
++            hex[i * 2] = digits[bytes[offset + i] >> 4];
++            hex[i * 2 + 1] = digits[bytes[offset + i] & 0xF];
++        }
++        hex[count * 2] = '\0';
++        Test_MgbaPrintf("ROMTRACE|blob|%d|%d|%d|%s|%d|%s", turn, owner, index, kind, offset / 32, hex);
++    }
++}
++
++static void SidedexOracleTraceSnapshot(const char *phase)
++{
++    u32 battler, side, slot;
++    struct Pokemon *party;
++    u32 turn = gBattleResults.battleTurnCounter;
++
++    Test_MgbaPrintf("ROMTRACE|phase|%d|%s", turn, phase);
++    Test_MgbaPrintf("ROMTRACE|field|%d|%d|%d", turn, gBattleTypeFlags, gBattleWeather);
++    for (side = 0; side < NUM_BATTLE_SIDES; side++)
++    {
++        party = side == B_SIDE_PLAYER ? gPlayerParty : gEnemyParty;
++        for (slot = 0; slot < PARTY_SIZE; slot++)
++        {
++            struct Pokemon *mon = &party[slot];
++            Test_MgbaPrintf("ROMTRACE|party|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
++                            turn, side, slot,
++                            GetMonData(mon, MON_DATA_SPECIES, NULL), GetMonData(mon, MON_DATA_HP, NULL),
++                            GetMonData(mon, MON_DATA_STATUS, NULL), GetMonData(mon, MON_DATA_HELD_ITEM, NULL),
++                            GetMonData(mon, MON_DATA_ABILITY_NUM, NULL),
++                            GetMonData(mon, MON_DATA_MOVE1, NULL), GetMonData(mon, MON_DATA_MOVE2, NULL),
++                            GetMonData(mon, MON_DATA_MOVE3, NULL), GetMonData(mon, MON_DATA_MOVE4, NULL),
++                            GetMonData(mon, MON_DATA_PP1, NULL), GetMonData(mon, MON_DATA_PP2, NULL),
++                            GetMonData(mon, MON_DATA_PP3, NULL), GetMonData(mon, MON_DATA_PP4, NULL));
++            SidedexOracleTraceBlob(turn, side, slot, "party-raw", mon, sizeof(*mon));
++        }
++    }
++    for (battler = 0; battler < gBattlersCount; battler++)
 +    {
 +        const struct BattlePokemon *mon = &gBattleMons[battler];
-+        Test_MgbaPrintf("ROMTRACE|final|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
-+                        battler, mon->species, mon->hp, mon->maxHP, mon->status1, mon->ability,
-+                        mon->statStages[STAT_ATK], mon->moves[0], mon->moves[1], mon->moves[2], mon->moves[3],
-+                        mon->pp[0], mon->pp[1], mon->pp[2], mon->pp[3]);
++        Test_MgbaPrintf("ROMTRACE|active|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
++                        turn, battler, gBattleStruct->battlerPartyIndexes[battler],
++                        mon->species, mon->hp, mon->maxHP, mon->status1, mon->status2, gStatuses3[battler],
++                        mon->ability, mon->item,
++                        mon->statStages[0], mon->statStages[1], mon->statStages[2], mon->statStages[3],
++                        mon->statStages[4], mon->statStages[5], mon->statStages[6],
++                        mon->moves[0], mon->moves[1], mon->moves[2], mon->moves[3],
++                        mon->pp[0], mon->pp[1], mon->pp[2], mon->pp[3],
++                        mon->types[0], mon->types[1], mon->types[2]);
++        SidedexOracleTraceBlob(turn, battler, 0, "battle-mon", mon, sizeof(*mon));
++        SidedexOracleTraceBlob(turn, battler, 0, "disable", &gDisableStructs[battler], sizeof(gDisableStructs[battler]));
++        SidedexOracleTraceBlob(turn, battler, 0, "protect", &gProtectStructs[battler], sizeof(gProtectStructs[battler]));
++        SidedexOracleTraceBlob(turn, battler, 0, "special", &gSpecialStatuses[battler], sizeof(gSpecialStatuses[battler]));
 +    }
-+    Test_MgbaPrintf("ROMTRACE|rng|%d|%d|%d|%d", gRngValue.a, gRngValue.b, gRngValue.c, gRngValue.ctr);
++    for (side = 0; side < NUM_BATTLE_SIDES; side++)
++        SidedexOracleTraceBlob(turn, 2, side, "side-timer", &gSideTimers[side], sizeof(gSideTimers[side]));
++    Test_MgbaPrintf("ROMTRACE|rng|%d|%d|%d|%d|%d|%d|%d|%d|%d",
++                    turn, gRngValue.a, gRngValue.b, gRngValue.c, gRngValue.ctr,
++                    gRng2Value.a, gRng2Value.b, gRng2Value.c, gRng2Value.ctr);
 +}
- 
- NAKED static void InvokeSingleTestFunctionWithStack(void *results, u32 i, struct BattlePokemon *player, struct BattlePokemon *opponent, SingleBattleTestFunction function, void *stack)
- {
-@@ -561,6 +589,8 @@ static s32 TryAbilityPopUp(s32 i, s32 n, u32 battlerId, u32 ability)
- 
- void TestRunner_Battle_RecordAbilityPopUp(u32 battlerId, u32 ability)
- {
+@@ -563,0 +647,2 @@ void TestRunner_Battle_RecordAbilityPopUp(u32 battlerId, u32 ability)
 +    if (SidedexOracleTraceActive())
-+        Test_MgbaPrintf("ROMTRACE|ability|%d|%d", battlerId, ability);
-     s32 queuedEvent;
-     s32 match;
-     struct QueuedEvent *event;
-@@ -714,6 +744,8 @@ static s32 TryHP(s32 i, s32 n, u32 battlerId, u32 oldHP, u32 newHP)
- 
- void TestRunner_Battle_RecordHP(u32 battlerId, u32 oldHP, u32 newHP)
- {
++        Test_MgbaPrintf("ROMTRACE|ability|%d|%d|%d", gBattleResults.battleTurnCounter, battlerId, ability);
+@@ -716,0 +802,2 @@ void TestRunner_Battle_RecordHP(u32 battlerId, u32 oldHP, u32 newHP)
 +    if (SidedexOracleTraceActive())
-+        Test_MgbaPrintf("ROMTRACE|hp|%d|%d|%d", battlerId, oldHP, newHP);
-     s32 queuedEvent;
-     s32 match;
-     struct QueuedEvent *event;
-@@ -779,6 +811,8 @@ static u32 CountAiExpectMoves(struct ExpectedAIAction *expectedAction, u32 battl
- 
- void TestRunner_Battle_CheckChosenMove(u32 battlerId, u32 moveId, u32 target)
- {
++        Test_MgbaPrintf("ROMTRACE|hp|%d|%d|%d|%d", gBattleResults.battleTurnCounter, battlerId, oldHP, newHP);
+@@ -781,0 +869,2 @@ void TestRunner_Battle_CheckChosenMove(u32 battlerId, u32 moveId, u32 target)
 +    if (SidedexOracleTraceActive())
-+        Test_MgbaPrintf("ROMTRACE|action|%d|move|%d|%d", battlerId, moveId, target);
-     const char *filename = gTestRunnerState.test->filename;
-     u32 id = DATA.trial.aiActionsPlayed[battlerId];
-     struct ExpectedAIAction *expectedAction = &DATA.expectedAiActions[battlerId][id];
-@@ -850,6 +884,8 @@ void TestRunner_Battle_CheckChosenMove(u32 battlerId, u32 moveId, u32 target)
- 
- void TestRunner_Battle_CheckSwitch(u32 battlerId, u32 partyIndex)
- {
++        Test_MgbaPrintf("ROMTRACE|action|%d|%d|move|%d|%d", gBattleResults.battleTurnCounter, battlerId, moveId, target);
+@@ -852,0 +942,2 @@ void TestRunner_Battle_CheckSwitch(u32 battlerId, u32 partyIndex)
 +    if (SidedexOracleTraceActive())
-+        Test_MgbaPrintf("ROMTRACE|action|%d|switch|%d", battlerId, partyIndex);
-     const char *filename = gTestRunnerState.test->filename;
-     u32 id = DATA.trial.aiActionsPlayed[battlerId];
-     struct ExpectedAIAction *expectedAction = &DATA.expectedAiActions[battlerId][id];
-@@ -1254,6 +1290,8 @@ static s32 TryStatus(s32 i, s32 n, u32 battlerId, u32 status1)
- 
- void TestRunner_Battle_RecordStatus1(u32 battlerId, u32 status1)
- {
-+    if (SidedexOracleTraceActive())
-+        Test_MgbaPrintf("ROMTRACE|status|%d|%d", battlerId, status1);
-     s32 queuedEvent;
-     s32 match;
-     struct QueuedEvent *event;
-@@ -1309,6 +1347,9 @@ void TestRunner_Battle_AfterLastTurn(void)
- {
-     const struct BattleTest *test = GetBattleTest();
- 
-+    if (SidedexOracleTraceActive())
-+        SidedexOracleTraceFinalState();
++        Test_MgbaPrintf("ROMTRACE|action|%d|%d|switch|%d", gBattleResults.battleTurnCounter, battlerId, partyIndex);
+@@ -872,0 +964,9 @@ void TestRunner_Battle_CheckSwitch(u32 battlerId, u32 partyIndex)
++void TestRunner_Battle_TraceSwitchSettled(u32 battlerId)
++{
++    if (!SidedexOracleTraceActive())
++        return;
++    Test_MgbaPrintf("ROMTRACE|switch-settled|%d|%d|%d|%d", gBattleResults.battleTurnCounter, battlerId,
++                    gBattleStruct->battlerPartyIndexes[battlerId], gBattleMons[battlerId].species);
++    SidedexOracleTraceSnapshot("switch-settled");
++}
 +
-     if (DATA.turns - 1 != DATA.trial.lastActionTurn)
-     {
-         const char *filename = gTestRunnerState.test->filename;
-@@ -2780,3 +2821,4 @@ void TestRunner_Battle_AIAdjustScore(const char *file, u32 line, u32 battlerId,
- {
-     TestRunner_Battle_AILogScore(file, line, battlerId, moveIndex, score, FALSE);
- }
+@@ -1256,0 +1357,2 @@ void TestRunner_Battle_RecordStatus1(u32 battlerId, u32 status1)
++    if (SidedexOracleTraceActive())
++        Test_MgbaPrintf("ROMTRACE|status|%d|%d|%d", gBattleResults.battleTurnCounter, battlerId, status1);
+@@ -1311,0 +1414,3 @@ void TestRunner_Battle_AfterLastTurn(void)
++    if (SidedexOracleTraceActive())
++        SidedexOracleTraceSnapshot("after-turn");
++
+@@ -2782,0 +2888 @@ void TestRunner_Battle_AIAdjustScore(const char *file, u32 line, u32 battlerId,
 +
