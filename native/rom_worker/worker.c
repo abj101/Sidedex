@@ -21,7 +21,7 @@
 #define PROTOCOL_VERSION 1
 #define MAX_REQUEST_BYTES 4096
 #define MAX_FRAMES_PER_REQUEST 100000
-#define MAX_TRACE_EVENTS 16
+#define MAX_TRACE_EVENTS 256
 #define MAX_TRACE_BYTES 512
 
 static struct mCore *s_core;

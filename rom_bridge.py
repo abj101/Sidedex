@@ -28,7 +28,8 @@ ROOT = Path(__file__).resolve().parent
 DEFAULT_SOURCE_LOCK = ROOT / "data" / "source_lock.json"
 DEFAULT_WORKER = ROOT / "native" / "rom_worker" / "build" / "mingw" / "rom_worker.exe"
 MAX_FRAMES_PER_REQUEST = 100_000
-MAX_MESSAGE_BYTES = 4096
+# 256 bounded trace events (up to 510 bytes each, JSON escaped) fit below 1 MiB.
+MAX_MESSAGE_BYTES = 1_048_576
 
 
 class RomBridgeError(RuntimeError):

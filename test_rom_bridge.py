@@ -18,17 +18,9 @@ PINNED_WORKER = Path(os.environ.get(
     ROOT / "native" / "rom_worker" / "build" / "mingw" / "rom_worker.exe",
 ))
 TRACE_ELF = Path(os.environ.get("SIDEDEX_TRACE_ELF_PATH", ""))
-TRACE_ELF_SHA256 = "5B14FD4BE4E14EF443D6288D3A5AC6AD8DD5D7524FD34ADAE1EAE2DA4A16E002"
-EXPECTED_TRACE = [
-    "ROMTRACE|ability|1|22",
-    "ROMTRACE|action|0|move|261|1",
-    "ROMTRACE|action|1|move|33|0",
-    "ROMTRACE|hp|0|105|88",
-    "ROMTRACE|action|1|switch|1",
-    "ROMTRACE|final|0|1|88|105|0|65|5|261|0|0|0|14|10|5|15",
-    "ROMTRACE|final|1|4|99|99|0|22|6|33|0|0|0|34|15|15|5",
-    "ROMTRACE|rng|-941908513|-1199513784|1513372196|6",
-]
+TRACE_ELF_SHA256 = "44BDBE5AA7A071064A1DCA20C411B0E3AB56C8E4D8FCA00857F3B50D56C5BD93"
+EXPECTED_TRACE_COUNT = 170
+EXPECTED_TRACE_LINES = ROOT / "tools" / "rom_oracle" / "expected_trace.raw.txt"
 
 
 class IdentityTests(unittest.TestCase):
@@ -66,6 +58,17 @@ class ProtocolTests(unittest.TestCase):
             rom_bridge._parse_reply('{"protocol":1,"ok":1}')
         with self.assertRaises(rom_bridge.WorkerProtocolError):
             rom_bridge._parse_reply('[]')
+
+    def test_reply_parser_accepts_bounded_large_trace_response(self):
+        reply = {
+            "protocol": rom_bridge.PROTOCOL_VERSION,
+            "ok": True,
+            "trace_events": ["ROMTRACE|" + "x" * 100 for _ in range(170)],
+            "trace_overflow": False,
+        }
+        wire = json.dumps(reply, separators=(",", ":"))
+        self.assertGreater(len(wire.encode("utf-8")), 4096)
+        self.assertEqual(len(rom_bridge._parse_reply(wire)["trace_events"]), 170)
 
     def test_worker_error_is_a_typed_error(self):
         with self.assertRaises(rom_bridge.WorkerResponseError) as raised:
@@ -145,11 +148,15 @@ time.sleep(3)
         ) as client:
             self.assertEqual(client.rom_sha256, TRACE_ELF_SHA256)
             events = []
-            for _ in range(20):
-                events.extend(client.run_frames(60)["trace_events"])
-                if events and events[-1].startswith("ROMTRACE|rng|"):
+            for _ in range(200):
+                response = client.run_frames(60)
+                self.assertIs(response["trace_overflow"], False)
+                events.extend(response["trace_events"])
+                if events and events[-1].startswith("ROMTRACE|rng|2|"):
                     break
-            self.assertEqual(events, EXPECTED_TRACE)
+            self.assertEqual(len(events), EXPECTED_TRACE_COUNT)
+            expected = EXPECTED_TRACE_LINES.read_bytes()
+            self.assertEqual(("\n".join(events) + "\n").encode("ascii"), expected)
 
 
 if __name__ == "__main__":
