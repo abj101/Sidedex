@@ -97,7 +97,7 @@
     "patch": "tools/rom_oracle/dynamic_request_v9.patch",
     "test_elf_sha256": "ebf37e1be08570184569098a2088bb58cf1948b8c91a6c5213db141ab77d7f35",
     "headless_elf_sha256": "04060ed874dbf36a51189c98f95ab4a9f8dcadf6dd6093f6ca56e268347d76d2",
-    "worker_sha256": "f7b1c1e366507d7dee4bfd6a69a3f025955ca8d7b7ff072450bab3270ede058f",
+    "worker_sha256": "dd6f1dd646d1b1aabcca9edb7f3c5cff3100a90fb8aaf0daa538264a953aae60",
     "release_neutral_sha256": "0CCAAAD0878A9CBFB36FBEFFF800E9B6DD66055924B7595038EDE1E8771EC5A2"
   }
 }
