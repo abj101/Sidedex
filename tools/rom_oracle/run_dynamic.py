@@ -17,16 +17,87 @@ from rom_bridge import RomWorkerClient  # noqa: E402
 
 
 MAGIC = 0x53445831  # SDX1
-VERSION = 7
+# Explicit operation field (contract section 7). v7 selects the query path with
+# the legacy `secondPresent == 2` byte; v8 adds these op codes at offset 856.
+OP_SIMULATE_TURN = 0
+OP_QUERY_DAMAGE = 1
+OP_QUERY_AI_ACTION = 2
+MODE_NORMAL = 0
+MODE_LOGIC_ONLY = 1
+CRITICAL_POLICY_NORMAL = 0
+CRITICAL_POLICY_ITEM_ABILITY_ONLY = 1
+OPERATIONS = {"simulate-turn": OP_SIMULATE_TURN, "query-damage": OP_QUERY_DAMAGE,
+              "query-ai-action": OP_QUERY_AI_ACTION}
+QUERY_OPERATIONS = (OP_QUERY_DAMAGE, OP_QUERY_AI_ACTION)
+V7_HEADER_BYTES = 856
+V8_EXTENSION_BYTES = 8
+SUPPORTED_PROTOCOL_VERSIONS = (7, 8)
 SUBMITTED = 1
-MAILBOX_BYTES = 856
 SECOND_ACTION_OFFSET = 836
 SECOND_PRESENT_OFFSET = 842
+V8_EXTENSION_OFFSET = 856
 MAX_TRACE_RECORDS = 256
 ID_MAP = json.loads((Path(__file__).with_name("numeric_id_map.json")).read_text(encoding="utf-8"))
 PIN = json.loads((Path(__file__).with_name("pinned_source.json")).read_text(encoding="utf-8"))
 if ID_MAP.get("source_sha") != PIN["source_commit"]:
     raise RuntimeError("artifact-mismatch: numeric ID map is for a different source commit")
+
+
+def mailbox_bytes(protocol_version: int) -> int:
+    """Contract Appendix A: v7 is 856 bytes, v8 appends eight bytes."""
+    if protocol_version == 7:
+        return V7_HEADER_BYTES
+    if protocol_version == 8:
+        return V7_HEADER_BYTES + V8_EXTENSION_BYTES
+    raise ValueError(
+        f"unsupported-protocol-version: {protocol_version!r} is not a known mailbox layout")
+
+
+PINNED_PROTOCOL_VERSION = int(PIN["dynamic_oracle"]["protocol_version"])
+# Backwards-compatible aliases: both follow the pin, so flipping the pin to 8
+# switches the encoder to the v8 layout with no code change.
+VERSION = PINNED_PROTOCOL_VERSION
+MAILBOX_BYTES = mailbox_bytes(PINNED_PROTOCOL_VERSION)
+
+
+def _protocol_version(protocol_version: int | None) -> int:
+    value = PINNED_PROTOCOL_VERSION if protocol_version is None else protocol_version
+    if type(value) is not int or value not in SUPPORTED_PROTOCOL_VERSIONS:
+        raise ValueError(f"unsupported-protocol-version: {value!r}")
+    return value
+
+
+def operation(request: dict) -> int:
+    """Explicit op, defaulting the legacy `query`/`post_switch_query` flags to QUERY_DAMAGE."""
+    name = request.get("operation")
+    if name is None:
+        if request.get("query") or request.get("post_switch_query"):
+            return OP_QUERY_DAMAGE
+        return OP_SIMULATE_TURN
+    if name not in OPERATIONS:
+        raise ValueError(f"invalid-id: unknown operation {name!r}")
+    return OPERATIONS[name]
+
+
+def is_query(request: dict) -> bool:
+    return operation(request) in QUERY_OPERATIONS
+
+
+def _mode(request: dict) -> int:
+    mode = request.get("mode", "normal")
+    if mode == "normal":
+        return MODE_NORMAL
+    if mode == "logic-only":
+        return MODE_LOGIC_ONLY
+    raise ValueError(f"unsupported-mechanic: unknown execution mode {mode!r}")
+
+
+def _critical_policy(request: dict) -> int:
+    policy = request.get("critical_policy", "item-ability-only")
+    if policy != "item-ability-only":
+        raise ValueError("unsupported-policy: only item-ability-only critical policy is supported")
+    return CRITICAL_POLICY_ITEM_ABILITY_ONLY
+
 
 # TOXIC_COUNTER is a mask inside status1, not a selectable standalone status.
 _STATUS1_VALUES = {0, *range(1, 8), 8, 16, 32, 64, 128, 4096}
@@ -54,15 +125,24 @@ def _ints(values, count: int, maximum: int) -> list[int]:
     return values
 
 
-def encode_request(request: dict) -> bytes:
+def encode_request(request: dict, protocol_version: int | None = None) -> bytes:
     """Encode a six-slot trainer-single state and optional query controls.
+
+    `protocol_version` defaults to the pinned protocol from `pinned_source.json`.
+    Version 7 writes the 856-byte v7 mailbox (query via `secondPresent == 2`);
+    version 8 appends op/mode/criticalPolicy/requestId at offset 856 for an
+    864-byte request. Both layouts share the v7 field offsets.
     """
+    version = _protocol_version(protocol_version)
+    query = is_query(request)
+    op = operation(request)
+    mode = _mode(request)
+    policy = _critical_policy(request)
+    request_id = _ints([request.get("request_id", 0)], 1, 0xFFFF)[0]
     for side in ("player", "opponent"):
         active_index = request.get(f"{side}_active_index", 0)
         if type(active_index) is not int or active_index != 0:
             raise ValueError(f"incomplete-state: {side} active index must be slot 0")
-    if request.get("critical_policy", "item-ability-only") != "item-ability-only":
-        raise ValueError("unsupported-policy: only item-ability-only critical policy is supported")
     ai_flags = request["ai_flags"]
     if isinstance(ai_flags, list):
         ai_flags = _ai_flags(ai_flags)
@@ -119,13 +199,12 @@ def encode_request(request: dict) -> bytes:
         if second_kind == 0 and second_move not in [
                 numeric_id("moves", value) for value in active["moves"]]:
             raise ValueError("no-legal-actions: second move is not in the active player moves")
-    header = struct.pack("<IHHI4H8I2H", MAGIC, VERSION, SUBMITTED, ai_flags,
+    header = struct.pack("<IHHI4H8I2H", MAGIC, version, SUBMITTED, ai_flags,
                          kind, move, slot, len(replay), *rng, *counts)
     payload = header + b"".join(sides)
     payload += struct.pack("<6H", *player_replay, *opponent_replay)
     payload += struct.pack("<4H", second_kind, second_move, second_slot,
-                           2 if request.get("query") or request.get("post_switch_query")
-                           else (0 if second is None else 1))
+                           2 if query else (0 if second is None else 1))
     item_ids = []
     for item_id, count in (request.get("trainer_items") or {}).items():
         if type(count) is not int or count < 0:
@@ -135,7 +214,9 @@ def encode_request(request: dict) -> bytes:
         raise ValueError("incomplete-state: a trainer can use at most four item slots")
     item_ids += [0] * (4 - len(item_ids))
     payload += struct.pack("<6H", *item_ids, sum(1 for value in item_ids if value), 0)
-    assert len(payload) == MAILBOX_BYTES
+    if version >= 8:
+        payload += struct.pack("<4H", op, mode, policy, request_id)
+    assert len(payload) == mailbox_bytes(version)
     return payload
 
 
@@ -203,11 +284,15 @@ def _trace(reply: dict) -> list[str]:
     return trace
 
 
-def run_turn(elf: Path, sha256: str, request: dict) -> list[str]:
-    expected_elf = PIN["dynamic_oracle"]["headless_elf_sha256"]
-    if sha256.upper() != expected_elf.upper():
-        raise RuntimeError(f"artifact-mismatch: expected test ELF {expected_elf}, got {sha256.upper()}")
-    payload = encode_request(request)
+def run_turn(elf: Path, sha256: str, request: dict, *, protocol_version: int | None = None) -> list[str]:
+    version = _protocol_version(protocol_version)
+    size = mailbox_bytes(version)
+    if version == PINNED_PROTOCOL_VERSION:
+        expected_elf = PIN["dynamic_oracle"]["headless_elf_sha256"]
+        if sha256.upper() != expected_elf.upper():
+            raise RuntimeError(f"artifact-mismatch: expected test ELF {expected_elf}, got {sha256.upper()}")
+    query = is_query(request)
+    payload = encode_request(request, protocol_version=version)
     with RomWorkerClient(rom_path=elf, expected_artifact_sha256=sha256,
                          timeout=15.0) as worker:
         trace = []
@@ -217,7 +302,7 @@ def run_turn(elf: Path, sha256: str, request: dict) -> list[str]:
             ready = [line for line in trace if line.startswith("ROMTRACE|ready|")]
             if ready:
                 fields = ready[-1].split("|")
-                if len(fields) != 4 or int(fields[3]) != MAILBOX_BYTES:
+                if len(fields) != 4 or int(fields[3]) != size:
                     raise RuntimeError("invalid battle mailbox announcement")
                 address = int(fields[2])
                 break
@@ -225,22 +310,15 @@ def run_turn(elf: Path, sha256: str, request: dict) -> list[str]:
             raise TimeoutError("battle harness did not announce its mailbox")
         worker.save_state()
         result = worker.batch_turns(
-            address, [payload], mailbox_bytes=MAILBOX_BYTES,
+            address, [payload], mailbox_bytes=size,
             engine_elf_sha256=sha256, deadline_ms=int(time.monotonic() * 1000) + 15_000,
             request_id="dynamic-oracle", max_frames=24_000,
         )
         turn = result["turns"][0]["events"]
-        if "ROMTRACE|critical-policy|item-ability-only|battle-script-filtered" not in turn:
-            raise RuntimeError("engine-error: pinned engine trace did not confirm the critical-hit policy")
-        complete = [line for line in turn if line.startswith("ROMTRACE|complete|")]
-        if len(complete) != 1:
-            raise RuntimeError("incomplete-state: expected exactly one completed turn marker")
-        fields = complete[0].split("|")
-        if len(fields) != 3:
-            raise RuntimeError("invalid completion marker")
-        turn_number = int(fields[2])
-        if request.get("query") or request.get("post_switch_query"):
-            if turn_number != 0 or "ROMTRACE|query|complete" not in turn:
+        if query:
+            if "ROMTRACE|critical-policy|item-ability-only|battle-script-filtered" not in turn:
+                raise RuntimeError("engine-error: pinned engine trace did not confirm the critical-hit policy")
+            if not any(record.startswith("ROMTRACE|query|complete") for record in turn):
                 raise RuntimeError("incomplete-state: dynamic query did not complete at its choice checkpoint")
             required_query = ("ROMTRACE|query|context|",
                              "ROMTRACE|query|active|")
@@ -251,6 +329,27 @@ def run_turn(elf: Path, sha256: str, request: dict) -> list[str]:
             ):
                 raise RuntimeError("incomplete-state: post-switch query did not reach the switched state")
             return turn
+        if version >= 8:
+            # v8 SIMULATE_TURN stops at the next decision boundary or terminal and
+            # emits the complete state export instead of a v7 after-turn trace.
+            # NOTE (package C finding): the worker's batch stop fires on the
+            # `ROMTRACE|boundary|` record, which the ROM emits before its state
+            # export, so this batch reply carries only the leading records. The
+            # full boundary state must be read through the worker's drain path
+            # (package B) or the ROM marker order changed (package A).
+            if not any(record.startswith(("ROMTRACE|boundary|", "ROMTRACE|terminal|"))
+                       for record in turn):
+                raise RuntimeError("incomplete-state: v8 transition did not reach a boundary")
+            return turn
+        if "ROMTRACE|critical-policy|item-ability-only|battle-script-filtered" not in turn:
+            raise RuntimeError("engine-error: pinned engine trace did not confirm the critical-hit policy")
+        complete = [line for line in turn if line.startswith("ROMTRACE|complete|")]
+        if len(complete) != 1:
+            raise RuntimeError("incomplete-state: expected exactly one completed turn marker")
+        fields = complete[0].split("|")
+        if len(fields) != 3:
+            raise RuntimeError("invalid completion marker")
+        turn_number = int(fields[2])
         required = (f"ROMTRACE|phase|{turn_number}|after-turn",
                     f"ROMTRACE|party|{turn_number}|",
                     f"ROMTRACE|active|{turn_number}|",
@@ -267,13 +366,14 @@ def main() -> int:
     parser.add_argument("--elf", required=True, type=Path)
     parser.add_argument("--sha256", required=True, help="expected SHA-256 of this test ELF")
     parser.add_argument("--request", required=True, type=Path, help="JSON battle request")
+    parser.add_argument("--protocol-version", type=int, default=None,
+                        help="mailbox layout override (default: the pin); use to drive a staged ELF")
     args = parser.parse_args()
     request = json.loads(args.request.read_text(encoding="utf-8"))
-    expected_elf = PIN["dynamic_oracle"]["headless_elf_sha256"]
-    if args.sha256.upper() != expected_elf.upper():
-        raise SystemExit(f"artifact-mismatch: expected test ELF {expected_elf}, got {args.sha256.upper()}")
     print(json.dumps({"test_elf_sha256": args.sha256.upper(),
-                      "trace": run_turn(args.elf, args.sha256, request)}, indent=2))
+                      "protocol_version": _protocol_version(args.protocol_version),
+                      "trace": run_turn(args.elf, args.sha256, request,
+                                        protocol_version=args.protocol_version)}, indent=2))
     return 0
 
 

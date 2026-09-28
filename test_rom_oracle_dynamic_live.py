@@ -1,17 +1,103 @@
 """Live behavior fixtures for the pinned dynamic ROM oracle."""
 import copy
+import hashlib
 import json
+from fractions import Fraction
+from itertools import product
 from pathlib import Path
 
 import pytest
 
 import rom_bridge
+import rom_query
 from tools.rom_oracle import run_dynamic
 
 
 ROOT = Path(__file__).parent
 ELF = ROOT / "native/rom_worker/build/mingw/pokeemerald-test-headless.elf"
+V8_ELF = ROOT / "native/rom_worker/build/mingw/pokeemerald-test-v8.elf"
 BASE = json.loads((ROOT / "tools/rom_oracle/dynamic_sample.json").read_text(encoding="utf-8"))
+DATA = json.loads((ROOT / "data/game_data.json").read_text(encoding="utf-8"))
+
+
+def _staged_or_pinned_v8():
+    """The v8 ELF under test: the pin once it flips, else the staged artifact."""
+    if run_dynamic.PINNED_PROTOCOL_VERSION >= 8:
+        return ELF, run_dynamic.PIN["dynamic_oracle"]["headless_elf_sha256"], run_dynamic.PINNED_PROTOCOL_VERSION
+    if not V8_ELF.is_file():
+        return None
+    return V8_ELF, hashlib.sha256(V8_ELF.read_bytes()).hexdigest(), 8
+
+
+def _v8_request(moves=None, pp=None, opponent_hp=None):
+    request = copy.deepcopy(BASE)
+    if moves is not None:
+        request["player_party"][0]["moves"] = moves
+        request["player_party"][0]["pp"] = pp
+    if opponent_hp is not None:
+        request["opponent_party"][0]["hp"] = opponent_hp
+    return request
+
+
+class _QuerySession:
+    """One v8 worker booted to the pre-choice checkpoint, exposing a token."""
+
+    def __init__(self, elf, sha, version):
+        self.version = version
+        self.client = rom_bridge.RomWorkerClient(
+            rom_path=elf, expected_artifact_sha256=sha, timeout=60.0)
+        self.client.__enter__()
+        trace = []
+        self.mailbox = None
+        for _ in range(400):
+            trace.extend(run_dynamic._trace(self.client.run_frames(60)))
+            ready = [line for line in trace if line.startswith("ROMTRACE|ready|")]
+            if ready:
+                self.mailbox = int(ready[-1].split("|")[2])
+                break
+        if self.mailbox is None:
+            self.client.__exit__(None, None, None)
+            raise RuntimeError("v8 ELF never announced its mailbox")
+
+    def token(self, request):
+        slot = self.client.save_checkpoint()
+        identity = {"test_elf_sha256": self.client.rom_sha256,
+                    "worker_sha256": self.client.worker_sha256,
+                    "rom_hook_protocol": self.version}
+        return rom_query.token_from_checkpoint(slot, request, identity=identity)
+
+    def close(self):
+        self.client.__exit__(None, None, None)
+
+
+def _brute_multi_hit(record, hit_record, rolls, hp):
+    """Independent enumeration of the documented per-hit outcome weights."""
+    mode, min_hits, _max_hits, wn, wc = hit_record
+    outcomes = {}
+    for damage in rolls[(0,)]:
+        outcomes[damage] = outcomes.get(damage, 0) + wn
+    for damage in rolls[(1,)]:
+        outcomes[damage] = outcomes.get(damage, 0) + wc
+    outcomes = {damage: ways for damage, ways in outcomes.items() if ways}
+    total = 16 * (wn + wc)
+    weights = {min_hits: 1} if mode == 4 else rom_query.MODE_WEIGHTS[mode]
+    weight_den = sum(weights.values())
+    protection = bool(record[2] & (rom_query.FOCUS_SASH | rom_query.STURDY))
+    probability = Fraction(0)
+    for count, weight in weights.items():
+        if protection and count < 2:
+            continue
+        steps = count - 1 if protection else count
+        reaching = 0
+        for combo in product(outcomes.items(), repeat=steps):
+            ways, damage_total = 1, 0
+            for damage, ways_per in combo:
+                ways *= ways_per
+                damage_total += damage
+            if damage_total >= hp:
+                reaching += ways
+        probability += Fraction(weight, weight_den) * Fraction(reaching, total ** steps)
+    return Fraction(record[5], 100) * probability
 
 
 def _query(edit=None):
@@ -152,3 +238,111 @@ def test_live_switch_entry_damage_is_present_in_post_switch_query():
     assert active[6:8] == ["113", "138"]
     assert "ROMTRACE|query|context|post-switch" in trace
     assert "ROMTRACE|phase|0|switch-settled" in trace
+
+
+def test_live_v8_query_is_stable_and_leaves_the_token_byte_identical():
+    target = _staged_or_pinned_v8()
+    if target is None or not rom_bridge.DEFAULT_WORKER.is_file():
+        pytest.skip("staged v8 test ELF or mGBA worker is not installed")
+    elf, sha, version = target
+    session = _QuerySession(elf, sha, version)
+    try:
+        request = _v8_request(["MOVE_TACKLE", "MOVE_BULLET_SEED", "MOVE_NONE", "MOVE_NONE"],
+                              [35, 25, 0, 0])
+        token = session.token(request)
+        fingerprint = token.fingerprint()
+        damage_a = rom_query.query_damage(session.client, session.mailbox, token,
+                                          game_data=DATA, protocol_version=version)
+        damage_b = rom_query.query_damage(session.client, session.mailbox, token,
+                                          game_data=DATA, protocol_version=version)
+        assert damage_a["player_moves"] == damage_b["player_moves"]
+        assert damage_a["enemy_moves"] == damage_b["enemy_moves"]
+        assert damage_a["query_schema"] == "sidedex-query-damage-v1"
+        assert damage_a["decode_schema"] == "decode-v1"
+        assert damage_a["rng"] == token.rng
+        ai_a = rom_query.query_ai_action(session.client, session.mailbox, token,
+                                         game_data=DATA, protocol_version=version)
+        ai_b = rom_query.query_ai_action(session.client, session.mailbox, token,
+                                         game_data=DATA, protocol_version=version)
+        assert ai_a["ai_actions"] == ai_b["ai_actions"]
+        assert ai_a["ai_actions"]["label"] == "deterministic"
+        assert ai_a["rng"] == token.rng
+        # Token immutability: decoded state, RNG and bytes are unchanged.
+        assert token.fingerprint() == fingerprint
+        assert rom_query._slot_sha(session.client, token.handle) == token.sha256
+    finally:
+        session.close()
+
+
+def test_live_v8_queries_do_not_resolve_a_turn():
+    target = _staged_or_pinned_v8()
+    if target is None:
+        pytest.skip("staged v8 test ELF is not installed")
+    elf, sha, version = target
+    request = _v8_request(["MOVE_TACKLE", "MOVE_BULLET_SEED", "MOVE_NONE", "MOVE_NONE"],
+                          [35, 25, 0, 0], opponent_hp=30)
+    request["query"] = True
+    trace = run_dynamic.run_turn(elf, sha, request, protocol_version=version)
+    assert "ROMTRACE|query|complete" in trace
+    assert not any(line.startswith(("ROMTRACE|boundary|", "ROMTRACE|action|",
+                                    "ROMTRACE|hp|")) for line in trace)
+    cards = rom_query.parse_damage(trace, rom_query.snapshot_from_request(request), DATA)
+    row = next(item for item in cards["player_moves"]["moves"]
+               if item["move_id"] == "MOVE_BULLET_SEED")
+    assert row["status"] == "engine-exact"
+    assert row["method"] == "engine-enumerated-multi-hit"
+    scanned = rom_query._scan_events(trace)
+    numeric = run_dynamic.numeric_id("moves", "MOVE_BULLET_SEED")
+    expected = _brute_multi_hit(
+        scanned["records"][0][numeric], scanned["hits"][(0, numeric)],
+        {(0,): scanned["rolls"][(0, numeric, 0)], (1,): scanned["rolls"][(0, numeric, 1)]},
+        request["opponent_party"][0]["hp"])
+    assert row["probability"] == {"num": expected.numerator, "den": expected.denominator}
+    assert expected > 0
+
+
+def test_live_v8_unsupported_mechanic_fails_closed():
+    target = _staged_or_pinned_v8()
+    if target is None:
+        pytest.skip("staged v8 test ELF is not installed")
+    elf, sha, version = target
+    request = _v8_request(["MOVE_TRIPLE_KICK", "MOVE_TACKLE", "MOVE_NONE", "MOVE_NONE"],
+                          [10, 35, 0, 0])
+    request["query"] = True
+    trace = run_dynamic.run_turn(elf, sha, request, protocol_version=version)
+    cards = rom_query.parse_damage(trace, rom_query.snapshot_from_request(request), DATA)
+    row = cards["player_moves"]["moves"][0]
+    assert row["move_id"] == "MOVE_TRIPLE_KICK"
+    assert row["status"] == "unavailable"
+    assert row["reason"] == "unsupported-mechanic"
+    assert row["detail"]
+    assert cards["unsupported"][0]["move_id"] == "MOVE_TRIPLE_KICK"
+
+
+def test_live_v8_item_query_is_labeled_and_leaves_the_token_unchanged():
+    target = _staged_or_pinned_v8()
+    if target is None or not rom_bridge.DEFAULT_WORKER.is_file():
+        pytest.skip("staged v8 test ELF or mGBA worker is not installed")
+    elf, sha, version = target
+    session = _QuerySession(elf, sha, version)
+    try:
+        request = _v8_request(["MOVE_TACKLE", "MOVE_NONE", "MOVE_NONE", "MOVE_NONE"],
+                              [35, 0, 0, 0], opponent_hp=1)
+        request["trainer_items"] = {"ITEM_HYPER_POTION": 2}
+        token = session.token(request)
+        fingerprint = token.fingerprint()
+        first = rom_query.query_ai_action(session.client, session.mailbox, token,
+                                          game_data=DATA, protocol_version=version)
+        second = rom_query.query_ai_action(session.client, session.mailbox, token,
+                                           game_data=DATA, protocol_version=version)
+        card = first["ai_actions"]
+        assert card["predicted_action"]["kind"] == "item"
+        assert card["predicted_action"]["id"] == "ITEM_HYPER_POTION"
+        assert card["label"] == "deterministic" and card["distribution"] is False
+        # The item decision is not consumed or repeated: the immutable token
+        # restores to the same state and predicts the same item again.
+        assert second["ai_actions"] == card
+        assert token.fingerprint() == fingerprint
+        assert rom_query._slot_sha(session.client, token.handle) == token.sha256
+    finally:
+        session.close()
