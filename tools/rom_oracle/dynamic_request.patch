@@ -197,34 +197,45 @@ index 2bb64f3066..18d241d1c8 100644
  #include "text.h"
  #include "util.h"
  #include "window.h"
-@@ -447,7 +448,10 @@ static void RecordedPlayerHandleChooseAction(u32 battler)
+@@ -447,7 +448,14 @@ static void RecordedPlayerHandleChooseAction(u32 battler)
      }
      else
      {
 -        BtlController_EmitTwoReturnValues(battler, BUFFER_B, RecordedBattle_GetBattlerAction(RECORDED_ACTION_TYPE, battler), 0);
++#if TESTING
 +        u8 action = RecordedBattle_GetBattlerAction(RECORDED_ACTION_TYPE, battler);
 +        u8 byte1 = 0, byte2 = 0;
 +        SidedexDynamicInjectPlayerAction(battler, &action, &byte1, &byte2);
 +        BtlController_EmitTwoReturnValues(battler, BUFFER_B, action, 0);
++#else
++        BtlController_EmitTwoReturnValues(battler, BUFFER_B, RecordedBattle_GetBattlerAction(RECORDED_ACTION_TYPE, battler), 0);
++#endif
          RecordedPlayerBufferExecCompleted(battler);
      }
  }
-@@ -460,8 +464,10 @@ static void RecordedPlayerHandleChooseMove(u32 battler)
+@@ -460,8 +464,16 @@ static void RecordedPlayerHandleChooseMove(u32 battler)
      }
      else
      {
++#if TESTING
 +        u8 action = B_ACTION_USE_MOVE;
          u8 moveId = RecordedBattle_GetBattlerAction(RECORDED_MOVE_SLOT, battler);
          u8 target = RecordedBattle_GetBattlerAction(RECORDED_MOVE_TARGET, battler);
 +        SidedexDynamicInjectPlayerAction(battler, &action, &moveId, &target);
          BtlController_EmitTwoReturnValues(battler, BUFFER_B, 10, moveId | (target << 8));
++#else
++        u8 moveId = RecordedBattle_GetBattlerAction(RECORDED_MOVE_SLOT, battler);
++        u8 target = RecordedBattle_GetBattlerAction(RECORDED_MOVE_TARGET, battler);
++        BtlController_EmitTwoReturnValues(battler, BUFFER_B, 10, moveId | (target << 8));
++#endif
      }
  
-@@ -481,7 +487,14 @@ static void RecordedPlayerHandleChooseItem(u32 battler)
+@@ -481,7 +487,18 @@ static void RecordedPlayerHandleChooseItem(u32 battler)
  
  static void RecordedPlayerHandleChoosePokemon(u32 battler)
  {
 -    *(gBattleStruct->monToSwitchIntoId + battler) = RecordedBattle_GetBattlerAction(RECORDED_PARTY_INDEX, battler);
++#if TESTING
 +    u8 action = B_ACTION_SWITCH, byte2 = 0;
 +    u8 slot;
 +    // A fainted active monster makes this a forced-switch decision boundary.
@@ -233,6 +244,9 @@ index 2bb64f3066..18d241d1c8 100644
 +    slot = RecordedBattle_GetBattlerAction(RECORDED_PARTY_INDEX, battler);
 +    SidedexDynamicInjectPlayerAction(battler, &action, &slot, &byte2);
 +    *(gBattleStruct->monToSwitchIntoId + battler) = slot;
++#else
++    *(gBattleStruct->monToSwitchIntoId + battler) = RecordedBattle_GetBattlerAction(RECORDED_PARTY_INDEX, battler);
++#endif
      gSelectedMonPartyId = gBattleStruct->monToSwitchIntoId[battler]; // Revival Blessing
      BtlController_EmitChosenMonReturnValue(battler, BUFFER_B, *(gBattleStruct->monToSwitchIntoId + battler), NULL);
      RecordedPlayerBufferExecCompleted(battler);
@@ -360,20 +374,27 @@ diff --git a/src/recorded_battle.c b/src/recorded_battle.c
 index c32e86b525..8c5a4cc7ad 100644
 --- a/src/recorded_battle.c
 +++ b/src/recorded_battle.c
-@@ -166,10 +166,14 @@ void RecordedBattle_ClearBattlerAction(u8 battlerId, u8 bytesToClear)
+@@ -166,10 +166,21 @@ void RecordedBattle_ClearBattlerAction(u8 battlerId, u8 bytesToClear)
  
      for (i = 0; i < bytesToClear; i++)
      {
 -        sBattlerRecordSizes[battlerId]--;
 -        sBattleRecords[battlerId][sBattlerRecordSizes[battlerId]] = 0xFF;
++#if TESTING
 +        // Guard before the decrement: a battler with no recorded actions (the
 +        // live AI side of a non-link recorded battle) has a zero cursor, and
 +        // decrementing it underflowed the u16 and wrote sBattleRecords far out
 +        // of bounds. Clearing nothing is the correct behaviour there.
-         if (sBattlerRecordSizes[battlerId] == 0)
-             break;
++        if (sBattlerRecordSizes[battlerId] == 0)
++            break;
 +        sBattlerRecordSizes[battlerId]--;
 +        sBattleRecords[battlerId][sBattlerRecordSizes[battlerId]] = 0xFF;
++#else
++        sBattlerRecordSizes[battlerId]--;
++        sBattleRecords[battlerId][sBattlerRecordSizes[battlerId]] = 0xFF;
++#endif
+         if (sBattlerRecordSizes[battlerId] == 0)
+             break;
      }
  }
  
@@ -784,7 +805,7 @@ index 4b4efed49f..3dea305380 100644
  #define RNG_SEED_DEFAULT {0, 0, 0, 0}
  static inline bool32 RngSeedNotDefault(const rng_value_t *seed)
  {
-@@ -54,6 +72,1143 @@ static void PushBattlerAction(u32 sourceLine, s32 battlerId, u32 actionType, u32
+@@ -54,6 +72,1156 @@ static void PushBattlerAction(u32 sourceLine, s32 battlerId, u32 actionType, u32
  static void PrintAiMoveLog(u32 battlerId, u32 moveSlot, u32 moveId, s32 totalScore);
  static void ClearAiLog(u32 battlerId);
  static const char *BattlerIdentifier(s32 battlerId);
@@ -1101,6 +1122,19 @@ index 4b4efed49f..3dea305380 100644
 +    if (gSidedexDynamicRequest.status == SIDEDEX_DYNAMIC_SUBMITTED
 +     && gSidedexDynamicRequest.requestId != sSidedexHoldRequestId)
 +    {
++        // Contract 6.2: restore the token, then inject the RNG pair, then run,
++        // before any AI or choice evaluation. The mGBA savestate carries the
++        // RNG as of the held boundary, so a released boundary must overwrite
++        // BOTH streams from the mailbox; otherwise a restored node silently
++        // keeps the saved pair and the injected pair is ignored.
++        gRngValue = (rng_value_t){gSidedexDynamicRequest.mainRng.a,
++                                  gSidedexDynamicRequest.mainRng.b,
++                                  gSidedexDynamicRequest.mainRng.c,
++                                  gSidedexDynamicRequest.mainRng.ctr};
++        gRng2Value = (rng_value_t){gSidedexDynamicRequest.secondaryRng.a,
++                                   gSidedexDynamicRequest.secondaryRng.b,
++                                   gSidedexDynamicRequest.secondaryRng.c,
++                                   gSidedexDynamicRequest.secondaryRng.ctr};
 +        sSidedexBoundaryHold = FALSE;
 +        gSidedexDynamicRequest.status = SIDEDEX_DYNAMIC_RUNNING;
 +        sSidedexInjectKind = gSidedexDynamicRequest.candidateKind;

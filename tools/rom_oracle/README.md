@@ -61,10 +61,39 @@ The trace does not snapshot every global byte or prove that the release ROM foll
 
 ## Dynamic battle request v8
 
-The mailbox layout below is unchanged by the A2 revision (the A2 artifact is
-`native/rom_worker/build/mingw/pokeemerald-test-v8b.elf`; the byte layout and
-`SIDEDEX_DYNAMIC_VERSION` 8 are identical, so package C's encoder needs no
-change).
+The mailbox layout below is unchanged by the A2/A3 revisions (the A2 artifact
+is `native/rom_worker/build/mingw/pokeemerald-test-v8b.elf`; the corrected A3
+artifact is `native/rom_worker/build/mingw/pokeemerald-test-v8c.elf`, sha256
+`422ade3e159916f9cc8bc1350ad274201b6af6cb9b9d38c14d073f85e982bc77`,
+pre-patchelf `pokeemerald-test.elf` sha256
+`23c34b8357eba2cc6a1b486d444a56fcd50852acb8846a9e585d3fdbce7ae3c1`; the byte
+layout and `SIDEDEX_DYNAMIC_VERSION` 8 are identical, so package C's encoder
+needs no change).
+
+### v8c: hold-release RNG re-seed (contract section 6.2)
+
+A released boundary now overwrites BOTH `gRngValue` and `gRng2Value` from the
+mailbox pair before the trainer AI chooses. The mGBA savestate carries the RNG
+as of the held boundary, so without this a restored node kept the saved pair and
+the injected pair was ignored (measured on v8b: two different injected pairs
+produced byte-identical `rng|1|` records and identical HP). Verified on v8c from
+one saved node: injected main/secondary pairs P1 and P2 give different
+next-boundary `rng|1|` records and different player HP (68 vs 69); the emitted
+gRng2Value equals the injected secondary exactly (0 advances that turn) and the
+emitted gRngValue is the injected main advanced by exactly 12 sfc32 steps
+(ctr 1->13 and 7->19). Harness: `work/a3_rng_restore.py` (not committed),
+reports `work/a3_rng_v8c.json` / `work/a3_rng_v8b.json`.
+
+### v8c: release-ROM neutrality
+
+The recorded-player injection call sites (`src/battle_controller_recorded_player.c`)
+and the recorded-battle cursor guard (`src/recorded_battle.c`) are now
+`#if TESTING`/`#else` guarded, so a `TEST=0` build of the pinned source plus
+`dynamic_request.patch` is byte-identical to the pinned release ROM. Verified in
+a scratch worktree: `make -j12 rom` then `sha256sum pokeemerald.gba` =
+`0ccaaad0878a9cbfb36fbefff800e9b6dd66055924b7595038ede1e8771ec5a2`. The A2
+recorded-battle fix and the recorded-player injection remain active in the test
+ELF only; the release ROM is unchanged.
 
 `dynamic_request.patch` applies to the pinned source on its own; it already
 contains the trace hooks, so `trace_hooks.patch` is only used for the separate
@@ -374,17 +403,20 @@ the bounded raw ROMTRACE event list; the Python transition/query adapter is
 package B/C work. These boundaries are explicit and must not be treated as
 trainer-battle parity or full state coverage.
 
-### Reproducing the v8b evidence
+### Reproducing the v8b/v8c evidence
 
-The A2 verification harness lives outside the repository (`work/v8b_verify.py`
-and `work/priority0_batch.py`, not committed). It drives the v8b ELF through the
-pinned protocol-2 worker via `rom_bridge` (`run_frames`/`write_memory`/
-`save_checkpoint`/`restore_state`) and, for the wire-contract check, through a
-real `batch_turns`. Raw reports: `work/v8b_report.json` and
-`work/priority0_batch.json`. The build recipe is unchanged: `make -j4
-pokeemerald-test.elf TESTS='Sidedex oracle: dynamic AI singles request'`, copy to
-the new artifact name, then `tools/patchelf/patchelf <elf> gTestRunnerHeadless
-'\x01' gTestRunnerSkipIsFail "\x00"`.
+The A2 verification harness lives outside the repository (`work/v8b_verify.py`,
+`work/priority0_batch.py`, and the A3 `work/a3_rng_restore.py`, not committed).
+It drives the v8b/v8c ELF through the pinned protocol-2 worker via `rom_bridge`
+(`run_frames`/`write_memory`/`save_checkpoint`/`restore_state`) and, for the
+wire-contract check, through a real `batch_turns`. Raw reports:
+`work/v8b_report.json`, `work/priority0_batch.json`, `work/a3_rng_v8c.json`.
+The v8c batch check returns the complete 37-record boundary set with
+`ROMTRACE|boundary|` last of the boundary emission, matching v8b. The build
+recipe is unchanged: `make -j4 pokeemerald-test.elf TESTS='Sidedex oracle:
+dynamic AI singles request'`, copy to the new artifact name, then
+`tools/patchelf/patchelf <elf> gTestRunnerHeadless '\x01' gTestRunnerSkipIsFail
+"\x00"`.
 
 ## Query mode
 
