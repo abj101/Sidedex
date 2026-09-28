@@ -6,39 +6,30 @@ that exact commit into the ignored build directory. It builds the GBA core only,
 without a GUI or battle-specific code.
 
 The process loads a ROM or a pinned instrumented ELF passed by path, resets the
-core, optionally loads an external 128 KiB save image, and prints a JSONL status record. Requests use **protocol version 3**;
-the worker keeps the existing lifecycle, memory, save, restore, and trace APIs.
+core, and prints a JSONL status record. Requests use **protocol version 2**.
 
 ## Requests
 
-    {"protocol":3,"op":"status"}
-    {"protocol":3,"op":"run_frames","frames":10}
-    {"protocol":3,"op":"run_frames","frames":10,"keys":8}
-    {"protocol":3,"op":"set_keys","keys":16}
-    {"protocol":3,"op":"reset"}
-    {"protocol":3,"op":"read_memory","address":33554432,"width":4}
-    {"protocol":3,"op":"read_memory_block","address":33554432,"length":64}
-    {"protocol":3,"op":"write_memory","address":33554432,"data":"01020304"}
-    {"protocol":3,"op":"save_state","name":"root","artifact_sha256":"<64 hex>"}
-    {"protocol":3,"op":"load_state","handle":"<32 hex>","artifact_sha256":"<64 hex>"}
-    {"protocol":3,"op":"drop_state","handle":"<32 hex>"}
-    {"protocol":3,"op":"list_states"}
-    {"protocol":3,"op":"export_state","handle":"<32 hex>","artifact_sha256":"<64 hex>"}
-    {"protocol":3,"op":"import_state","blob":"<base64>","name":"ported","artifact_sha256":"<64 hex>"}
-    {"protocol":3,"op":"load_state_blob","blob":"<base64>","artifact_sha256":"<64 hex>"}
-    {"protocol":3,"op":"batch_turns", ...}
-    {"protocol":3,"op":"batch_turns_v3", ...}
-    {"protocol":3,"op":"quit"}
+    {"protocol":2,"op":"status"}
+    {"protocol":2,"op":"run_frames","frames":10}
+    {"protocol":2,"op":"run_frames","frames":10,"keys":8}
+    {"protocol":2,"op":"set_keys","keys":16}
+    {"protocol":2,"op":"reset"}
+    {"protocol":2,"op":"read_memory","address":33554432,"width":4}
+    {"protocol":2,"op":"read_memory_block","address":33554432,"length":64}
+    {"protocol":2,"op":"write_memory","address":33554432,"data":"01020304"}
+    {"protocol":2,"op":"save_state","name":"root","artifact_sha256":"<64 hex>"}
+    {"protocol":2,"op":"load_state","handle":"<32 hex>","artifact_sha256":"<64 hex>"}
+    {"protocol":2,"op":"drop_state","handle":"<32 hex>"}
+    {"protocol":2,"op":"list_states"}
+    {"protocol":2,"op":"export_state","handle":"<32 hex>","artifact_sha256":"<64 hex>"}
+    {"protocol":2,"op":"import_state","blob":"<base64>","name":"ported","artifact_sha256":"<64 hex>"}
+    {"protocol":2,"op":"load_state_blob","blob":"<base64>","artifact_sha256":"<64 hex>"}
+    {"protocol":2,"op":"batch_turns", ...}
+    {"protocol":2,"op":"quit"}
 
-Startup accepts `rom_worker.exe --rom <path> [--save <path>]`. The optional
-save must already exist and be exactly 131072 bytes. It is loaded into temporary
-emulated save memory before the first status response; the source file is not
-modified. Status reports `save_bytes` and `save_sha256` separately. Save data
-does not change the ROM/ELF artifact identity.
-
-Every reply carries `"protocol":3` and a boolean `ok`. Startup status advertises
-`supported_wire_protocols: [3]`, `sidedex-state-v1`, `sidedex-transition-v2`,
-and `decode-v2`. Failures return `{"protocol":3,"ok":false,"error":"<code>"}`. Error codes are hyphenated and use
+Every reply carries `"protocol":2` and a boolean `ok`. Failures return
+`{"protocol":2,"ok":false,"error":"<code>"}`. Error codes are hyphenated and use
 the frozen contract section 9 names where one applies: `stale-handle`,
 `identity-mismatch`, `deadline-exceeded`, `invalid-request`,
 `invalid-frame-count`, `invalid-keys`, `invalid-memory-write`,
@@ -166,27 +157,6 @@ plus `elapsed_ms` and `mean_turn_ms`. `deadline_ms` is an absolute
 `time.monotonic()` deadline in milliseconds. The bridge enforces it while
 waiting; the worker also checks the remaining millisecond budget between frames.
 Each call must use the same artifact hash as the ELF loaded into that worker.
-
-## v9 compact batches
-
-`RomWorkerClient.batch_turns_v3` accepts the request and result addresses from
-`parse_v9_ready`, contiguous v9 mailbox payloads, and a named parent handle. The
-worker writes the announced result address, capacity, result version and compact
-flag into each 876-byte request, then sends all payloads in one JSONL request.
-It waits for `ROMTRACE|binary-ready|<address>|<length>`, verifies the SDR2
-header, CRC, request id, mode, policy, record framing and required projection
-tags, then saves the live nonterminal state before restoring the parent for the
-next item. A terminal has no child. Child handles stay immutable and portable;
-`export_state(handle)` retrieves the portable blob and digest. A stale, foreign,
-or identity-mismatched handle fails closed.
-
-The bridge validates the 64-byte SDR2 header and all record boundaries and
-returns decoded little-endian words grouped by tag, the original compact bytes,
-child summaries, IPC byte counts, frames, save/restore times, p50/p95 batch
-latency, and verified transitions per second. Tag payloads remain grouped by
-their v9 field order so projection schema changes cannot be guessed from a
-versionless response. `ROMTRACE` remains enabled for diagnostics and
-differential runs; the v3 batch path does not parse textual state records.
 
 ## Python client
 
