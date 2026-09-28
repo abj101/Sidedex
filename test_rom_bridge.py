@@ -53,11 +53,17 @@ class IdentityTests(unittest.TestCase):
 class ProtocolTests(unittest.TestCase):
     def test_reply_parser_rejects_duplicate_keys_and_wrong_types(self):
         with self.assertRaises(rom_bridge.WorkerProtocolError):
-            rom_bridge._parse_reply('{"protocol":1,"protocol":1,"ok":true}')
+            rom_bridge._parse_reply('{"protocol":2,"protocol":2,"ok":true}')
         with self.assertRaises(rom_bridge.WorkerProtocolError):
-            rom_bridge._parse_reply('{"protocol":1,"ok":1}')
+            rom_bridge._parse_reply('{"protocol":2,"ok":1}')
         with self.assertRaises(rom_bridge.WorkerProtocolError):
             rom_bridge._parse_reply('[]')
+        with self.assertRaises(rom_bridge.WorkerProtocolError):
+            rom_bridge._parse_reply('{"protocol":1,"ok":true}')
+
+    def test_protocol_version_is_two(self):
+        self.assertEqual(rom_bridge.PROTOCOL_VERSION, 2)
+        self.assertEqual(rom_bridge.WORKER_VERSION, "sidedex-mgba-worker/0.2.0")
 
     def test_reply_parser_accepts_bounded_large_trace_response(self):
         reply = {
@@ -72,8 +78,12 @@ class ProtocolTests(unittest.TestCase):
 
     def test_worker_error_is_a_typed_error(self):
         with self.assertRaises(rom_bridge.WorkerResponseError) as raised:
-            rom_bridge._parse_reply('{"protocol":1,"ok":false,"error":"invalid_request"}')
-        self.assertEqual(raised.exception.code, "invalid_request")
+            rom_bridge._parse_reply('{"protocol":2,"ok":false,"error":"invalid-request"}')
+        self.assertEqual(raised.exception.code, "invalid-request")
+        for code in ("stale-handle", "identity-mismatch", "deadline-exceeded", "worker-failed"):
+            with self.assertRaises(rom_bridge.WorkerResponseError) as raised:
+                rom_bridge._parse_reply(json.dumps({"protocol": 2, "ok": False, "error": code}))
+            self.assertEqual(raised.exception.code, code)
 
     def test_memory_and_frame_arguments_are_validated_before_write(self):
         client = object.__new__(rom_bridge.RomWorkerClient)
@@ -86,7 +96,7 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             client.read_memory(0x02000000, 3)
 
-    def test_write_memory_validates_bytes_and_ewram_range_before_write(self):
+    def test_write_memory_validates_bytes_and_region_before_write(self):
         client = object.__new__(rom_bridge.RomWorkerClient)
         requests = []
         client._request = lambda *args, **kwargs: requests.append((args, kwargs)) or {"ok": True}
@@ -97,6 +107,10 @@ class ProtocolTests(unittest.TestCase):
             (0x02000000, b"x" * 2049),
             (0x0203FFFF, b"xy"),
             (0x02040000, b"x"),
+            (0x03000000, b"x" * 2049),
+            (0x03007FFF, b"xy"),
+            (0x03008000, b"x"),
+            (0x01FFFFFF, b"x"),
             (True, b"x"),
         )
         for address, data in invalid:
@@ -105,10 +119,145 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(requests, [])
 
         client.write_memory(0x02000010, bytes((0, 15, 160, 255)))
+        client.write_memory(0x03000000, bytes((1, 2)))
         self.assertEqual(
             requests,
-            [(('write_memory',), {"address": 0x02000010, "data": "000fa0ff"})],
+            [
+                (('write_memory',), {"address": 0x02000010, "data": "000fa0ff"}),
+                (('write_memory',), {"address": 0x03000000, "data": "0102"}),
+            ],
         )
+
+    def test_read_memory_block_bounds_are_checked_before_write(self):
+        client = object.__new__(rom_bridge.RomWorkerClient)
+        requests = []
+        client._request = lambda *args, **kwargs: requests.append((args, kwargs)) or {
+            "address": kwargs["address"], "length": kwargs["length"],
+            "data": "ab" * kwargs["length"],
+        }
+        for address, length in (
+            (0x0203FFF0, 32),
+            (0x02000000, rom_bridge.MAX_MEMORY_BLOCK_BYTES + 1),
+            (0x03007FF0, 32),
+            (0x01FFFFFF, 4),
+            (0x02000000, 0),
+            (True, 4),
+        ):
+            with self.subTest(address=address, length=length), self.assertRaises(ValueError):
+                client.read_memory_block(address, length)
+        self.assertEqual(requests, [])
+        self.assertEqual(client.read_memory_block(0x02000000, 4), b"\xab" * 4)
+        self.assertEqual(client.read_memory_block(0x03000000, 2), b"\xab" * 2)
+
+    def test_set_keys_and_run_frames_keys_validation(self):
+        client = object.__new__(rom_bridge.RomWorkerClient)
+        requests = []
+        client._request = lambda op, **kwargs: requests.append((op, kwargs)) or (
+            {"keys": kwargs["keys"]} if op == "set_keys" else {"trace_events": [], "trace_overflow": False})
+        for keys in (-1, rom_bridge.MAX_KEYS_MASK + 1, True, "0x1"):
+            with self.subTest(keys=keys), self.assertRaises(ValueError):
+                client.set_keys(keys)
+            with self.subTest(keys=keys, op="run_frames"), self.assertRaises(ValueError):
+                client.run_frames(1, keys=keys)
+        self.assertEqual(requests, [])
+        self.assertEqual(client.set_keys(0x11)["keys"], 0x11)
+        client.run_frames(2, keys=0x8)
+        client.run_frames(2)
+        self.assertEqual(
+            requests,
+            [("set_keys", {"keys": 0x11}), ("run_frames", {"frames": 2, "keys": 0x8}),
+             ("run_frames", {"frames": 2})],
+        )
+
+    def test_blob_text_and_state_name_validation(self):
+        client = object.__new__(rom_bridge.RomWorkerClient)
+        for blob in ("", "!!!", "A" * (rom_bridge.MAX_BLOB_BASE64_BYTES + 1), b"AAAA"):
+            with self.subTest(blob=blob[:8]), self.assertRaises(ValueError):
+                client._validate_blob_text(blob)
+        self.assertEqual(client._validate_blob_text("QUJD"), "QUJD")
+        with self.assertRaises(ValueError):
+            client._validate_state_name("bad name")
+        with self.assertRaises(ValueError):
+            client._validate_state_name("x" * 65)
+        self.assertEqual(client._validate_state_name("alpha-1"), "alpha-1")
+
+    def test_batch_reply_parses_boundary_and_terminal_stops(self):
+        def turn(stop, marker):
+            return {"complete": True, "stop": stop, "stop_marker": marker,
+                    "frames": 12, "events": [], "trace_overflow": False}
+
+        reply = {"turns": [
+            turn("boundary", "ROMTRACE|boundary|player-choice|3|4"),
+            turn("terminal", "ROMTRACE|terminal|win|all-fainted"),
+            turn("turn-complete", "ROMTRACE|complete|1"),
+        ]}
+        turns = rom_bridge.RomWorkerClient._validate_batch_reply(reply, 3, 24_000)
+        self.assertEqual([item["stop"] for item in turns], ["boundary", "terminal", "turn-complete"])
+        self.assertTrue(turns[0]["stop_marker"].startswith("ROMTRACE|boundary|"))
+
+        bad = {"turns": [turn("ready", "ROMTRACE|ready|0|856")]}
+        with self.assertRaises(rom_bridge.WorkerProtocolError):
+            rom_bridge.RomWorkerClient._validate_batch_reply(bad, 1, 24_000)
+        orphan = {"turns": [{"complete": True, "stop": None, "stop_marker": "ROMTRACE|x",
+                             "frames": 1, "events": [], "trace_overflow": False}]}
+        with self.assertRaises(rom_bridge.WorkerProtocolError):
+            rom_bridge.RomWorkerClient._validate_batch_reply(orphan, 1, 24_000)
+
+    def test_slot_reply_identity_covers_the_new_identity_fields(self):
+        client = object.__new__(rom_bridge.RomWorkerClient)
+        client.rom_sha256 = rom_bridge.ROM_SHA256
+        base = {
+            "handle": "a" * 32, "name": "alpha", "bytes": 528448, "sha256": "b" * 64,
+            "identity": {"worker_version": rom_bridge.WORKER_VERSION, "mgba_version": rom_bridge.MGBA_VERSION,
+                         "artifact_sha256": rom_bridge.ROM_SHA256.lower(),
+                         "wire_protocol": rom_bridge.PROTOCOL_VERSION,
+                         "save_format": rom_bridge.SAVE_FORMAT_ID},
+        }
+        self.assertEqual(client._validate_slot_reply({"slot": base})["handle"], "a" * 32)
+        for field, value in (("wire_protocol", 1), ("save_format", "other"),
+                             ("worker_version", "sidedex-mgba-worker/0.1.4"),
+                             ("artifact_sha256", "0" * 64)):
+            broken = {**base, "identity": {**base["identity"], field: value}}
+            with self.subTest(field=field), self.assertRaises(rom_bridge.WorkerProtocolError):
+                client._validate_slot_reply({"slot": broken})
+
+    def test_slot_lifecycle_round_trips_through_the_client(self):
+        client = object.__new__(rom_bridge.RomWorkerClient)
+        client.rom_sha256 = rom_bridge.ROM_SHA256
+        calls = []
+
+        def fake_request(op, **kwargs):
+            calls.append((op, kwargs))
+            if op == "save_state":
+                return {"slot": {"handle": "c" * 32, "name": kwargs.get("name", "default"),
+                                 "bytes": 10, "sha256": "d" * 64,
+                                 "identity": {"worker_version": rom_bridge.WORKER_VERSION,
+                                              "mgba_version": rom_bridge.MGBA_VERSION,
+                                              "artifact_sha256": rom_bridge.ROM_SHA256.lower(),
+                                              "wire_protocol": rom_bridge.PROTOCOL_VERSION,
+                                              "save_format": rom_bridge.SAVE_FORMAT_ID}}}
+            if op == "load_state":
+                return {"frame_count": 60}
+            if op == "drop_state":
+                return {"dropped": True}
+            if op == "list_states":
+                return {"states": [{"handle": "c" * 32, "name": "alpha", "bytes": 10}],
+                        "slot_limit": rom_bridge.MAX_STATE_SLOTS, "memory_limit": rom_bridge.MAX_STATE_TOTAL_BYTES}
+            raise AssertionError(op)
+
+        client._request = fake_request
+        saved = client.save_checkpoint("alpha")
+        self.assertEqual((saved["handle"], saved["name"], saved["bytes"]), ("c" * 32, "alpha", 10))
+        self.assertEqual(client.restore_state("c" * 32)["frame_count"], 60)
+        self.assertTrue(client.drop_state("c" * 32)["dropped"])
+        self.assertEqual(len(client.list_states()["states"]), 1)
+        ops = [op for op, _ in calls]
+        self.assertEqual(ops, ["save_state", "load_state", "drop_state", "list_states"])
+        self.assertEqual(calls[0][1]["artifact_sha256"], rom_bridge.ROM_SHA256.lower())
+        self.assertEqual(calls[1][1]["handle"], "c" * 32)
+
+        with self.assertRaises(ValueError):
+            client.restore_state("not-a-handle")
 
     def test_write_memory_sends_hex_and_validates_status_reply(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -122,8 +271,8 @@ class ProtocolTests(unittest.TestCase):
 import json, os, sys
 rom = sys.argv[-1]
 status = {
-    "protocol": 1, "ok": True,
-    "worker": "sidedex-mgba-worker/0.1.4", "mgba": "0.10.5+26b7884",
+    "protocol": 2, "ok": True,
+    "worker": "sidedex-mgba-worker/0.2.0", "mgba": "0.10.5+26b7884",
     "platform": "gba", "rom_title": "TEST", "rom_code": "TEST",
     "rom_bytes": os.path.getsize(rom), "frame_count": 7,
 }
@@ -131,7 +280,7 @@ print(json.dumps(status), flush=True)
 request = json.loads(sys.stdin.readline())
 print(json.dumps({**status, "op": request["op"], "address": request["address"], "data": request["data"]}), flush=True)
 sys.stdin.readline()
-print(json.dumps({"protocol": 1, "ok": True}), flush=True)
+print(json.dumps({"protocol": 2, "ok": True}), flush=True)
 """
             with patch.object(rom_bridge, "ROM_SHA256", digest):
                 with rom_bridge.RomWorkerClient(
@@ -160,8 +309,8 @@ print(json.dumps({"protocol": 1, "ok": True}), flush=True)
 import json, sys, time
 rom = sys.argv[-1]
 print(json.dumps({
-    "protocol": 1, "ok": True,
-    "worker": "sidedex-mgba-worker/0.1.4",
+    "protocol": 2, "ok": True,
+    "worker": "sidedex-mgba-worker/0.2.0",
     "mgba": "0.10.5+26b7884", "platform": "gba",
     "rom_title": "TEST", "rom_code": "TEST",
     "rom_bytes": __import__("os").path.getsize(rom), "frame_count": 0
@@ -194,16 +343,20 @@ time.sleep(3)
             fake_worker = r"""
 import json, os, sys
 rom = sys.argv[-1]
-status = {"protocol":1,"ok":True,"worker":"sidedex-mgba-worker/0.1.4","mgba":"0.10.5+26b7884","platform":"gba","rom_title":"TEST","rom_code":"TEST","rom_bytes":os.path.getsize(rom),"frame_count":0}
+status = {"protocol":2,"ok":True,"worker":"sidedex-mgba-worker/0.2.0","mgba":"0.10.5+26b7884","platform":"gba","rom_title":"TEST","rom_code":"TEST","rom_bytes":os.path.getsize(rom),"frame_count":0}
 print(json.dumps(status), flush=True)
 for line in sys.stdin:
     req = json.loads(line)
     if req["op"] == "save_state":
-        out = {"protocol":1,"ok":True,"state_bytes":123}
+        slot = {"handle":"a"*32,"name":req.get("name","default"),"bytes":123,"sha256":"b"*64,
+                "identity":{"worker_version":"sidedex-mgba-worker/0.2.0","mgba_version":"0.10.5+26b7884",
+                            "artifact_sha256":req["artifact_sha256"],"wire_protocol":2,
+                            "save_format":"mgba-savestate-savedata-rtc-v1"}}
+        out = {"protocol":2,"ok":True,"slot":slot}
     elif req["op"] == "batch_turns":
-        out = {"protocol":1,"ok":True,"request_id":req["request_id"],"source_sha":req["source_sha"],"engine_elf_sha256":req["engine_elf_sha256"],"worker_sha256":req["worker_sha256"],"turns":[{"complete":True,"frames":17,"events":["ROMTRACE|complete|1"],"trace_overflow":False} for _ in req["payloads"].split("|")]}
+        out = {"protocol":2,"ok":True,"request_id":req["request_id"],"source_sha":req["source_sha"],"engine_elf_sha256":req["engine_elf_sha256"],"worker_sha256":req["worker_sha256"],"turns":[{"complete":True,"stop":"boundary","stop_marker":"ROMTRACE|boundary|player-choice|1|4","frames":17,"events":["ROMTRACE|boundary|player-choice|1|4"],"trace_overflow":False} for _ in req["payloads"].split("|")]}
     else:
-        out = {"protocol":1,"ok":True}
+        out = {"protocol":2,"ok":True}
     print(json.dumps(out), flush=True)
     if req["op"] == "quit": break
 """
@@ -224,6 +377,8 @@ for line in sys.stdin:
                     self.assertEqual(result["protocol_version"], 3)
                     self.assertEqual(len(result["turns"]), 2)
                     self.assertEqual([turn["frames"] for turn in result["turns"]], [17, 17])
+                    self.assertEqual([turn["stop"] for turn in result["turns"]], ["boundary", "boundary"])
+                    self.assertTrue(result["turns"][0]["stop_marker"].startswith("ROMTRACE|boundary|"))
                     self.assertGreaterEqual(result["elapsed_ms"], 0)
                     with self.assertRaises(ValueError):
                         client.batch_turns(
@@ -234,13 +389,18 @@ for line in sys.stdin:
     def test_persistent_worker_client_against_actual_rom_when_available(self):
         if not PINNED_WORKER.is_file() or not PINNED_ROM.is_file():
             self.skipTest("build the mGBA worker and set SIDEDEX_ROM_PATH for the real-ROM client smoke")
-        with rom_bridge.RomWorkerClient(PINNED_WORKER, PINNED_ROM) as client:
+        artifact_sha = rom_bridge.sha256_file(PINNED_ROM)
+        with rom_bridge.RomWorkerClient(
+            PINNED_WORKER, PINNED_ROM,
+            expected_artifact_sha256=artifact_sha,
+            expected_worker_sha256=rom_bridge.sha256_file(PINNED_WORKER),
+        ) as client:
             first = client.status
             self.assertEqual(first["worker"], rom_bridge.WORKER_VERSION)
             self.assertEqual(first["mgba"], rom_bridge.MGBA_VERSION)
             self.assertEqual(first["source_sha"], rom_bridge.SOURCE_SHA)
-            self.assertEqual(first["rom_sha256"], rom_bridge.ROM_SHA256)
-            self.assertEqual(client.rom_sha256, rom_bridge.ROM_SHA256)
+            self.assertEqual(first["rom_sha256"], artifact_sha)
+            self.assertEqual(client.rom_sha256, artifact_sha)
             before = first["frame_count"]
             self.assertEqual(client.run_frames(2)["frame_count"], before + 2)
             saved_bytes = client.save_state()
@@ -268,6 +428,63 @@ for line in sys.stdin:
             self.assertEqual(len(events), EXPECTED_TRACE_COUNT)
             expected = EXPECTED_TRACE_LINES.read_bytes()
             self.assertEqual(("\n".join(events) + "\n").encode("ascii"), expected)
+
+
+class Protocol2LiveTests(unittest.TestCase):
+    """Live protocol-2 slot/blob coverage; set SIDEDEX_ROM_WORKER_EXE (v2) and
+    SIDEDEX_ROM_PATH to a GBA artifact to run it."""
+
+    WORKER = Path(os.environ.get("SIDEDEX_ROM_WORKER_V2_EXE", ""))
+    ARTIFACT = Path(os.environ.get("SIDEDEX_V2_ARTIFACT_PATH", ""))
+
+    @classmethod
+    def _client(cls):
+        return rom_bridge.RomWorkerClient(
+            cls.WORKER, cls.ARTIFACT, timeout=30,
+            expected_artifact_sha256=rom_bridge.sha256_file(cls.ARTIFACT),
+            expected_worker_sha256=rom_bridge.sha256_file(cls.WORKER),
+        )
+
+    def setUp(self):
+        if not self.WORKER.is_file() or not self.ARTIFACT.is_file():
+            self.skipTest("set SIDEDEX_ROM_WORKER_V2_EXE and SIDEDEX_V2_ARTIFACT_PATH for the live protocol-2 test")
+
+    def test_named_slots_portable_blob_and_error_taxonomy(self):
+        try:
+            first = self._client()
+        except rom_bridge.WorkerProtocolError as exc:
+            self.skipTest(f"worker is not protocol 2: {exc}")
+        with first:
+            first.run_frames(60)
+            alpha = first.save_checkpoint("alpha")
+            beta = first.save_checkpoint("beta")
+            self.assertEqual(alpha["bytes"], beta["bytes"])
+            self.assertGreater(alpha["bytes"], 0)
+            first.run_frames(30)
+            self.assertEqual(first.restore_state(alpha["handle"])["frame_count"], 60)
+            self.assertEqual(first.restore_state(beta["handle"])["frame_count"], 60)
+            self.assertEqual(len(first.list_states()["states"]), 2)
+            exported = first.export_state(alpha["handle"])
+            self.assertGreater(exported["blob_bytes"], alpha["bytes"])
+            with self.assertRaises(rom_bridge.WorkerResponseError) as raised:
+                first.restore_state("0" * rom_bridge.MAX_HANDLE_HEX)
+            self.assertEqual(raised.exception.code, "stale-handle")
+            with self.assertRaises(rom_bridge.WorkerResponseError) as raised:
+                first._request("load_state", handle=alpha["handle"], artifact_sha256="0" * 64)
+            self.assertEqual(raised.exception.code, "identity-mismatch")
+            first.drop_state(beta["handle"])
+            with self.assertRaises(rom_bridge.WorkerResponseError):
+                first.restore_state(beta["handle"])
+            with self.assertRaises(ValueError):
+                first.read_memory_block(0x0203FFF0, 32)
+            self.assertEqual(len(first.read_memory_block(0x02000000, 32)), 32)
+            first.set_keys(0x10)
+            self.assertEqual(first.run_frames(5, keys=0x8)["frame_count"], 65)
+            blob = exported["blob"]
+        with self._client() as second:
+            imported = second.import_state(blob, name="ported")
+            self.assertEqual(second.restore_state(imported["handle"])["frame_count"], 60)
+            self.assertEqual(second.load_state_blob(blob)["frame_count"], 60)
 
 
 if __name__ == "__main__":
