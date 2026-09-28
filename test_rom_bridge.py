@@ -546,5 +546,49 @@ class Protocol2LiveTests(unittest.TestCase):
             self.assertEqual(second.load_state_blob(blob)["frame_count"], 60)
 
 
+class BoundaryLegalTraceLiveTests(unittest.TestCase):
+    """Live guard for contract section 7: canonical ``ROMTRACE|legal|`` records
+    emitted at choice boundaries must survive the worker's slim-trace filter.
+    Set SIDEDEX_ROM_WORKER_V2_EXE (v3) and SIDEDEX_V8_ELF_PATH to a boundary
+    ELF (protocol 8) to run it."""
+
+    WORKER = Path(os.environ.get("SIDEDEX_ROM_WORKER_V2_EXE", ""))
+    ELF = Path(os.environ.get("SIDEDEX_V8_ELF_PATH", ""))
+    PROTOCOL = 8
+
+    def test_batch_turns_keeps_canonical_legal_records(self):
+        if not self.WORKER.is_file() or not self.ELF.is_file():
+            self.skipTest("set SIDEDEX_ROM_WORKER_V2_EXE and SIDEDEX_V8_ELF_PATH for the boundary ELF")
+        from tools.rom_oracle import run_dynamic
+
+        digest = rom_bridge.sha256_file(self.ELF)
+        size = run_dynamic.mailbox_bytes(self.PROTOCOL)
+        request = json.loads((ROOT / "tools" / "rom_oracle" / "dynamic_sample.json").read_text(encoding="utf-8"))
+        payload = run_dynamic.encode_request(request, protocol_version=self.PROTOCOL)
+        with rom_bridge.RomWorkerClient(
+            self.WORKER, self.ELF, timeout=20.0,
+            expected_artifact_sha256=digest,
+            expected_worker_sha256=rom_bridge.sha256_file(self.WORKER),
+        ) as client:
+            address = None
+            for _ in range(400):
+                events = client.run_frames(60)["trace_events"]
+                ready = [line for line in events if line.startswith("ROMTRACE|ready|")]
+                if ready:
+                    address = int(ready[-1].split("|")[2])
+                    break
+            self.assertIsNotNone(address, "boundary ELF did not announce its mailbox")
+            checkpoint = client.save_checkpoint("legal-trace")
+            result = client.batch_turns(
+                address, [payload], mailbox_bytes=size, engine_elf_sha256=digest,
+                deadline_ms=int(time.monotonic() * 1000) + 20_000,
+                request_id="legal-trace", max_frames=24_000, handle=checkpoint["handle"],
+            )
+        events = result["turns"][0]["events"]
+        legal = [record for record in events if record.startswith("ROMTRACE|legal|")]
+        self.assertTrue(any(record.startswith("ROMTRACE|legal|move|") for record in legal), events)
+        self.assertTrue(any(record.startswith("ROMTRACE|legal|switch|") for record in legal), events)
+
+
 if __name__ == "__main__":
     unittest.main()

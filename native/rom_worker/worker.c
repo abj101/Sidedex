@@ -305,6 +305,7 @@ static void capture_log(struct mLogger *logger, int category, enum mLogLevel lev
         strncmp(message, "ROMTRACE|status|", 16) != 0 &&
         strncmp(message, "ROMTRACE|faint|", 15) != 0 &&
         strncmp(message, "ROMTRACE|critical-policy|", 25) != 0 &&
+        strncmp(message, "ROMTRACE|legal|", 15) != 0 &&
         strncmp(message, "ROMTRACE|boundary|", 18) != 0 &&
         strncmp(message, "ROMTRACE|terminal|", 18) != 0 &&
         strncmp(message, "ROMTRACE|unrepresentable|", 25) != 0 &&

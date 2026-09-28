@@ -135,10 +135,15 @@ path:
 
 Each turn reports `stop` (`boundary`/`terminal`/`turn-complete`, or null when the
 frame cap was hit) and the raw `stop_marker`. The slim-trace filter keeps
-`boundary|`, `terminal|`, `unrepresentable|`, and `instruction-budget-exceeded|`
-records alongside the existing query/action/party/active/RNG/phase/status/faint/
-complete/ready records. Mailboxes are capped at 2048 bytes; request, trace,
-batch, and deadline limits are checked before the bridge accepts results.
+`legal|`, `boundary|`, `terminal|`, `unrepresentable|`, and
+`instruction-budget-exceeded|` records alongside the existing
+query/action/party/active/RNG/phase/status/faint/complete/ready records. The
+canonical `ROMTRACE|legal|move|<move_id>|<pp>|<target>` and
+`ROMTRACE|legal|switch|<slot>|<species>` records (and their `phase|...|legal|...`
+mirrors) emitted at choice boundaries, forced-switch boundaries, and pre-choice
+queries therefore survive `batch_turns`. Mailboxes are capped at 2048 bytes;
+request, trace, batch, and deadline limits are checked before the bridge accepts
+results.
 
 Its Python surface is:
 
