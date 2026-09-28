@@ -1,7 +1,10 @@
 """Live behavior fixtures for the pinned dynamic ROM oracle."""
 import copy
+import dataclasses
 import hashlib
 import json
+import struct
+import time
 from fractions import Fraction
 from itertools import product
 from pathlib import Path
@@ -16,17 +19,19 @@ from tools.rom_oracle import run_dynamic
 ROOT = Path(__file__).parent
 ELF = ROOT / "native/rom_worker/build/mingw/pokeemerald-test-headless.elf"
 V8_ELF = ROOT / "native/rom_worker/build/mingw/pokeemerald-test-v8.elf"
+V8B_ELF = ROOT / "native/rom_worker/build/mingw/pokeemerald-test-v8b.elf"
 BASE = json.loads((ROOT / "tools/rom_oracle/dynamic_sample.json").read_text(encoding="utf-8"))
 DATA = json.loads((ROOT / "data/game_data.json").read_text(encoding="utf-8"))
 
 
 def _staged_or_pinned_v8():
-    """The v8 ELF under test: the pin once it flips, else the staged artifact."""
+    """The v8 ELF under test: the pin once it flips, else the newest staged artifact."""
     if run_dynamic.PINNED_PROTOCOL_VERSION >= 8:
         return ELF, run_dynamic.PIN["dynamic_oracle"]["headless_elf_sha256"], run_dynamic.PINNED_PROTOCOL_VERSION
-    if not V8_ELF.is_file():
-        return None
-    return V8_ELF, hashlib.sha256(V8_ELF.read_bytes()).hexdigest(), 8
+    for staged in (V8B_ELF, V8_ELF):
+        if staged.is_file():
+            return staged, hashlib.sha256(staged.read_bytes()).hexdigest(), 8
+    return None
 
 
 def _v8_request(moves=None, pp=None, opponent_hp=None):
@@ -346,3 +351,137 @@ def test_live_v8_item_query_is_labeled_and_leaves_the_token_unchanged():
         assert rom_query._slot_sha(session.client, token.handle) == token.sha256
     finally:
         session.close()
+
+
+def _transition_frames(elf, sha, version, mode):
+    """Run one v8 SIMULATE_TURN to its boundary and report the frames it took."""
+    client = rom_bridge.RomWorkerClient(
+        rom_path=elf, expected_artifact_sha256=sha, timeout=60.0)
+    with client:
+        trace = []
+        address = None
+        for _ in range(400):
+            trace.extend(run_dynamic._trace(client.run_frames(60)))
+            ready = [line for line in trace if line.startswith("ROMTRACE|ready|")]
+            if ready:
+                address = int(ready[-1].split("|")[2])
+                break
+        assert address is not None
+        client.save_state()
+        request = _v8_request(["MOVE_TACKLE", "MOVE_NONE", "MOVE_NONE", "MOVE_NONE"],
+                              [35, 0, 0, 0])
+        request["operation"] = "simulate-turn"
+        request["request_id"] = 1
+        request["mode"] = mode
+        payload = run_dynamic.encode_request(request, protocol_version=version)
+        assert struct.unpack_from("<H", payload, run_dynamic.V8_EXTENSION_OFFSET + 2)[0] == (
+            run_dynamic.MODE_LOGIC_ONLY if mode == "logic-only" else run_dynamic.MODE_NORMAL)
+        result = client.batch_turns(
+            address, [payload], mailbox_bytes=run_dynamic.mailbox_bytes(version),
+            engine_elf_sha256=sha, deadline_ms=int(time.monotonic() * 1000) + 30_000,
+            request_id="logic-only-probe", max_frames=24_000)
+        turn = result["turns"][0]
+        return turn["frames"], turn["events"]
+
+
+def test_live_v8_simulate_turn_exports_the_complete_boundary_state():
+    target = _staged_or_pinned_v8()
+    if target is None:
+        pytest.skip("staged v8 test ELF is not installed")
+    elf, sha, version = target
+    if elf == V8_ELF:
+        pytest.skip("resolved v8 artifact predates the boundary-order fix")
+    request = _v8_request(["MOVE_TACKLE", "MOVE_NONE", "MOVE_NONE", "MOVE_NONE"],
+                          [35, 0, 0, 0])
+    request["operation"] = "simulate-turn"
+    request["request_id"] = 1
+    trace = run_dynamic.run_turn(elf, sha, request, protocol_version=version)
+    states = [line for line in trace if "|state|" in line]
+    assert any(line.startswith("ROMTRACE|boundary|") for line in trace)
+    # The boundary marker now follows the export, so the whole state survives the
+    # worker's batch stop (25 state records at the first boundary).
+    assert len(states) >= 20
+    assert any("|state|party|" in line for line in states)
+    assert any("|state|active|" in line for line in states)
+    assert not any(line.startswith("ROMTRACE|action|") for line in trace)
+
+
+def test_live_v8_logic_only_mode_is_honoured():
+    target = _staged_or_pinned_v8()
+    if target is None or not rom_bridge.DEFAULT_WORKER.is_file():
+        pytest.skip("staged v8 test ELF or mGBA worker is not installed")
+    elf, sha, version = target
+    normal_frames, normal_events = _transition_frames(elf, sha, version, "normal")
+    logic_frames, logic_events = _transition_frames(elf, sha, version, "logic-only")
+    for events in (normal_events, logic_events):
+        assert any(line.startswith("ROMTRACE|boundary|") for line in events)
+        assert any("|state|party|" in line for line in events)
+    # The logic-only pump runs up to four synchronous advances per frame, so the
+    # same fixture reaches the boundary in fewer frames. Parity is not asserted.
+    assert normal_frames != logic_frames
+
+
+def test_live_v8_normal_critical_policy_is_labelled_and_changes_the_odds():
+    target = _staged_or_pinned_v8()
+    if target is None or not rom_bridge.DEFAULT_WORKER.is_file():
+        pytest.skip("staged v8 test ELF or mGBA worker is not installed")
+    elf, sha, version = target
+    session = _QuerySession(elf, sha, version)
+    try:
+        request = _v8_request(["MOVE_TACKLE", "MOVE_NONE", "MOVE_NONE", "MOVE_NONE"],
+                              [35, 0, 0, 0])
+        token = session.token(request)
+        rows = {}
+        for policy in ("normal", "item-ability-only"):
+            variant = dataclasses.replace(
+                token, request={**token.request, "critical_policy": policy})
+            damage = rom_query.query_damage(session.client, session.mailbox, variant,
+                                            game_data=DATA, protocol_version=version)
+            ai = rom_query.query_ai_action(session.client, session.mailbox, variant,
+                                           game_data=DATA, protocol_version=version)
+            assert damage["critical_policy"] == policy
+            assert damage["critical_policy_verified"]
+            assert damage["player_moves"]["critical_policy"] == policy
+            assert ai["critical_policy"] == policy
+            assert ai["ai_actions"]["label"] == "deterministic"
+            rows[policy] = damage["player_moves"]["moves"][0]
+        # Observed difference: `normal` keeps the real crit rolls, so the crit
+        # denominator is the engine crit chance and the range includes crits,
+        # while item-ability-only filters ordinary crits out.
+        assert rows["normal"]["outcomes_source"] == "rom"
+        assert (rows["normal"]["crit_denominator"]
+                > rows["item-ability-only"]["crit_denominator"])
+        assert (rows["normal"]["damage_range"]["max"]
+                > rows["item-ability-only"]["damage_range"]["max"])
+    finally:
+        session.close()
+
+
+def test_live_v8_outcome_weights_match_the_parsed_probability():
+    target = _staged_or_pinned_v8()
+    if target is None:
+        pytest.skip("staged v8 test ELF is not installed")
+    elf, sha, version = target
+    request = _v8_request(["MOVE_BULLET_SEED", "MOVE_NONE", "MOVE_NONE", "MOVE_NONE"],
+                          [25, 0, 0, 0], opponent_hp=30)
+    request["candidate_action"] = {"kind": "move", "move_id": "MOVE_BULLET_SEED"}
+    request["critical_policy"] = "normal"
+    request["query"] = True
+    trace = run_dynamic.run_turn(elf, sha, request, protocol_version=version)
+    cards = rom_query.parse_damage(trace, rom_query.snapshot_from_request(request), DATA,
+                                   expected_policy="normal")
+    row = next(item for item in cards["player_moves"]["moves"]
+               if item["move_id"] == "MOVE_BULLET_SEED")
+    assert row["outcomes_source"] == "rom"
+    numeric = run_dynamic.numeric_id("moves", "MOVE_BULLET_SEED")
+    ko, denom = 0, None
+    for event in trace:
+        cells = event.split("|")
+        if cells[:3] == ["ROMTRACE", "query", "outcomes"] and cells[3] == "0" \
+                and int(cells[4]) == numeric:
+            denom = int(cells[8])
+            pairs = [int(value) for value in cells[14:]]
+            ko += sum(pairs[i + 1] for i in range(0, len(pairs), 2) if pairs[i] <= 0)
+    assert denom
+    assert Fraction(row["probability"]["num"], row["probability"]["den"]) == Fraction(ko, denom)
+    assert Fraction(ko, denom) > 0

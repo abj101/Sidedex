@@ -29,6 +29,12 @@ CRITICAL_POLICY_ITEM_ABILITY_ONLY = 1
 OPERATIONS = {"simulate-turn": OP_SIMULATE_TURN, "query-damage": OP_QUERY_DAMAGE,
               "query-ai-action": OP_QUERY_AI_ACTION}
 QUERY_OPERATIONS = (OP_QUERY_DAMAGE, OP_QUERY_AI_ACTION)
+CRITICAL_POLICIES = {"normal": CRITICAL_POLICY_NORMAL,
+                     "item-ability-only": CRITICAL_POLICY_ITEM_ABILITY_ONLY}
+# The trace echoes one mechanism label per policy; the ROM filters ordinary
+# crits under item-ability-only but keeps the real crit rolls under `normal`.
+CRITICAL_POLICY_MECHANISMS = {"normal": "real-crit-rolls",
+                              "item-ability-only": "battle-script-filtered"}
 V7_HEADER_BYTES = 856
 V8_EXTENSION_BYTES = 8
 SUPPORTED_PROTOCOL_VERSIONS = (7, 8)
@@ -94,9 +100,19 @@ def _mode(request: dict) -> int:
 
 def _critical_policy(request: dict) -> int:
     policy = request.get("critical_policy", "item-ability-only")
-    if policy != "item-ability-only":
-        raise ValueError("unsupported-policy: only item-ability-only critical policy is supported")
-    return CRITICAL_POLICY_ITEM_ABILITY_ONLY
+    if policy not in CRITICAL_POLICIES:
+        raise ValueError(f"unsupported-policy: unknown critical policy {policy!r}")
+    return CRITICAL_POLICIES[policy]
+
+
+def critical_policy_label(request: dict) -> str:
+    """The exact label the trace is expected to echo for this request."""
+    return request.get("critical_policy", "item-ability-only")
+
+
+def _policy_marker(request: dict) -> str:
+    label = critical_policy_label(request)
+    return f"ROMTRACE|critical-policy|{label}|{CRITICAL_POLICY_MECHANISMS[label]}"
 
 
 # TOXIC_COUNTER is a mask inside status1, not a selectable standalone status.
@@ -138,6 +154,9 @@ def encode_request(request: dict, protocol_version: int | None = None) -> bytes:
     op = operation(request)
     mode = _mode(request)
     policy = _critical_policy(request)
+    if version < 8 and policy != CRITICAL_POLICY_ITEM_ABILITY_ONLY:
+        raise ValueError(
+            "unsupported-policy: protocol 7 supports only item-ability-only critical policy")
     request_id = _ints([request.get("request_id", 0)], 1, 0xFFFF)[0]
     for side in ("player", "opponent"):
         active_index = request.get(f"{side}_active_index", 0)
@@ -316,7 +335,7 @@ def run_turn(elf: Path, sha256: str, request: dict, *, protocol_version: int | N
         )
         turn = result["turns"][0]["events"]
         if query:
-            if "ROMTRACE|critical-policy|item-ability-only|battle-script-filtered" not in turn:
+            if _policy_marker(request) not in turn:
                 raise RuntimeError("engine-error: pinned engine trace did not confirm the critical-hit policy")
             if not any(record.startswith("ROMTRACE|query|complete") for record in turn):
                 raise RuntimeError("incomplete-state: dynamic query did not complete at its choice checkpoint")
@@ -332,16 +351,15 @@ def run_turn(elf: Path, sha256: str, request: dict, *, protocol_version: int | N
         if version >= 8:
             # v8 SIMULATE_TURN stops at the next decision boundary or terminal and
             # emits the complete state export instead of a v7 after-turn trace.
-            # NOTE (package C finding): the worker's batch stop fires on the
-            # `ROMTRACE|boundary|` record, which the ROM emits before its state
-            # export, so this batch reply carries only the leading records. The
-            # full boundary state must be read through the worker's drain path
-            # (package B) or the ROM marker order changed (package A).
+            # v8b emits the `ROMTRACE|boundary|` marker after the state export, so
+            # this batch reply carries the whole boundary state. The original v8
+            # build emitted the marker first and the worker's batch stop truncated
+            # the export (4 of 34 records observed); that artifact is superseded.
             if not any(record.startswith(("ROMTRACE|boundary|", "ROMTRACE|terminal|"))
                        for record in turn):
                 raise RuntimeError("incomplete-state: v8 transition did not reach a boundary")
             return turn
-        if "ROMTRACE|critical-policy|item-ability-only|battle-script-filtered" not in turn:
+        if _policy_marker(request) not in turn:
             raise RuntimeError("engine-error: pinned engine trace did not confirm the critical-hit policy")
         complete = [line for line in turn if line.startswith("ROMTRACE|complete|")]
         if len(complete) != 1:

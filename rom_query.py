@@ -33,15 +33,26 @@ MULTI_HIT_ENUMERATED = 16
 ALLOWED_FLAGS = UNAVAILABLE | FOCUS_SASH | STURDY | MULTI_HIT_RANGE | MULTI_HIT_ENUMERATED
 MAX_ROLL = 0xFFFF
 MODE_WEIGHTS = {0: {2: 7, 3: 7, 4: 3, 5: 3}, 1: {4: 1, 5: 1}, 2: {5: 1}, 3: {3: 1}}
-CRITICAL_POLICY = "item-ability-only"
+CRITICAL_POLICY = "item-ability-only"  # backwards-compatible default label
+CRITICAL_POLICIES = ("normal", "item-ability-only")
 
-# LEGACY-FALLBACK (package C, phase-2 open). The ROM does not yet emit a complete
-# outcome-weight enumeration for multi-hit / Focus Sash / Sturdy / accuracy
-# (`ROM_TRANSITION_LEDGER.md`: "outcome-weight enumeration not yet in the ROM
-# layer"). Until package A lands that record, the composition below runs in
-# Python. This is the single deletion point for the ROM-authoritative path: when
-# the ROM enumerates outcome weights, replace `_compose_multi_hit_ko` with the
-# record consumer and drop this constant.
+# `ROMTRACE|query|outcomes` (README "Complete outcome weights"): the ROM's
+# complete joint distribution over the target's remaining HP, in integer parts
+# per million, chunked eight branches at a time.
+OUTCOME_MULTI_HIT = 1
+OUTCOME_SASH = 2
+OUTCOME_STURDY = 4
+OUTCOME_LOW_ACCURACY = 8
+OUTCOME_REFUSED = 16
+OUTCOME_AXIS_BOUND = 32
+ALLOWED_OUTCOME_FLAGS = (OUTCOME_MULTI_HIT | OUTCOME_SASH | OUTCOME_STURDY
+                         | OUTCOME_LOW_ACCURACY | OUTCOME_REFUSED | OUTCOME_AXIS_BOUND)
+OUTCOME_DENOMINATOR = 1_000_000
+
+# FALLBACK (package C, phase 2). The v8b ROM emits the `query|outcomes` record
+# and `_outcome_row` consumes it. This Python composition still runs for traces
+# that predate the record (the pinned v7 ELF, and any v8 trace without it), and
+# it is the single place to delete once no supported engine lacks the record.
 LEGACY_OUTCOME_COMPOSITION = True
 
 
@@ -140,7 +151,7 @@ def _require_query_complete(events) -> None:
         raise ValueError("incomplete-state: query did not complete")
 
 
-def _scan_events(events) -> dict:
+def _scan_events(events, expected_policy=None) -> dict:
     """Validate and collect every query record without building any card."""
     _require_query_complete(events)
     records = {0: {}, 1: {}}
@@ -150,6 +161,8 @@ def _scan_events(events) -> dict:
     query_context = None
     faints = []
     policy_verified = False
+    observed_policy = None
+    outcomes = {}
     query_active = {}
     for line in events:
         cells = line.split("|")
@@ -195,6 +208,33 @@ def _scan_events(events) -> dict:
                 ai = (cells[3], int(cells[4]))
             except ValueError as exc:
                 raise ValueError("engine-error: invalid query AI choice") from exc
+        elif cells[:3] == ["ROMTRACE", "query", "outcomes"]:
+            if len(cells) < 14 or (len(cells) - 14) % 2:
+                raise ValueError("engine-error: invalid query outcomes record")
+            owner, move, flags, chunk, chunks, denom, branches, hits_mode, \
+                min_hits, max_hits, accuracy = _ints(cells[3:14], "outcomes")
+            if (owner not in records or move <= 0 or flags & ~ALLOWED_OUTCOME_FLAGS
+                    or denom != OUTCOME_DENOMINATOR or chunks < 0 or chunk < 0
+                    or not 0 <= accuracy <= 100 or not 0 <= min_hits <= max_hits <= 5
+                    or hits_mode > 4 or chunks and chunk >= chunks):
+                raise ValueError("engine-error: invalid query outcomes header")
+            entry = outcomes.setdefault((owner, move), {
+                "flags": flags, "denominator": denom, "hits_mode": hits_mode,
+                "min_hits": min_hits, "max_hits": max_hits, "accuracy": accuracy,
+                "branches": {}, "declared_branches": branches, "pairs": 0,
+                "chunks": chunks, "seen": set()})
+            if (entry["chunks"] != chunks or entry["flags"] != flags
+                    or entry["declared_branches"] != branches):
+                raise ValueError("engine-error: inconsistent query outcomes header")
+            if chunk in entry["seen"]:
+                raise ValueError("engine-error: duplicate query outcomes chunk")
+            entry["seen"].add(chunk)
+            entry["pairs"] += len(range(14, len(cells), 2))
+            for index in range(14, len(cells), 2):
+                hp, weight = _ints(cells[index:index + 2], "outcome branch")
+                if hp < 0 or weight < 0:
+                    raise ValueError("engine-error: invalid query outcome branch")
+                entry["branches"][hp] = entry["branches"].get(hp, 0) + weight
         elif cells[:3] == ["ROMTRACE", "query", "context"]:
             if len(cells) != 4 or cells[3] not in (
                 "current-state", "post-switch", "after-candidate-turn"
@@ -202,8 +242,12 @@ def _scan_events(events) -> dict:
                 raise ValueError("engine-error: invalid query context")
             query_context = cells[3]
         elif cells[:2] == ["ROMTRACE", "critical-policy"]:
-            if len(cells) != 4 or cells[2] != CRITICAL_POLICY or cells[3] != "battle-script-filtered":
+            if (len(cells) != 4 or cells[2] not in CRITICAL_POLICIES
+                    or cells[3] != run_dynamic.CRITICAL_POLICY_MECHANISMS[cells[2]]):
                 raise ValueError("engine-error: unsupported critical policy")
+            if observed_policy is not None and observed_policy != cells[2]:
+                raise ValueError("engine-error: conflicting critical policy")
+            observed_policy = cells[2]
             policy_verified = True
         elif cells[:3] == ["ROMTRACE", "query", "active"]:
             if len(cells) != 15:
@@ -236,9 +280,55 @@ def _scan_events(events) -> dict:
                 (side, move) in hits and (side, move, 0) in rolls and (side, move, 1) in rolls
             ):
                 raise ValueError("engine-error: enumerated multi-hit move lacks hit rolls")
+    if expected_policy is not None and observed_policy != expected_policy:
+        raise ValueError(
+            f"engine-error: critical policy mismatch: trace reports {observed_policy!r}, "
+            f"request expected {expected_policy!r}")
+    for entry in outcomes.values():
+        if entry["pairs"] != entry["declared_branches"]:
+            raise ValueError("engine-error: query outcomes record lost a branch")
+        if entry["chunks"] == 0:
+            if not entry["flags"] & OUTCOME_REFUSED or entry["branches"]:
+                raise ValueError("engine-error: empty query outcomes record without a refusal")
+            continue
+        if len(entry["seen"]) != entry["chunks"]:
+            raise ValueError("engine-error: query outcomes record is missing a chunk")
+        if sum(entry["branches"].values()) != entry["denominator"]:
+            raise ValueError("engine-error: query outcomes weights do not sum to the denominator")
     return {"records": records, "hits": hits, "rolls": rolls, "ai": ai,
             "context": query_context, "faints": faints,
+            "outcomes": outcomes,
+            "policy": observed_policy or CRITICAL_POLICY,
             "policy_verified": policy_verified, "active": query_active}
+
+
+def _outcome_row(entry, minimum, maximum, crit_den, accuracy, target_hp):
+    """Build an engine-exact row from the ROM's complete outcome enumeration."""
+    if entry["flags"] & OUTCOME_REFUSED:
+        return {"status": "unavailable", "reason": "unsupported-mechanic",
+                "detail": "The ROM declined to enumerate this move's outcome weights."}
+    ko = sum(weight for hp, weight in entry["branches"].items() if hp <= 0)
+    probability = Fraction(ko, entry["denominator"])
+    multi = bool(entry["flags"] & OUTCOME_MULTI_HIT)
+    notes = []
+    if entry["flags"] & OUTCOME_SASH:
+        notes.append("Full-HP Focus Sash is folded into the ROM outcome weights.")
+    if entry["flags"] & OUTCOME_STURDY:
+        notes.append("Full-HP Sturdy is folded into the ROM outcome weights.")
+    row = {"status": "engine-exact",
+           "probability": {"num": probability.numerator, "den": probability.denominator},
+           "num": probability.numerator, "den": probability.denominator,
+           "damage_range": {"min": minimum, "max": maximum},
+           "accuracy_percent": accuracy, "crit_denominator": crit_den,
+           "method": ("engine-enumerated-multi-hit" if multi else
+                      "engine-enumerated-single-hit"),
+           "outcomes_source": "rom", "notes": notes}
+    if target_hp is not None:
+        row["distribution"] = [
+            {"remaining_hp": hp, "damage": target_hp - hp, "weight": weight}
+            for hp, weight in sorted(entry["branches"].items())]
+        row["distribution_denominator"] = entry["denominator"]
+    return row
 
 
 def _damage_row(scanned, side, move_id, target_mon, game_data):
@@ -261,6 +351,13 @@ def _damage_row(scanned, side, move_id, target_mon, game_data):
                            "Exact single-hit KO probability is unavailable for this move."))
         if flags & MULTI_HIT_RANGE:
             row["damage_range"] = {"min": minimum, "max": maximum}
+        return row
+    outcome = scanned["outcomes"].get((side, numeric))
+    if outcome is not None:
+        result = _outcome_row(outcome, minimum, maximum, crit_den, accuracy, target_hp)
+        if result["status"] == "unavailable" and flags & MULTI_HIT_RANGE:
+            result["damage_range"] = {"min": minimum, "max": maximum}
+        row.update(result)
         return row
     if flags & MULTI_HIT_ENUMERATED:
         if not LEGACY_OUTCOME_COMPOSITION:
@@ -323,7 +420,7 @@ def _damage_cards(scanned, snapshot, game_data, move_ids=None):
                                                     or row.get("damage_range") for row in rows)
                       else "unavailable", "moves": rows,
                       "conditioned_on": "current active target; one selected single-hit move",
-                      "critical_policy": CRITICAL_POLICY,
+                      "critical_policy": scanned["policy"],
                       "critical_policy_verified": scanned["policy_verified"],
                       "query_context": scanned["context"] or "current-state"}
     return cards
@@ -339,7 +436,7 @@ def _unsupported_rows(cards):
 
 def _envelope(schema, scanned, extra=None):
     result = {"query_schema": schema, "decode_schema": DECODE_SCHEMA,
-              "critical_policy": CRITICAL_POLICY,
+              "critical_policy": scanned["policy"],
               "critical_policy_verified": scanned["policy_verified"],
               "query_context": scanned["context"] or "current-state"}
     if extra:
@@ -347,9 +444,10 @@ def _envelope(schema, scanned, extra=None):
     return result
 
 
-def parse_damage(events, snapshot, game_data, *, token=None, move_ids=None) -> dict:
+def parse_damage(events, snapshot, game_data, *, token=None, move_ids=None,
+                 expected_policy=None) -> dict:
     """QUERY_DAMAGE result: versioned damage distribution/range with fail-closed reasons."""
-    scanned = _scan_events(events)
+    scanned = _scan_events(events, expected_policy=expected_policy)
     cards = _damage_cards(scanned, snapshot, game_data, move_ids=move_ids)
     result = _envelope(QUERY_DAMAGE_SCHEMA, scanned, {
         "player_moves": cards["player_moves"], "enemy_moves": cards["enemy_moves"],
@@ -357,9 +455,9 @@ def parse_damage(events, snapshot, game_data, *, token=None, move_ids=None) -> d
     return _with_token(result, token)
 
 
-def parse_ai_action(events, game_data, *, token=None) -> dict:
+def parse_ai_action(events, game_data, *, token=None, expected_policy=None) -> dict:
     """QUERY_AI_ACTION result: one deterministic fixed-seed AI action, no turn resolved."""
-    scanned = _scan_events(events)
+    scanned = _scan_events(events, expected_policy=expected_policy)
     card = _ai_card(scanned["ai"], game_data)
     result = _envelope(QUERY_AI_ACTION_SCHEMA, scanned, {"ai_actions": card})
     return _with_token(result, token)
@@ -378,7 +476,7 @@ def parse(events, snapshot, game_data):
     scanned = _scan_events(events)
     cards = _damage_cards(scanned, snapshot, game_data)
     cards["ai_actions"] = _ai_card(scanned["ai"], game_data)
-    cards["critical_policy"] = CRITICAL_POLICY
+    cards["critical_policy"] = scanned["policy"]
     cards["critical_policy_verified"] = scanned["policy_verified"]
     cards["query_context"] = scanned["context"] or "current-state"
     cards["faints"] = scanned["faints"]
@@ -438,7 +536,7 @@ def _query_request(token, operation_name, protocol_version):
     request.pop("post_switch_query", None)
     request["rng_main"] = list(token.rng["main"])
     request["rng_secondary"] = list(token.rng["secondary"])
-    request["critical_policy"] = CRITICAL_POLICY
+    request["critical_policy"] = run_dynamic.critical_policy_label(request)
     payload = run_dynamic.encode_request(request, protocol_version=protocol_version)
     return request, payload
 
@@ -495,7 +593,8 @@ def query_damage(client, mailbox, token, *, game_data, protocol_version=None,
     request, payload = _query_request(token, "query-damage", version)
     events, latency_ms = _run_query(client, mailbox, token, payload, version, deadline_ms)
     result = parse_damage(events, token.decoded or snapshot_from_request(request), game_data,
-                          token=token, move_ids=move_ids)
+                          token=token, move_ids=move_ids,
+                          expected_policy=request["critical_policy"])
     result["latency_ms"] = latency_ms
     return result
 
@@ -504,9 +603,10 @@ def query_ai_action(client, mailbox, token, *, game_data, protocol_version=None,
                     deadline_ms=QUERY_DEADLINE_MS) -> dict:
     """Run QUERY_AI_ACTION once from `token` without resolving a turn."""
     version = run_dynamic._protocol_version(protocol_version)
-    _, payload = _query_request(token, "query-ai-action", version)
+    request, payload = _query_request(token, "query-ai-action", version)
     events, latency_ms = _run_query(client, mailbox, token, payload, version, deadline_ms)
-    result = parse_ai_action(events, game_data, token=token)
+    result = parse_ai_action(events, game_data, token=token,
+                             expected_policy=request["critical_policy"])
     result["latency_ms"] = latency_ms
     return result
 

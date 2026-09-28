@@ -210,6 +210,50 @@ class SplitQueryApi(unittest.TestCase):
         self.assertFalse(ai["ai_actions"]["distribution"])
         self.assertEqual(ai["ai_actions"]["predicted_action"]["id"], self.ENEMY)
 
+    def test_critical_policy_label_is_carried_and_never_conflated(self):
+        normal = self._events() + ["ROMTRACE|critical-policy|normal|real-crit-rolls"]
+        result = rom_query.parse_damage(normal, self._snapshot(), DATA, expected_policy="normal")
+        self.assertEqual(result["critical_policy"], "normal")
+        self.assertTrue(result["critical_policy_verified"])
+        self.assertEqual(result["enemy_moves"]["critical_policy"], "normal")
+        # The legacy four-card wrapper reports the observed label as-is.
+        self.assertEqual(rom_query.parse(normal, self._snapshot(), DATA)["critical_policy"],
+                         "normal")
+        # A requested policy that the trace does not echo fails closed.
+        with self.assertRaisesRegex(ValueError, "critical policy mismatch"):
+            rom_query.parse_damage(normal, self._snapshot(), DATA,
+                                   expected_policy="item-ability-only")
+        with self.assertRaisesRegex(ValueError, "unsupported critical policy"):
+            rom_query.parse_damage(
+                self._events() + ["ROMTRACE|critical-policy|always-crit|battle-script-filtered"],
+                self._snapshot(), DATA)
+
+    def test_rom_outcome_weights_are_consumed_and_fail_closed(self):
+        seed = run_dynamic.numeric_id("moves", self.PLAYER)
+        absorb = run_dynamic.numeric_id("moves", self.ENEMY)
+        head = [
+            f"ROMTRACE|query|damage|0|{seed}|0|38400|0|30|45|100|24",
+            f"ROMTRACE|query|damage|1|{absorb}|0|1600|0|20|25|100|1",
+        ]
+        tail = [f"ROMTRACE|query|ai|move|{absorb}",
+                "ROMTRACE|query|complete", "ROMTRACE|complete|0"]
+        complete = head + [f"ROMTRACE|query|outcomes|0|{seed}|1|0|1|1000000|2|0|2|3|100|0|750000|5|250000"] + tail
+        row = rom_query.parse_damage(complete, self._snapshot(enemy_hp=5), DATA)["player_moves"]["moves"][0]
+        self.assertEqual(row["outcomes_source"], "rom")
+        self.assertEqual(row["method"], "engine-enumerated-multi-hit")
+        self.assertEqual(row["probability"], {"num": 3, "den": 4})
+        self.assertEqual(row["distribution"][0],
+                         {"remaining_hp": 0, "damage": 5, "weight": 750000})
+        # A truncated enumeration (declared two branches, one present) fails closed.
+        truncated = head + [f"ROMTRACE|query|outcomes|0|{seed}|1|0|1|1000000|2|0|2|3|100|0|750000"] + tail
+        with self.assertRaisesRegex(ValueError, "lost a branch"):
+            rom_query.parse_damage(truncated, self._snapshot(enemy_hp=5), DATA)
+        # A refused enumeration is an explicit unsupported-mechanic row.
+        refused = head + [f"ROMTRACE|query|outcomes|0|{seed}|17|0|0|1000000|0|0|1|1|0"] + tail
+        row = rom_query.parse_damage(refused, self._snapshot(enemy_hp=5), DATA)["player_moves"]["moves"][0]
+        self.assertEqual(row["status"], "unavailable")
+        self.assertEqual(row["reason"], "unsupported-mechanic")
+
     def test_query_cards_publish_without_rollout_completion(self):
         # The trace carries no transition records (no `phase|N|after-turn`, no
         # `action|`, no `rng|`), so card availability cannot depend on a rollout.

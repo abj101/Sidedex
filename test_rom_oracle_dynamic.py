@@ -4,6 +4,8 @@ import json
 import struct
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).parent
 SPEC = importlib.util.spec_from_file_location(
     "rom_oracle_dynamic", ROOT / "tools/rom_oracle/run_dynamic.py"
@@ -62,6 +64,24 @@ def test_query_operations_set_the_explicit_op_field():
     assert struct.unpack_from("<H", RUNNER.encode_request(request), RUNNER.SECOND_PRESENT_OFFSET)[0] == 2
     assert struct.unpack_from(
         "<H", RUNNER.encode_request(request, protocol_version=8), RUNNER.V8_EXTENSION_OFFSET)[0] == RUNNER.OP_QUERY_DAMAGE
+
+
+def test_critical_policy_is_selectable_and_labelled():
+    request = json.loads((ROOT / "tools/rom_oracle/dynamic_sample.json").read_text(encoding="utf-8"))
+    request["operation"] = "query-damage"
+    for label, expected in (("normal", RUNNER.CRITICAL_POLICY_NORMAL),
+                            ("item-ability-only", RUNNER.CRITICAL_POLICY_ITEM_ABILITY_ONLY)):
+        request["critical_policy"] = label
+        payload = RUNNER.encode_request(request, protocol_version=8)
+        assert struct.unpack_from("<H", payload, RUNNER.V8_EXTENSION_OFFSET + 4)[0] == expected
+        assert RUNNER.critical_policy_label(request) == label
+    # Protocol 7 has no policy field; the v7 ROM only implements item-ability-only.
+    request["critical_policy"] = "normal"
+    with pytest.raises(ValueError, match="unsupported-policy"):
+        RUNNER.encode_request(request, protocol_version=7)
+    request["critical_policy"] = "always-crit"
+    with pytest.raises(ValueError, match="unsupported-policy"):
+        RUNNER.encode_request(request, protocol_version=8)
 
 
 def test_battle_statuses_encode_as_status1_words():
