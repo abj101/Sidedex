@@ -244,3 +244,41 @@ The 7 failures are the Gate V1 flip's cross-package fallout, not this package:
 = `0601297e…`.  Both files belong to B/D (`ROM_TRANSITION_FINISH_PLAN.md` §9.3).
 Re-running the suite with this package's changes stashed reproduces the same 7
 failures at the merge point.
+
+## Wave 3 C2 addendum (2026-09-28): V1 worker f7b1c1e3 + unreadable-field scoping
+
+Gate V1 re-merged (`c57a9fb`, active worker pin `f7b1c1e3…`). `rom_worker.exe`
+replaced in the gitignored `native/rom_worker/build/mingw/` (not committed).
+Root regenerated twice from the pinned `.gba`:
+
+```
+9fb8096553028b770a9959df29c559bd244a9b18269176d063f145ddf4b3eaaa  frame 13236
+```
+
+Identical across two fresh cold-boot runs, and **the same SHA as the 1529 root** —
+the SDXSTT01 header embeds the ROM artifact hash, the wire protocol and the
+worker version string, and `f7b1c1e3` is still wire 3 / `sidedex-mgba-worker/0.3.0`
+/ mgba `0.10.5+26b7884`, so nothing in the header changed.
+`test_rom_release_harness.py` 25 passed; `test_rom_release_live.py` 7 passed, 1 skipped.
+
+### Fields unreadable by the release projection today, and what it would take
+
+Authority: `/home/abj1/rom-release-checkout` (source tree of the pinned build).
+
+| Group | Fields | Why unreadable now | What it takes |
+| --- | --- | --- | --- |
+| party | species, item, form, experience, friendship, ppBonuses, nickname11/12, ivsWerePerfected | live inside the box "secure" region (`struct BoxPokemon.secure`, `include/pokemon.h:249`, 48 bytes at party-mon offset **0x20**) which is XOR-encrypted | `struct PokemonSubstruct0` (`include/pokemon.h:130`): `species:11`, `teraType:5`, `heldItem:10`, `experience:21`, `nickname11:8`, `ppBonuses`, `friendship`, `pokeball:6`, `nickname12:8`, `ivsWerePerfected:1` |
+| party | move1-4, pp1-4 | same encrypted region | `struct PokemonSubstruct1` (`include/pokemon.h:147`): `moveN:11` + `evolutionTrackerN:5` (u16 each), then `pp1..pp4` as `ppN:7` |
+| party | evs (hp/atk/def/spe/spa/spd) | same | `struct PokemonSubstruct2` (`include/pokemon.h:169`): six plain `u8` EVs |
+| party | ivs, nature | same | IVs in `struct PokemonSubstruct3` (`include/pokemon.h:185`) as six `uN:5` bitfields (`hpIV`…`spDefenseIV`) plus `dynamaxLevel:4` / `gigantamaxFactor:1`; nature needs A1's rule because this fork carries `hiddenNatureModifier:5` in `BoxPokemon` (`include/pokemon.h:256`) instead of vanilla's `personality % 25` |
+| party | (all of the above) | — | **Decryption is cheap and known**: `DecryptBoxMon` (`src/pokemon.c:2549`) does `raw[i] ^= otId; raw[i] ^= personality` over the 12 `u32` words, i.e. the key is `personality ^ otId` — *not* vanilla's checksum-as-key, which is why the C2 attempt with `0xdf3fdf3f` failed. `GetSubstruct` (`src/pokemon.c:2582`) rotates which type sits where via the `personality % 24` switch; each substruct is 12 bytes |
+| side | reflect/light_screen/aurora_veil/mist/safeguard/tailwind/follow_me timers, hazard_layers | live outside `gSideStatuses` (the flags word already read) | `struct SideTimer gSideTimers[2]`, EWRAM `0x02000594` (`include/battle.h:1136`, `src/battle_main.c:200`) |
+| field | weather_timer, terrain_timer, trick_room_timer | same | `struct FieldTimer gFieldTimers`, EWRAM `0x02000878` (`include/battle.h:1169`, `src/battle_main.c:233`) — sits immediately after `gFieldStatuses` `0x02000874`, which cross-validates the pin |
+| battle | ai_flags | not a global | `u32 aiFlags[MAX_BATTLERS_COUNT]` at offset **0x18** of `struct AI_ThinkingStruct` (`include/battle.h:396`), reached through the pointer `gBattleResources` (EWRAM `0x0200083C`, deref) `+ 0x14` (`->ai`, `include/battle.h:440`) |
+| battle | item_count, item1-4 | no release-side carrier identified | needs A1's definition of these wire fields first; they are not a single release global |
+| active | volatile_flags, protect_flags, special_status_flags | composite words packed by the A1 exporter | A1's "v9 flag word" bit spec, or read `gDisableStructs` `0x020005F4` (0x2C stride) / `gProtectStructs` `0x020006A4` and pick bits explicitly |
+| active | form, status3 | form is derived from species/personality; no status3 RAM field | derivation rule (A1) for form; status3 has no release source |
+
+Scoping note: the party table above means party `species/moves/pp/ivs/evs` are
+recoverable with ~40 lines (XOR key + one 24-entry order table + the four struct
+layouts), which would take the party group from 7/32 to 32/32 readable fields.
