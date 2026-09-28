@@ -31,6 +31,6 @@ target_link_libraries(mgba ${libelf_LIBRARIES})
 add_executable(rom_worker worker.c)
 target_link_libraries(rom_worker PRIVATE mgba)
 target_compile_definitions(rom_worker PRIVATE
-    ROM_WORKER_VERSION="0.1.4"
+    ROM_WORKER_VERSION="0.2.0"
     ROM_WORKER_MGBA_VERSION="0.10.5+26b7884"
 )
