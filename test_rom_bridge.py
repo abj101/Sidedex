@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -385,6 +386,64 @@ for line in sys.stdin:
                             0x02000100, [b"abc"], mailbox_bytes=4,
                             engine_elf_sha256=digest, deadline_ms=0, request_id="bad",
                         )
+
+    def test_worker_id_is_stable_for_a_client_and_distinct_between_clients(self):
+        with tempfile.TemporaryDirectory() as temp:
+            temp = Path(temp)
+            rom = temp / "test.gba"
+            rom.write_bytes(b"placeholder ROM for worker id test")
+            digest = rom_bridge.sha256_file(rom)
+            lock = temp / "source_lock.json"
+            lock.write_text(json.dumps({"commit": rom_bridge.SOURCE_SHA}), encoding="utf-8")
+            fake_worker = r"""
+import json, os, sys
+rom = sys.argv[-1]
+print(json.dumps({"protocol":2,"ok":True,"worker":"sidedex-mgba-worker/0.2.0","mgba":"0.10.5+26b7884","platform":"gba","rom_title":"TEST","rom_code":"TEST","rom_bytes":os.path.getsize(rom),"frame_count":0}), flush=True)
+for line in sys.stdin:
+    req = json.loads(line)
+    print(json.dumps({"protocol":2,"ok":True,"op":req["op"]}), flush=True)
+"""
+            kwargs = dict(source_lock_path=lock, expected_artifact_sha256=digest,
+                          expected_worker_sha256=rom_bridge.sha256_file(sys.executable),
+                          worker_args=("-c", fake_worker))
+            with patch.object(rom_bridge, "ROM_SHA256", digest):
+                with rom_bridge.RomWorkerClient(sys.executable, rom, **kwargs) as first:
+                    self.assertEqual(first.worker_id, first.worker_id)
+                    self.assertIn(rom_bridge.WORKER_VERSION, first.worker_id)
+                    self.assertIn(f"pid={first._process.pid}", first.worker_id)
+                    self.assertIn(digest.lower(), first.worker_id)
+                    first_id = first.worker_id
+                with rom_bridge.RomWorkerClient(sys.executable, rom, **kwargs) as second:
+                    self.assertNotEqual(first_id, second.worker_id)
+
+    def test_batch_turns_restores_a_named_handle_or_the_default_slot(self):
+        client = object.__new__(rom_bridge.RomWorkerClient)
+        client.rom_sha256 = rom_bridge.ROM_SHA256
+        client.worker_sha256 = rom_bridge.WORKER_SHA256
+        client._has_checkpoint = False
+        client._timeout = 5.0
+        sent = {}
+
+        def fake_request(op, _timeout=None, **fields):
+            sent.clear()
+            sent.update(fields)
+            return {"ok": True, "request_id": fields["request_id"], "source_sha": fields["source_sha"],
+                    "engine_elf_sha256": fields["engine_elf_sha256"], "worker_sha256": fields["worker_sha256"],
+                    "turns": [{"complete": True, "stop": "turn-complete", "stop_marker": "ROMTRACE|ready|1",
+                               "frames": 5, "events": [], "trace_overflow": False}]}
+
+        client._request = fake_request
+        args = dict(mailbox_bytes=4, engine_elf_sha256=rom_bridge.ROM_SHA256,
+                    deadline_ms=int(time.monotonic() * 1000) + 5000, request_id="batch-1")
+        with self.assertRaises(ValueError):
+            client.batch_turns(0x02000100, [b"abcd"], **args)
+        client.batch_turns(0x02000100, [b"abcd"], handle="a" * 32, **args)
+        self.assertEqual(sent["handle"], "a" * 32)
+        client._has_checkpoint = True
+        client.batch_turns(0x02000100, [b"abcd"], **args)
+        self.assertNotIn("handle", sent)
+        with self.assertRaises(ValueError):
+            client.batch_turns(0x02000100, [b"abcd"], handle="nope", **args)
 
     def test_persistent_worker_client_against_actual_rom_when_available(self):
         if not PINNED_WORKER.is_file() or not PINNED_ROM.is_file():

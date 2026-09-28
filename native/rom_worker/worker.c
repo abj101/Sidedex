@@ -677,8 +677,9 @@ static bool run_batch_turns(const char *line) {
     uint64_t address = 0, frames_limit = 0, mailbox_bytes = 0, budget_ms = 0;
     char payloads[MAX_BATCH_TURNS * (MAX_MEMORY_WRITE_BYTES * 2 + 1)];
     char request_id[129], source_sha[65], engine_sha[65], worker_sha[65];
-    int checkpoint = find_slot_by_name("default");
-    if (checkpoint < 0 || !json_uint(line, "address", &address) ||
+    char checkpoint_handle[MAX_HANDLE_HEX + 1] = "";
+    bool has_handle = json_present(line, "handle");
+    if (!json_uint(line, "address", &address) ||
         !json_uint(line, "max_frames", &frames_limit) || frames_limit == 0 || frames_limit > MAX_FRAMES_PER_REQUEST ||
         !json_uint(line, "mailbox_bytes", &mailbox_bytes) || mailbox_bytes == 0 || mailbox_bytes > MAX_MEMORY_WRITE_BYTES ||
         !json_uint(line, "budget_ms", &budget_ms) || budget_ms == 0 ||
@@ -686,12 +687,19 @@ static bool run_batch_turns(const char *line) {
         !json_string(line, "request_id", request_id, sizeof(request_id)) ||
         !json_string(line, "source_sha", source_sha, sizeof(source_sha)) ||
         !json_string(line, "engine_elf_sha256", engine_sha, sizeof(engine_sha)) ||
-        !json_string(line, "worker_sha256", worker_sha, sizeof(worker_sha))) {
+        !json_string(line, "worker_sha256", worker_sha, sizeof(worker_sha)) ||
+        (has_handle && !json_string(line, "handle", checkpoint_handle, sizeof(checkpoint_handle)))) {
         respond_error("invalid-batch-request");
         return false;
     }
     if (address < EWRAM_START || address >= EWRAM_END) {
         respond_error("invalid-batch-address");
+        return false;
+    }
+    /* Named handle restores that immutable slot; otherwise the legacy default slot. */
+    int checkpoint = has_handle ? find_slot_by_handle(checkpoint_handle) : find_slot_by_name("default");
+    if (checkpoint < 0) {
+        respond_error("stale-handle");
         return false;
     }
     struct VFile *saved_state = s_slots[checkpoint].file;

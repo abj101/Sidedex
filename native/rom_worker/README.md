@@ -111,6 +111,21 @@ completion marker, the frame cap, or the supplied time budget. The reply echoes
 the request and artifact identities for bridge validation and contains ordered
 trace events per run.
 
+**Which slot a batch restores.** The request may carry an optional `handle`
+(Python: `batch_turns(..., handle=...)`). Without it the batch restores the slot
+literally named `default` -- the legacy `save_state()` checkpoint -- which is
+backward compatible. With it the batch restores that specific slot, so a node
+can pin its own checkpoint per batch. Unknown, dropped, or malformed handles are
+rejected with `stale-handle`.
+
+**Unnamed-handle constraint.** A slot named `default` is the only slot an
+unnamed `save_state()`/`save_checkpoint()` writes: each such save replaces it
+and invalidates its previous handle. So a node that wants its handle to survive
+later installs must save with an explicit `name` (and batch with `handle=<that
+slot's handle>`); an unnamed/default handle is clobbered by the next unnamed
+save. `load_state_blob` restores directly into the core and does not touch any
+slot.
+
 A turn's frame loop stops on, in addition to the existing after-turn + `ready`
 path:
 
@@ -128,7 +143,8 @@ batch, and deadline limits are checked before the bridge accepts results.
 Its Python surface is:
 
     RomWorkerClient.batch_turns(address, payloads, *, mailbox_bytes,
-        engine_elf_sha256, deadline_ms, request_id, max_frames=24000)
+        engine_elf_sha256, deadline_ms, request_id, max_frames=24000,
+        handle=None)
 
 It returns `protocol_version: 3`, the request/source/ELF/worker identities,
 `turns` with `complete`, `stop`, `stop_marker`, `frames`, and ordered `events`,
@@ -148,6 +164,13 @@ Each call must use the same artifact hash as the ELF loaded into that worker.
 slot. Limits are explicit module constants (`MAX_STATE_SLOTS`,
 `MAX_STATE_TOTAL_BYTES`, `MAX_MEMORY_BLOCK_BYTES`, `MAX_KEYS_MASK`,
 `MAX_BLOB_BASE64_BYTES`, `MAX_BATCH_TURNS`).
+
+`worker_id` is the client's stable `owner_worker` identity for contract
+sections 2/8: `worker_version|pid=<child pid>|start=<unix time>|artifact=<sha256>`.
+It is deterministic for the lifetime of one client and differs between client
+processes (distinct pid and start time); `worker_identity()` exposes the pure
+derivation. A worker process restart yields a new `worker_id`, so owner checks
+must treat it as process-scoped.
 
 ## Build
 

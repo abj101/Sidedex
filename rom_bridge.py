@@ -140,6 +140,13 @@ def _reader(stream, output: queue.Queue):
         output.put(None)
 
 
+def worker_identity(worker_version: str, pid: int, started_at: float, artifact_sha256: str) -> str:
+    """Contract §2/§8 owner_worker = worker version + process identity + artifact identity."""
+    return "{}|pid={}|start={:.6f}|artifact={}".format(
+        worker_version, int(pid), float(started_at), str(artifact_sha256).lower()
+    )
+
+
 class RomWorkerClient:
     """One serialized request stream connected to a persistent mGBA process."""
 
@@ -180,6 +187,7 @@ class RomWorkerClient:
             raise WorkerUnavailableError(f"mGBA worker executable is missing: {worker}")
 
         command = [str(worker), *[str(arg) for arg in worker_args], "--rom", str(rom)]
+        self._started_at = time.time()
         try:
             self._process = subprocess.Popen(
                 command,
@@ -209,6 +217,9 @@ class RomWorkerClient:
         except Exception:
             self._terminate()
             raise
+        self._worker_id = worker_identity(
+            self._status["worker"], self._process.pid, self._started_at, self.rom_sha256
+        )
 
     @staticmethod
     def _verify_identity(rom: Path, source_lock_path: Path, expected_sha256: str = ROM_SHA256) -> str:
@@ -229,6 +240,16 @@ class RomWorkerClient:
                 f"artifact SHA-256 {actual} does not match pinned artifact {expected_sha256}"
             )
         return actual
+
+    @property
+    def worker_id(self) -> str:
+        """Stable owner_worker identity for this client's lifetime (contract §2/§8).
+
+        Derived from the running worker version, the child process id, the start
+        timestamp, and the loaded artifact sha256. Deterministic for one client;
+        two client processes differ (distinct pid/start).
+        """
+        return self._worker_id
 
     @property
     def status(self) -> dict[str, Any]:
@@ -519,9 +540,17 @@ class RomWorkerClient:
         deadline_ms: int,
         request_id: str,
         max_frames: int = 24_000,
+        handle: str | None = None,
     ) -> dict[str, Any]:
-        """Run bounded mailbox turns from one saved ready checkpoint."""
-        if not self._has_checkpoint:
+        """Run bounded mailbox turns from one saved ready checkpoint.
+
+        By default restores the unnamed ``default`` slot (legacy behaviour). Pass
+        ``handle`` (from save_checkpoint/import_state) to restore a specific named
+        slot instead, so named node handles are not clobbered by installs.
+        """
+        if handle is not None:
+            handle = self._validate_handle(handle)
+        elif not self._has_checkpoint:
             raise ValueError("save a pre-choice checkpoint before batch_turns")
         if type(address) is not int or not EWRAM_START <= address < EWRAM_END:
             raise ValueError("mailbox address must be within EWRAM")
@@ -546,19 +575,24 @@ class RomWorkerClient:
             raise WorkerTimeoutError("batch deadline has expired")
         budget_ms = max(1, int(remaining * 1000))
         started = time.monotonic()
+        fields: dict[str, Any] = {
+            "address": address,
+            "mailbox_bytes": mailbox_bytes,
+            "budget_ms": budget_ms,
+            "max_frames": max_frames,
+            "payloads": "|".join(payload.hex() for payload in payloads),
+            "request_id": request_id,
+            "source_sha": SOURCE_SHA,
+            "engine_elf_sha256": engine_elf_sha256.upper(),
+            "worker_sha256": self.worker_sha256,
+        }
+        if handle is not None:
+            fields["handle"] = handle
         try:
             reply = self._request(
                 "batch_turns",
                 _timeout=min(self._timeout, remaining),
-                address=address,
-                mailbox_bytes=mailbox_bytes,
-                budget_ms=budget_ms,
-                max_frames=max_frames,
-                payloads="|".join(payload.hex() for payload in payloads),
-                request_id=request_id,
-                source_sha=SOURCE_SHA,
-                engine_elf_sha256=engine_elf_sha256.upper(),
-                worker_sha256=self.worker_sha256,
+                **fields,
             )
         except WorkerResponseError as exc:
             # rom_eval (package D, frozen) matches the historical snake_case code.
