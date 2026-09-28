@@ -45,6 +45,10 @@ WORKER_V3_VERSION = "sidedex-mgba-worker/0.3.0"
 TRANSITION_SCHEMA_V2 = "sidedex-transition-v2"
 DECODE_SCHEMA = "decode-v2"
 
+# Contract C.1: tools/rom_oracle/sdr2.py is the only SDR2 parser; rom_bridge
+# only maps its result onto the wire/child rules.
+from tools.rom_oracle import sdr2  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent
 DEFAULT_SOURCE_LOCK = ROOT / "data" / "source_lock.json"
 DEFAULT_WORKER = ROOT / "native" / "rom_worker" / "build" / "mingw" / "rom_worker.exe"
@@ -67,122 +71,13 @@ STOP_KINDS = ("boundary", "terminal", "turn-complete")
 # 256 bounded trace events (up to 510 bytes each, JSON escaped) fit below 1 MiB.
 MAX_MESSAGE_BYTES = 1_048_576
 V3_PROTOCOL_VERSION = 3
-V3_RESULT_MAGIC = b"SDR2"
-V3_RESULT_HEADER_BYTES = 64
-V3_REQUIRED_RESULT_TAGS = frozenset(range(1, 8))
+# Contract C.3: a nonzero SDR2 status carries a tag 11 {reason, source} record.
 V3_RESULT_ERROR_CODES = {(1, 1, 1): "incomplete-state"}
 
 # Optional JSONL transport profiling for the B0 profile. Default off (no
 # behaviour change); tools/rom_oracle/profile_b0.py sets this True and reads
 # RomWorkerClient.transport_samples for the encode/write/decode split.
 PROFILE_TRANSPORT = False
-
-
-def parse_binary_result(data: bytes, *, request_id: int | None = None,
-                        mode: int | None = None, critical_policy: int | None = None) -> dict[str, Any]:
-    """Validate and decode the bounded SDR2 result envelope."""
-    if type(data) is not bytes or len(data) < V3_RESULT_HEADER_BYTES:
-        raise WorkerProtocolError("binary result is shorter than its header")
-    if data[:4] != V3_RESULT_MAGIC:
-        raise WorkerProtocolError("binary result magic mismatch")
-    version, header_bytes = int.from_bytes(data[4:6], "little"), int.from_bytes(data[6:8], "little")
-    total_bytes = int.from_bytes(data[8:12], "little")
-    if version != 1 or header_bytes != V3_RESULT_HEADER_BYTES or total_bytes != len(data) or total_bytes > MAX_MESSAGE_BYTES:
-        raise WorkerProtocolError("binary result version or length mismatch")
-    expected_crc = int.from_bytes(data[12:16], "little")
-    crc_input = bytearray(data[12:])
-    crc_input[:4] = b"\0" * 4
-    if zlib.crc32(crc_input) & 0xFFFFFFFF != expected_crc:
-        raise WorkerProtocolError("binary result CRC mismatch")
-    rid, status, boundary, actual_mode, actual_policy, record_count = (
-        int.from_bytes(data[offset:offset + 2], "little") for offset in (16, 18, 20, 22, 24, 26)
-    )
-    if request_id is not None and rid != request_id:
-        raise WorkerProtocolError("binary result request id mismatch")
-    if mode is not None and actual_mode != mode:
-        raise WorkerProtocolError("binary result mode mismatch")
-    if critical_policy is not None and actual_policy != critical_policy:
-        raise WorkerProtocolError("binary result critical policy mismatch")
-    if boundary not in (0, 1, 2, 3):
-        raise WorkerProtocolError("binary result has an invalid boundary kind")
-    rng = [int.from_bytes(data[offset:offset + 4], "little") for offset in range(32, 64, 4)]
-    records: dict[int, Any] = {}
-    offset = V3_RESULT_HEADER_BYTES
-    previous_tag = 0
-    for _ in range(record_count):
-        if offset + 4 > total_bytes:
-            raise WorkerProtocolError("binary result record header is truncated")
-        tag = int.from_bytes(data[offset:offset + 2], "little")
-        length = int.from_bytes(data[offset + 2:offset + 4], "little")
-        start, end = offset + 4, offset + 4 + length
-        padded_end = (end + 3) & ~3
-        if tag not in range(1, 12) or tag <= previous_tag or tag in records or padded_end > total_bytes:
-            raise WorkerProtocolError("binary result has an unknown, duplicate, or truncated record")
-        previous_tag = tag
-        payload = data[start:end]
-        if any(data[end:padded_end]):
-            raise WorkerProtocolError("binary result record padding is nonzero")
-        if tag <= 7:
-            if len(payload) < 4:
-                raise WorkerProtocolError("binary result projection group is truncated")
-            count = int.from_bytes(payload[:2], "little")
-            words = int.from_bytes(payload[2:4], "little")
-            if len(payload) != 4 + count * words * 4:
-                raise WorkerProtocolError("binary result projection count mismatch")
-            values = [int.from_bytes(payload[i:i + 4], "little") for i in range(4, len(payload), 4)]
-            records[tag] = {"entry_count": count, "words_per_entry": words,
-                            "entries": [values[i:i + words] for i in range(0, len(values), words)] if words else []}
-            if words == 0 and values:
-                raise WorkerProtocolError("binary result has values with zero-width entries")
-            expected = {1: (12, 32), 2: (2, 33), 3: (1, 6), 4: (2, 12), 5: (1, 10), 6: (1, 8)}
-            if tag in expected and (count, words) != expected[tag]:
-                raise WorkerProtocolError(f"binary result tag {tag} count or width mismatch")
-            if tag == 7 and (words != 4 or (boundary == 3 and count != 0) or
-                             (boundary != 3 and count == 0)):
-                raise WorkerProtocolError("binary result legal action count or width mismatch")
-        elif tag in (8, 10, 11):
-            if len(payload) < 4:
-                raise WorkerProtocolError("binary result fixed record is truncated")
-            count = int.from_bytes(payload[:2], "little")
-            words = int.from_bytes(payload[2:4], "little")
-            expected_words = {8: 3, 10: 2, 11: 2}[tag]
-            if count != 1 or words != expected_words or len(payload) != 4 + count * words * 4:
-                raise WorkerProtocolError("binary result fixed record has an invalid count or width")
-            values = [int.from_bytes(payload[i:i + 4], "little") for i in range(4, len(payload), 4)]
-            records[tag] = {"entry_count": count, "words_per_entry": words, "entries": [values]}
-        else:
-            events = []
-            pos = 0
-            while pos < len(payload):
-                if pos + 4 > len(payload):
-                    raise WorkerProtocolError("binary result event subrecord is truncated")
-                kind = int.from_bytes(payload[pos:pos + 2], "little")
-                words = int.from_bytes(payload[pos + 2:pos + 4], "little")
-                pos += 4
-                finish = pos + words * 4
-                if finish > len(payload):
-                    raise WorkerProtocolError("binary result event payload is truncated")
-                events.append({"kind": kind, "payload": [int.from_bytes(payload[i:i + 4], "little")
-                                                           for i in range(pos, finish, 4)]})
-                pos = finish
-            records[tag] = events
-        offset = padded_end
-    status = int.from_bytes(data[18:20], "little")
-    if offset != total_bytes or (not V3_REQUIRED_RESULT_TAGS.issubset(records) and
-                                 not (status and 11 in records and set(records) == {11})):
-        raise WorkerProtocolError("binary result has trailing bytes or missing required records")
-    if status and (10 in records or boundary == 3):
-        raise WorkerProtocolError("binary error result cannot also contain terminal state")
-    if (boundary == 3) != (10 in records):
-        raise WorkerProtocolError("binary terminal marker and terminal record disagree")
-    if 6 in records:
-        rng_words = records[6]["entries"][0]
-        if rng_words != rng:
-            raise WorkerProtocolError("binary result RNG record disagrees with its header")
-    return {"version": version, "request_id": rid, "status": status, "boundary": boundary,
-            "mode": actual_mode, "critical_policy": actual_policy,
-            "turn": int.from_bytes(data[28:32], "little"), "rng": [rng[:4], rng[4:]],
-            "records": records, "raw": data}
 
 
 def _percentile(values: Sequence[float], percentile: float) -> float:
@@ -895,25 +790,27 @@ class RomWorkerClient:
                 raise WorkerProtocolError("v3 batch result is not valid base64") from exc
             if len(result_bytes) > result_capacity:
                 raise WorkerProtocolError("v3 batch result exceeds the announced result capacity")
-            binary = parse_binary_result(result_bytes, request_id=fields["request_token"], mode=mode,
-                                         critical_policy=critical_policy)
+            try:
+                binary = sdr2.parse(result_bytes, request_id=fields["request_token"], mode=mode,
+                                    critical_policy=critical_policy, capacity=result_capacity)
+            except sdr2.SDR2Error as exc:
+                raise WorkerResponseError(exc.code) from exc
             for key in ("elapsed_ms", "save_ms", "restore_ms"):
                 if type(turn.get(key)) not in (int, float) or turn[key] < 0:
                     raise WorkerProtocolError(f"v3 batch turn has invalid {key}")
             turn_times.append(float(turn["elapsed_ms"]))
             save_times.append(float(turn["save_ms"]))
             restore_times.append(float(turn["restore_ms"]))
-            if binary["status"] != 0:
-                error = binary["records"].get(11, {}).get("entries", [[0, 0]])[0]
-                reason = error[0] if error else 0
-                source = error[1] if len(error) > 1 else 0
-                code = V3_RESULT_ERROR_CODES.get((binary["status"], reason, source))
+            status = binary["header"]["status"]
+            if status != 0:
+                error = (binary["records"].get("unsupported") or [{}])[0]
+                reason, source = error.get("reason", 0), error.get("source", 0)
+                code = V3_RESULT_ERROR_CODES.get((status, reason, source))
                 if code is None:
-                    code = "binary-result-status-%d-reason-%d-source-%d" % (
-                        binary["status"], reason, source)
+                    code = "binary-result-status-%d-reason-%d-source-%d" % (status, reason, source)
                 raise WorkerResponseError(code)
             child = turn.get("child")
-            if binary["boundary"] == 3:
+            if binary["header"]["boundary"] == sdr2.BOUNDARY_TERMINAL:
                 if child is not None:
                     raise WorkerProtocolError("terminal result must not have a child state")
             else:
