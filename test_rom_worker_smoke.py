@@ -7,6 +7,7 @@ ops. It intentionally does not assert or synthesize battle outcomes.
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -26,6 +27,30 @@ WORKER_NAME = "sidedex-mgba-worker/0.3.0"
 MGBA = "0.10.5+26b7884"
 TRANSITION_SCHEMA = "sidedex-transition-v2"
 DECODE_SCHEMA = "decode-v2"
+
+
+MINGW_BIN = Path(os.environ.get("SIDEDEX_MINGW_BIN", "C:/msys64/mingw64/bin"))
+STOP_POLICY_TEST = ROOT / "native" / "rom_worker" / "stop_policy_test.c"
+
+
+def c_compiler():
+    """The compiler that builds the worker; None when the host has none."""
+    for name in ("x86_64-w64-mingw32-gcc", "gcc", "cc"):
+        found = shutil.which(name)
+        if found:
+            return found
+    for candidate in (MINGW_BIN / "x86_64-w64-mingw32-gcc.exe", MINGW_BIN / "gcc.exe"):
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
+def compiler_env():
+    # gcc finds its assembler and linker on PATH, which a bare Windows process
+    # does not have unless the mingw bin directory is added.
+    env = dict(os.environ)
+    env["Path"] = str(MINGW_BIN) + os.pathsep + env.get("Path", "")
+    return env
 
 
 def sha256_file(path):
@@ -207,6 +232,60 @@ class RomWorkerProfileFlagTest(unittest.TestCase):
         self.assertEqual(set(on["profile"]), {"emulation_ns", "log_ns", "cycles"})
         self.assertGreater(on["profile"]["emulation_ns"], 0)
         self.assertEqual(on["profile"]["cycles"], 3 * 280896)
+
+
+class StopPolicyTest(unittest.TestCase):
+    """Contract Appendix B: a compact turn stops at binary-ready, never at the
+    boundary/terminal marker that precedes it; a trace turn is unchanged.
+
+    The policy lives in native/rom_worker/stop_policy.h, which worker.c compiles
+    in. Building it here drives the real production decision over a fake marker
+    stream, so the ordering rules are covered without an emulator.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.compiler = c_compiler()
+        if cls.compiler is None:
+            raise unittest.SkipTest("no C compiler to build the stop policy harness")
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.exe = Path(cls.temp.name) / "stop_policy_test.exe"
+        built = subprocess.run([cls.compiler, "-O2", "-o", str(cls.exe), str(STOP_POLICY_TEST)],
+                               capture_output=True, text=True, env=compiler_env())
+        if built.returncode != 0 or not cls.exe.is_file():
+            cls.temp.cleanup()
+            raise unittest.SkipTest(f"cannot build the stop policy harness: {built.stderr[:200]}")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def decide(self, *sequences):
+        script = "".join(f"{compact} {' '.join(kinds)}\n" for compact, kinds in sequences)
+        run = subprocess.run([str(self.exe)], input=script, capture_output=True, text=True,
+                             env=compiler_env())
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return run.stdout.split()
+
+    def test_a_compact_turn_stops_at_binary_ready_after_the_boundary(self):
+        self.assertEqual(self.decide((1, ("boundary", "binary-ready"))), ["binary-ready|1"])
+
+    def test_a_compact_terminal_turn_stops_at_binary_ready_before_complete(self):
+        self.assertEqual(self.decide((1, ("terminal", "binary-ready", "turn-complete"))),
+                         ["binary-ready|1"])
+
+    def test_a_compact_turn_without_binary_ready_fails_closed(self):
+        # Negative control for both cases above: nothing completes the turn, so
+        # the worker's frame bound ends the loop and it reports incomplete-state.
+        self.assertEqual(self.decide((1, ("boundary",)), (1, ("terminal", "turn-complete"))),
+                         ["none|0", "none|0"])
+
+    def test_the_trace_stop_policy_is_unchanged(self):
+        # Negative control for the compact rule: a trace turn still stops on the
+        # first boundary/terminal marker and never on an unrelated marker.
+        self.assertEqual(self.decide((0, ("boundary", "binary-ready")), (0, ("terminal",)),
+                                     (0, ("phase", "ready"))),
+                         ["boundary|1", "terminal|1", "none|0"])
 
 
 if __name__ == "__main__":

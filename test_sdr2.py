@@ -10,6 +10,7 @@ Three layers:
 
 import json
 import os
+import re
 import struct
 import sys
 import unittest
@@ -218,6 +219,52 @@ class ContractRuleTests(unittest.TestCase):
         struct.pack_into("<H", data, 68, 11)                # party entry_count 12 -> 11 (payload)
         self.assertEqual(decode_error(reseal(data)), "sdr2-length")
         self.assertEqual(decode_error(self.base()[:-4]), "sdr2-length")
+
+
+WORKER_C = ROOT / "native" / "rom_worker" / "worker.c"
+# Appendix C.2 tag numbers as worker.c numbers them (tag 7 is variable-length).
+WORKER_TAG_GROUPS = {1: "party", 2: "active", 3: "field", 4: "side", 5: "battle", 6: "rng", 7: "legal"}
+
+
+class WorkerResultTableTest(unittest.TestCase):
+    """The worker's own validator must agree with the frozen C.2 tables.
+
+    worker.c re-implements the widths instead of reading tables.json, so a drift
+    there silently rejects every real result: tag 2 (active) was 33 words where
+    the contract says 37.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.source = WORKER_C.read_text(encoding="utf-8")
+
+    def test_word_widths_match_tables_json(self):
+        match = re.search(r"static const uint16_t expected_words\[\] = \{([^}]*)\}", self.source)
+        self.assertIsNotNone(match, "worker.c has no expected_words table")
+        widths = [int(value) for value in match.group(1).split(",")]
+        self.assertEqual(len(widths), 8, "expected_words must cover tags 1..7")
+        for tag, group in WORKER_TAG_GROUPS.items():
+            self.assertEqual(widths[tag], sdr2.WORDS[group], f"tag {tag} ({group})")
+
+    def test_shared_width_branch_matches_tables_json(self):
+        match = re.search(r"uint16_t words = tag == (\d+) \? (\d+) : (\d+);", self.source)
+        self.assertIsNotNone(match, "worker.c has no tag 8/10/11 width branch")
+        tag, when_tag, otherwise = (int(value) for value in match.groups())
+        self.assertEqual(tag, 8)
+        self.assertEqual(when_tag, sdr2.WORDS["trainer_action"])
+        self.assertEqual(otherwise, sdr2.WORDS["terminal"])
+        self.assertEqual(otherwise, sdr2.WORDS["unsupported"])
+
+    def test_entry_counts_match_tables_json(self):
+        match = re.search(r"static const uint16_t expected_count\[\] = \{([^}]*)\}", self.source)
+        self.assertIsNotNone(match, "worker.c has no expected_count table")
+        counts = [int(value) for value in match.group(1).split(",")]
+        self.assertEqual(len(counts), 8, "expected_count must cover tags 1..7")
+        for tag, group in WORKER_TAG_GROUPS.items():
+            if group == "legal":  # tag 7 carries the variable legal-action list
+                self.assertEqual(counts[tag], 0, "tag 7 count is checked separately")
+                continue
+            self.assertEqual(counts[tag], sdr2.FIXED_ENTRIES[group], f"tag {tag} ({group})")
 
 
 class V9RequestTests(unittest.TestCase):
