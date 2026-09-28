@@ -185,13 +185,21 @@ def run_multiturn(client: rom_bridge.RomWorkerClient, address: int, boot_handle:
 
 
 def run_session(iterations: int, warmup: int, min_log: bool, fixture: dict,
-                multi_fixture: dict) -> dict:
+                multi_fixture: dict, *, worker: Path = None, elf: Path = None,
+                extra_env: dict[str, str] | None = None) -> dict:
+    worker = worker or WORKER
+    elf = elf or ELF
     os.environ["SIDEDEX_WORKER_PROFILE"] = "1"
     os.environ["SIDEDEX_WORKER_MIN_LOG"] = "1" if min_log else "0"
+    for key, value in (extra_env or {}).items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
     rom_bridge.PROFILE_TRANSPORT = True
     client = rom_bridge.RomWorkerClient(
-        rom_path=ELF, expected_artifact_sha256=ELF_SHA,
-        expected_worker_sha256=sha256_file(WORKER), timeout=120.0)
+        rom_path=elf, worker_path=worker, expected_artifact_sha256=ELF_SHA,
+        expected_worker_sha256=sha256_file(worker), timeout=120.0)
     try:
         boot = boot_to_ready(client)
         boot_slot = client.save_checkpoint(name="b0-boot")
@@ -236,6 +244,8 @@ def run_session(iterations: int, warmup: int, min_log: bool, fixture: dict,
     finally:
         client.close()
         rom_bridge.PROFILE_TRANSPORT = False
+        for key in (extra_env or {}):
+            os.environ.pop(key, None)
 
 
 def _row(label: str, ns_values: list[float], unit: str = "ms", digits: int = 3) -> str:
@@ -257,17 +267,25 @@ def main() -> int:
     parser.add_argument("--warmup", type=int, default=3)
     parser.add_argument("--out", type=str,
                         default=r"C:/Users/Abj1/.codex/artifacts/B/B0-profile.md")
+    parser.add_argument("--worker", type=Path, default=WORKER,
+                        help="worker binary to profile (default: the pinned-layout build)")
+    parser.add_argument("--elf", type=Path, default=ELF, help="v8c test ELF")
+    parser.add_argument("--extra-env", type=str, default="",
+                        help="comma-separated KEY=VAL worker env overrides for a B1a variant")
     args = parser.parse_args()
+    extra_env = dict(item.split("=", 1) for item in args.extra_env.split(",") if item)
 
-    if not ELF.is_file() or not WORKER.is_file():
+    if not args.elf.is_file() or not args.worker.is_file():
         raise SystemExit("pinned ELF or worker binary is missing; build first")
-    assert sha256_file(ELF) == ELF_SHA, "ELF SHA-256 does not match the v8c pin"
-    worker_sha = sha256_file(WORKER)
+    assert sha256_file(args.elf) == ELF_SHA, "ELF SHA-256 does not match the v8c pin"
+    worker_sha = sha256_file(args.worker)
     fixture = load_fixture("p01_physical_neutral.json")
     multi_fixture = load_fixture("p29_multiturn_branch.json")
 
-    baseline = run_session(args.iterations, args.warmup, False, fixture, multi_fixture)
-    headless = run_session(args.iterations, args.warmup, True, fixture, multi_fixture)
+    baseline = run_session(args.iterations, args.warmup, False, fixture, multi_fixture,
+                           worker=args.worker, elf=args.elf, extra_env=extra_env)
+    headless = run_session(args.iterations, args.warmup, True, fixture, multi_fixture,
+                           worker=args.worker, elf=args.elf, extra_env=extra_env)
 
     parity_ok = (
         baseline["root_slot_sha256"] == headless["root_slot_sha256"]
