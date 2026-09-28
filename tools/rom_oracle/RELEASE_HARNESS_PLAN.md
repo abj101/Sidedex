@@ -282,3 +282,42 @@ Authority: `/home/abj1/rom-release-checkout` (source tree of the pinned build).
 Scoping note: the party table above means party `species/moves/pp/ivs/evs` are
 recoverable with ~40 lines (XOR key + one 24-entry order table + the four struct
 layouts), which would take the party group from 7/32 to 32/32 readable fields.
+
+## Wave 3 C3 result (2026-09-28): party decrypt, timers, ai_flags
+
+`release_projection()` now reads (release root `9fb80965…`, worker `f7b1c1e3`):
+
+| Group | Before | Now | Source |
+| --- | --- | --- | --- |
+| rng | 8/8 | 8/8 | unchanged |
+| active | 32/37 | 32/37 | unchanged (A1 flag words, form, status3 excluded) |
+| party | 7/32 | **30/32** | `decode_party_mon`: key `personality ^ otId` (`DecryptBoxMon` src/pokemon.c:2549), rotation `SUBSTRUCT_SLOTS[personality % 24]` (`GetSubstruct` :2582), substructs `include/pokemon.h:130/147/169/185`; species, item, nature, move1-4, pp1-4, iv_*, ev_* |
+| battle | 4/10 | **5/10** | `ai_flags` = `gBattleResources` (0x0200083C) -> `+0x14` (`ai`) -> `aiFlags[1]` (`+0x18+4`, opponent left; `AI_Init` battle_ai_main.c:203-216); excluded with a reason when the pointer is outside EWRAM |
+| field | 3/6 | **6/6** | `trick_room_timer` gFieldTimers+4, `terrain_timer` +5 (battle.h:292), `weather_timer` = `gWishFutureKnock.weatherDuration` (+28, battle_util.c:1807) |
+| side | 4/12 | **11/12** | `gSideTimers` (0x02000594, **stride 32**) reflect +0, light_screen +2, mist +4, safeguard +6, aurora_veil +14, tailwind +16, follow_me +21 (battle.h:257) |
+
+Corrections to the scoping table above (checked against `pokeemerald.map`, `nm -S` and ELF disassembly):
+
+- `gSideTimers` 0x02000594 and `gFieldTimers` 0x02000878 are correct. `nm -S` says gSideTimers is 0x40 bytes,
+  so the per-side stride is 32 (the 29-byte struct is padded in this build; `GetSwitchinHazardsDamage`
+  indexes it with `lsls #5`). Field offsets seen in the ELF (`ldrb/strb #0..28` after the pool load)
+  agree with the header.
+- `weather_timer` is **not** in `gFieldTimers` (which has no weather member): weather duration is
+  `gWishFutureKnock.weatherDuration` (`gWishFutureKnock` 0x02000758 + 28; 17 ELF `ldrb #28` hits).
+- Party `nature` is `GetNatureFromPersonality ^ hiddenNatureModifier` (`MON_DATA_HIDDEN_NATURE`,
+  src/pokemon.c:3163, used by `CalculateMonStats` :2086), with `hiddenNatureModifier` in the top 5 bits of
+  BoxPokemon +0x12.
+- The decode is self-checking: the 24 decrypted u16 words must sum to `BoxPokemon.checksum` (+0x1C)
+  (`CalculateBoxMonChecksum` :2027). A mismatch raises instead of returning wrong values.
+
+Live proof at the root: player slot 0 decodes to species 4, level 5, moves 10/45/206, pp 35/40/40,
+IVs 31, EVs 0, identical to the independent `gBattleMons[0]` copy; the enemy decodes to species 659,
+moves 33/97/43. A decrypted -> pp1-1 -> checksum-fixed -> re-encrypted write reads back exactly and
+the original bytes restore byte-identical.
+
+Still excluded (with reasons in `excluded`): party `ability` (species-table slot via
+`abilityNum`) and `form`; active `form`, `status3`, `volatile_flags`, `protect_flags`,
+`special_status_flags`; side `hazard_layers` (A1 packing; raw amounts exist in `gSideTimers`);
+battle `item_count`, `item1-4`. Unverified: timer values were read only as zero at the root
+(no live battle with an active timer), the offsets rest on source + ELF disassembly.
+`inject_scenario` still refuses nature/evs (no encrypted write path).
