@@ -30,16 +30,18 @@ pytestmark = pytest.mark.skipif(
     reason="release ROM or rom_worker.exe is missing")
 
 
-def _client(rom=ROM):
+def _client(rom=ROM, expected_artifact=None):
     import rom_bridge as rb
     return rb.RomWorkerClient(
-        rom_path=rom, expected_artifact_sha256=r.sha256_file(rom),
-        worker_path=WORKER, expected_worker_sha256=r.sha256_file(WORKER), timeout=180.0)
+        rom_path=rom, expected_artifact_sha256=expected_artifact or r.PINNED_ROM_SHA256,
+        worker_path=WORKER, expected_worker_sha256=r.PINNED_WORKER_SHA256, timeout=180.0)
 
 
 def test_release_artifacts_are_pinned():
     assert r.sha256_file(ROM).upper() == r.PINNED_ROM_SHA256
     assert r.sha256_file(WORKER).upper() == r.PINNED_WORKER_SHA256
+    if ELF.is_file():
+        assert r.sha256_file(ELF).upper() == r.PINNED_ELF_SHA256
 
 
 def test_h4_h5_ram_patch_and_iwram_write():
@@ -108,23 +110,101 @@ def _script_path() -> Path:
 
 
 def test_release_cold_boot_route_captures_a_battle_root(tmp_path):
-    """Run the full condition-driven route and verify the release root (Task 3)."""
+    """Route to the H3 choice boundary, then exercise projection + injection."""
     script = r.load_input_script()
     with _client() as client:
         try:
             out = r.run_route(client, script, milestones_dir=tmp_path, script_path=_script_path())
         except (r.ReleaseRootUnavailable, r.RouteStepError) as exc:
             pytest.skip(f"release root capture blocked: {exc}")
-        projection = r.read_projection(client)
         assert out["frames"] > 0
         assert out["state"]["battle_type_flags"] != 0
-        assert projection["mons"][0]["species"] != 0
-        assert projection["mons"][0]["hp"] > 0
+
+        # C2.1: the root is the release-side choice boundary (kind 1).
+        report = r.boundary_report(client)
+        assert report["kind"] == r.BOUNDARY_CHOICE, report
+        assert report["gBattleMainFunc"] == r.RELEASE_FUNCS["HandleTurnActionSelectionState"]
+        assert report["gBattlerControllerFuncs"][0] == r.RELEASE_FUNCS["HandleInputChooseAction"]
+        assert report["gBattleOutcome"] == 0
+
         # Task 3: read, write back and re-read gBattleMons, party and both RNG streams.
         roundtrip = r.verify_root_projection(client)
         assert all(v["write_landed"] and v["restored"] for v in roundtrip.values()), roundtrip
         manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
         assert manifest["root"]["sha256"] == out["root_sha256"]
+
+        # C2.3: the projection uses the tables.json vocabulary and is self-consistent.
+        tables = r.load_tables()
+        first = r.release_projection(client)
+        assert len(first["active"]) == 2 and len(first["party"]) == 12
+        assert first["active"][0]["hp"] > 0 and first["active"][0]["species"] != 0
+        for group in r.PROJECTION_GROUPS:
+            read = {name for record in first[group] for name in record}
+            assert read <= set(tables["fields"][group])
+        comparison = r.compare_projections(first, r.release_projection(client))
+        assert comparison["diffs"] == []
+        assert comparison["excluded"] and all(e["reason"] for e in comparison["excluded"])
+
+        slot = client.save_checkpoint("c2-self-comparison")
+        try:
+            client.run_frames(4)
+            client.restore_state(slot["handle"])
+            assert r.compare_projections(first, r.release_projection(client))["diffs"] == []
+        finally:
+            if hasattr(client, "drop_state"):
+                client.drop_state(slot["handle"])
+
+        # C2.2: a scenario's party/active/rng state round-trips; the rest is refused.
+        scenario = {"root": {"player_party": [{"species": 25, "level": 42, "hp": 111,
+                                               "max_hp": 130, "status1": 0, "ability": 9,
+                                               "item": 13, "moves": [85, 98, 87, 86],
+                                               "pp": [15, 20, 10, 20],
+                                               "nature": "NATURE_JOLLY",
+                                               "evs": [0, 252, 0, 0, 4, 0]}],
+                                "opponent_party": [{"species": 143, "level": 40, "hp": 160,
+                                                    "max_hp": 200, "status1": 0,
+                                                    "ability": 17, "item": 0,
+                                                    "moves": [33, 0, 0, 0],
+                                                    "pp": [35, 0, 0, 0]}],
+                                "rng_main": [1, 2, 3, 4], "rng_secondary": [5, 6, 7, 8],
+                                "candidate_action": {"kind": "move"}}}
+        injected = r.inject_scenario(client, scenario)
+        assert injected["verified"] is True, injected
+        assert set(injected["refused"]) == {"nature", "evs", "candidate_action"}
+        assert injected["readback"]["active"][0]["species"] == 25
+        assert injected["readback"]["rng"][0]["main_ctr"] == 4
+
+
+def test_release_boundary_reaches_a_terminal(tmp_path):
+    """C2.1: a real boundary change, choice -> terminal, on the release ROM.
+
+    The captured wild battle cannot produce a forced switch (the player party is a
+    single mon), so boundary 2 is covered by unit test only; a win is enough for
+    the terminal boundary.
+    """
+    script = r.load_input_script()
+    with _client() as client:
+        out = r.run_route(client, script, milestones_dir=tmp_path, script_path=_script_path())
+        before = r.boundary_report(client)
+        assert before["kind"] == r.BOUNDARY_CHOICE, before
+        # negative control: the terminal predicate is not trivially true
+        assert before["gBattleOutcome"] == 0
+        reached = None
+        for tap in range(200):
+            if r.detect_boundary_kind(client) == r.BOUNDARY_TERMINAL:
+                reached = tap
+                break
+            client.set_keys(1)
+            client.run_frames(8)
+            client.set_keys(0)
+            client.run_frames(16)
+        client.set_keys(0)
+        client.run_frames(120)
+        after = r.boundary_report(client)
+        assert reached is not None, f"no terminal after {out['frames']} frames: {after}"
+        assert after["kind"] == r.BOUNDARY_TERMINAL, after
+        assert after["gBattleOutcome"] in (1, 2, 3, 4, 5, 6, 7), after
+        assert r.terminal_report(client)["opponent_faints"] >= 1, after
 
 
 def test_release_route_root_is_reproducible(tmp_path):
@@ -177,6 +257,6 @@ def test_release_state_identity_is_rejected_by_test_elf():
         release.run_frames(600)
         slot = release.save_checkpoint("release-identity")
         blob = release.export_state(slot["handle"])["blob"]
-    with _client(ELF) as test_elf:
+    with _client(ELF, r.PINNED_ELF_SHA256) as test_elf:
         with pytest.raises((rb.WorkerProtocolError, rb.WorkerResponseError), match="identity"):
             test_elf.import_state(blob, name="reject-release-identity")

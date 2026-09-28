@@ -29,17 +29,26 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parent
 ROOT = TOOLS.parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 # --------------------------------------------------------------- pinned identity
+#
+# Gate V1: the ROM / ELF / worker identity is owned by rom_identity.py.  This
+# package hard-codes no digest; the JSON inputs carry "<<rom_identity.NAME>>"
+# placeholders that resolve_identity() resolves below.
+import rom_identity  # noqa: E402
 
-PINNED_SOURCE_SHA = "2576d0f3f4c861c760f0c55198e37e6d7b91683e"
-PINNED_ROM_SHA256 = "0CCAAAD0878A9CBFB36FBEFFF800E9B6DD66055924B7595038EDE1E8771EC5A2"
-PINNED_ELF_SHA256 = "422ade3e159916f9cc8bc1350ad274201b6af6cb9b9d38c14d073f85e982bc77"
-PINNED_WORKER_SHA256 = "0601297E8BED7CA1319DC9BE86A547AA01B16624CE0DE5431093E6B59D7E5122"
+PINNED_SOURCE_SHA = rom_identity.SOURCE_SHA
+PINNED_ROM_SHA256 = rom_identity.ROM_SHA256
+PINNED_ELF_SHA256 = rom_identity.ENGINE_ELF_SHA256
+PINNED_WORKER_SHA256 = rom_identity.WORKER_SHA256
+PINNED_WIRE_PROTOCOL = rom_identity.PROTOCOL_VERSION
 
 MINGW = ROOT / "native" / "rom_worker" / "build" / "mingw"
 DEFAULT_ROM = MINGW / "pokeemerald.gba"
@@ -68,6 +77,37 @@ RELEASE_MAP = {
     "gSaveBlock1Ptr": 0x03006210,
     "gPlayerPartyCount": 0x020375F5,
     "gPlayerParty": 0x020375F8,
+    # H3 boundary detection (C2).  Sources: pokeemerald.map in the pinned WSL
+    # release checkout; every IWRAM pin is build-specific and must be re-read
+    # from the ELF for a new build.
+    "gBattleControllerExecFlags": 0x02000340,
+    "gBattlersCount": 0x02000344,
+    "gBattlerPartyIndexes": 0x02000348,
+    "gCurrentTurnActionNumber": 0x0200035C,
+    "gSideStatuses": 0x0200058C,
+    "gDisableStructs": 0x020005F4,
+    "gProtectStructs": 0x020006A4,
+    "gEnemyPartyCount": 0x020375F6,
+    "gFieldStatuses": 0x02000874,
+    "gBattlerControllerFuncs": 0x03004F54,
+    "gBattleMainFunc": 0x03004F80,
+    "gBattleResults": 0x03004F84,
+}
+
+# nm-resolved release ELF function pointers (pokeemerald.elf, pinned release
+# checkout).  Thumb addresses carry bit 0; comparisons always mask it.  These
+# name the controller/main function pointers that define the H3 boundaries.
+RELEASE_FUNCS = {
+    "HandleInputChooseAction": 0x0805648C,          # src/battle_controller_player.c
+    "PlayerHandleChooseAction": 0x08059734,
+    "PlayerHandleChoosePokemon": 0x08059ABC,        # forced-switch party menu
+    "HandleTurnActionSelectionState": 0x0807DDD8,   # src/battle_main.c, choice boundary
+    "HandleFaintedMonActions": 0x080BA0D0,          # src/battle_util.c
+    "BattleTurnPassed": 0x0807D980,
+    "RunTurnActionsFunctions": 0x08080298,
+    "DoBattleIntro": 0x0807CCD4,                    # intro, NOT a decision boundary
+    "Controller_WaitForString": 0x0805FE04,
+    "Controller_WaitForHealthBar": 0x0805FCC0,
 }
 
 # Release SaveBlock1 field offsets.
@@ -93,6 +133,65 @@ BATTLEMON = {"species": 0x00, "moves": 0x0C, "pp": 0x25, "hp": 0x2A, "level": 0x
              "max_hp": 0x2E, "status1": 0x50}
 BATTLEMON_SIZE = 0x60
 MAX_BATTLERS = 4
+
+# struct BattlePokemon fields used by the C2 projection.  The include/pokemon.h
+# comments are stale for this build (they say hp 0x29 / level 0x2B / status1
+# 0x4D); every offset below was read off the live release root's gBattleMons
+# bytes and cross-checked against the party mon (otId/personality match).
+BATTLEMON.update({
+    "attack": 0x02, "defense": 0x04, "speed": 0x06, "sp_attack": 0x08, "sp_defense": 0x0A,
+    "ivs": 0x14, "stat_stages": 0x18, "ability": 0x20, "types": 0x22,
+    "friendship": 0x2D, "item": 0x30, "pp_bonuses": 0x3D, "personality": 0x4C,
+    "status2": 0x54, "ot_id": 0x58,
+})
+
+# struct Pokemon (party mon, stride 0x64): the 0x50-byte BoxPokemon is followed
+# by plaintext battle stats.  The BoxPokemon secures (species/item/moves/pp/
+# IVs/EVs/nature) live in PID-scrambled substructures at +0x20..0x4F; see
+# PARTY_ENCRYPTED_REASON.
+POKEMON_SIZE = 0x64
+POKEMON_STATUS1 = 0x50
+POKEMON_LEVEL = 0x54
+POKEMON_HP = 0x56
+POKEMON_MAX_HP = 0x58
+POKEMON_HAS_SPECIES_BIT = 0x02   # BoxPokemon +0x13, hasSpecies:1
+POKEMON_BOX_FLAGS = 0x13
+
+# struct DisableStruct stride is derived from the release map (gProtectStructs
+# 0x020006A4 - gDisableStructs 0x020005F4 = 0xB0 over 4 battlers).
+DISABLE_STRUCT_SIZE = 0x2C
+DS_DISABLED_MOVE = 0x06
+DS_SUBSTITUTE_HP = 0x0F
+DS_TIMERS = 0x11          # disableTimer:4 low nibble | encoreTimer:4 high nibble
+DS_TAUNT_TIMER = 0x13     # rolloutTimerStartValue:4 low | tauntTimer:4 high
+
+# statStages[] stores stage + 6 (DEFAULT_STAT_STAGE); wire stages are the
+# signed delta, so the projection subtracts the offset.
+DEFAULT_STAT_STAGE = 6
+STAT_ORDER = ("stage_atk", "stage_def", "stage_spe", "stage_spa", "stage_spd",
+              "stage_acc", "stage_eva")
+
+# Status words (include/constants/battle.h).
+SIDE_STATUS_REFLECT, SIDE_STATUS_LIGHTSCREEN = 1 << 0, 1 << 1
+SIDE_STATUS_SPIKES, SIDE_STATUS_TOXIC_SPIKES = 1 << 4, 1 << 13
+SIDE_STATUS_STEALTH_ROCK, SIDE_STATUS_STICKY_WEB = 1 << 14, 1 << 2
+SIDE_STATUS_AURORA_VEIL = 1 << 11
+SIDE_STATUS_SAFEGUARD, SIDE_STATUS_MIST, SIDE_STATUS_TAILWIND = 1 << 5, 1 << 8, 1 << 10
+SIDE_STATUS_SCREEN_ANY = SIDE_STATUS_REFLECT | SIDE_STATUS_LIGHTSCREEN | SIDE_STATUS_AURORA_VEIL
+SIDE_STATUS_HAZARDS_ANY = (SIDE_STATUS_SPIKES | SIDE_STATUS_STICKY_WEB
+                           | SIDE_STATUS_TOXIC_SPIKES | SIDE_STATUS_STEALTH_ROCK)
+SIDE_STATUS_CONDITIONS_ANY = SIDE_STATUS_SAFEGUARD | SIDE_STATUS_MIST | SIDE_STATUS_TAILWIND
+STATUS_FIELD_TRICK_ROOM = 1 << 1
+STATUS_FIELD_TERRAIN_MASK = 0x7 << 4   # electric/grassy/misty/psychic terrain bits
+
+B_OUTCOME_NAMES = {0: "none", 1: "won", 2: "lost", 3: "drew", 4: "ran", 5: "teleported",
+                   6: "mon-fled", 7: "caught", 8: "no-safari-balls", 9: "forfeited",
+                   10: "mon-teleported"}
+
+# H3 boundary kinds, Appendix C.3: 0 none, 1 choice, 2 forced switch, 3 terminal.
+BOUNDARY_NONE, BOUNDARY_CHOICE, BOUNDARY_FORCED_SWITCH, BOUNDARY_TERMINAL = 0, 1, 2, 3
+BOUNDARY_NAMES = {BOUNDARY_NONE: "none", BOUNDARY_CHOICE: "choice",
+                  BOUNDARY_FORCED_SWITCH: "forced-switch", BOUNDARY_TERMINAL: "terminal"}
 
 SAVESTATE_EWRAM_OFFSET = 0x21000
 SAVESTATE_IWRAM_OFFSET = 0x19000
@@ -200,12 +299,37 @@ def write_empty_valid_save(path) -> dict:
 
 # ------------------------------------------------------------------ input script
 
-def load_input_script(path=INPUT_SCRIPT_PATH) -> dict:
+def resolve_identity(value):
+    """Resolve ``<<rom_identity.NAME>>`` placeholders in a loaded JSON document."""
+    if isinstance(value, str):
+        if value.startswith("<<rom_identity.") and value.endswith(">>"):
+            name = value[len("<<rom_identity."):-2]
+            if not hasattr(rom_identity, name):
+                raise ReleaseHarnessError(f"rom_identity has no {name!r}")
+            return getattr(rom_identity, name)
+        return value
+    if isinstance(value, list):
+        return [resolve_identity(item) for item in value]
+    if isinstance(value, dict):
+        return {key: resolve_identity(item) for key, item in value.items()}
+    return value
+
+
+def load_input_script_raw(path=INPUT_SCRIPT_PATH) -> dict:
+    """The on-disk document, identity placeholders unresolved (provenance checks)."""
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def load_scenarios_raw(path=SCENARIOS_PATH) -> dict:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def load_input_script(path=INPUT_SCRIPT_PATH) -> dict:
+    return resolve_identity(load_input_script_raw(path))
+
+
 def load_scenarios(path=SCENARIOS_PATH) -> dict:
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    data = resolve_identity(load_scenarios_raw(path))
     if not data.get("claim"):
         raise ReleaseHarnessError("release_scenarios.json must state the narrow claim")
     ids = [s["id"] for s in data["scenarios"]]
@@ -302,6 +426,9 @@ def eval_condition(client, cond, state) -> bool:
         if "nonzero" in cond:
             return value != 0
         return value == _int(cond["value"])
+    if kind == "boundary":
+        # H3: compare the release-side boundary kind (Appendix C.3 numbering).
+        return detect_boundary_kind(client) == _int(cond["value"])
     if kind == "flag":
         return read_flag(client, sb1, _int(cond["id"])) is bool(cond.get("set", True))
     if kind == "var":
@@ -498,25 +625,40 @@ def run_route(client, script, *, milestones_dir, script_path=None, resume_from=N
         if progress is not None:
             progress(frames, state)
 
-    # When the route ended on battle entry, give the battle a bounded chance to
-    # finish loading (battlers, and then the action menu) before snapshotting.
+    # A script may declare how the root settles after gBattleTypeFlags turns
+    # nonzero.  `until` is any eval_condition (kind "boundary" waits for the H3
+    # decision boundary); optional tap/gap keys keep mashing while it waits.
     if reached_battle and script.get("root_settle"):
-        settle = script["root_settle"]
-        condition = {k: v for k, v in settle.items() if k != "frames"}
-        condition["kind"] = "mem"
+        settle = dict(script["root_settle"])
+        remaining = int(settle.pop("frames", 1200))
+        until = settle.pop("until", None)
+        hold = int(settle.pop("keys", 0) or 0)
+        tap = int(settle.pop("tap", 8))
+        gap = int(settle.pop("gap", 8))
+
+        def settle_done():
+            return until is not None and eval_condition(client, until, read_state(client))
+
+        while remaining > 0 and not settle_done():
+            if hold and tap:
+                client.set_keys(hold)
+                step = min(tap, remaining)
+                client.run_frames(step)
+                frames += step
+                remaining -= step
+                client.set_keys(0)
+                step = min(gap, remaining)
+                client.run_frames(step)
+                frames += step
+                remaining -= step
+            else:
+                step = min(poll_every, remaining)
+                client.set_keys(0)
+                client.run_frames(step)
+                frames += step
+                remaining -= step
         if hasattr(client, "set_keys"):
             client.set_keys(0)
-        remaining = int(settle["frames"])
-        while remaining > 0:
-            if eval_condition(client, condition, read_state(client)):
-                break
-            chunk = min(remaining, poll_every)
-            if hasattr(client, "set_keys"):
-                client.run_frames(chunk)
-            else:
-                client.run_frames(chunk, keys=0)
-            frames += chunk
-            remaining -= chunk
 
     state = read_state(client)
     if state["battle_type_flags"] == 0:
@@ -711,3 +853,420 @@ def identify(path, expected):
     if digest.upper() != expected.upper():
         raise ReleaseHarnessError(f"{path} sha256 {digest} != pinned {expected}")
     return digest
+
+
+# =========================================================================== H3
+# C2.1 -- release-side boundary detection from named game variables only.
+
+
+def _ptr(client, address: int) -> int:
+    """Read a function pointer and drop the Thumb bit."""
+    return client.read_memory(address, 4) & ~1
+
+
+def boundary_report(client, *, battler: int = 0) -> dict:
+    """Detect the release battle's decision boundary from RAM (Appendix C.3).
+
+    Kinds: 0 none, 1 choice, 2 forced switch, 3 terminal.  Every input is a
+    named release variable:
+
+    * ``gBattleOutcome`` (EWRAM 0x020006A0) -> terminal.
+    * ``gBattleMainFunc`` (IWRAM 0x03004F80) -> ``HandleFaintedMonActions``
+      (src/battle_util.c) is the faint/forced-replacement phase.
+    * ``gBattlerControllerFuncs[b]`` (IWRAM 0x03004F54) -> the player controller
+      is ``HandleInputChooseAction`` (src/battle_controller_player.c, the action
+      menu) at a choice boundary and ``PlayerHandleChoosePokemon`` with a
+      fainted active mon at a forced-switch boundary.
+    * ``gBattleControllerExecFlags`` (EWRAM 0x02000340) is reported as evidence:
+      a nonzero bit for the battler means its controller is waiting on input.
+    """
+    outcome = client.read_memory(RELEASE_MAP["gBattleOutcome"], 2)
+    main = _ptr(client, RELEASE_MAP["gBattleMainFunc"])
+    ctrl = [_ptr(client, RELEASE_MAP["gBattlerControllerFuncs"] + 4 * i)
+            for i in range(MAX_BATTLERS)]
+    exec_flags = client.read_memory(RELEASE_MAP["gBattleControllerExecFlags"], 4)
+    hp = client.read_memory(
+        RELEASE_MAP["gBattleMons"] + battler * BATTLEMON_SIZE + BATTLEMON["hp"], 2)
+
+    kind, reason = BOUNDARY_NONE, "no boundary variable matched"
+    if outcome != 0:
+        kind, reason = BOUNDARY_TERMINAL, f"gBattleOutcome={outcome}"
+    elif main == RELEASE_FUNCS["HandleFaintedMonActions"]:
+        kind = BOUNDARY_FORCED_SWITCH
+        reason = "gBattleMainFunc=HandleFaintedMonActions"
+    elif (ctrl[battler] == RELEASE_FUNCS["PlayerHandleChoosePokemon"] and hp == 0):
+        kind = BOUNDARY_FORCED_SWITCH
+        reason = ("gBattlerControllerFuncs[%d]=PlayerHandleChoosePokemon and active hp==0"
+                  % battler)
+    elif (main == RELEASE_FUNCS["HandleTurnActionSelectionState"]
+          and ctrl[battler] == RELEASE_FUNCS["HandleInputChooseAction"]):
+        kind = BOUNDARY_CHOICE
+        reason = ("gBattleMainFunc=HandleTurnActionSelectionState and "
+                  "gBattlerControllerFuncs[%d]=HandleInputChooseAction" % battler)
+
+    return {
+        "kind": kind,
+        "name": BOUNDARY_NAMES[kind],
+        "reason": reason,
+        "gBattleOutcome": outcome,
+        "gBattleOutcomeName": B_OUTCOME_NAMES.get(outcome, f"unknown-{outcome}"),
+        "gBattleMainFunc": main,
+        "gBattlerControllerFuncs": ctrl,
+        "gBattleControllerExecFlags": exec_flags,
+        "battler_hp": hp,
+    }
+
+
+def detect_boundary_kind(client, *, battler: int = 0) -> int:
+    return boundary_report(client, battler=battler)["kind"]
+
+
+def terminal_report(client) -> dict:
+    """Terminal detail for a finished battle (contract C.3 terminal table)."""
+    outcome = client.read_memory(RELEASE_MAP["gBattleOutcome"], 2)
+    results = client.read_memory_block(RELEASE_MAP["gBattleResults"], 0x30)
+    return {
+        "outcome": outcome,
+        "outcome_name": B_OUTCOME_NAMES.get(outcome, f"unknown-{outcome}"),
+        "player_faints": results[0],
+        "opponent_faints": results[1],
+        "turn_counter": results[0x13],
+    }
+
+
+# ==================================================================== C2.2/3
+# Projection vocabulary: EXACTLY the tables.json field names.
+
+SDR2_VECTORS = TOOLS / "sdr2_vectors"
+TABLES_PATH = SDR2_VECTORS / "tables.json"
+PROJECTION_GROUPS = ("party", "active", "field", "side", "battle", "rng")
+
+PARTY_ENCRYPTED = (
+    "struct Pokemon box substructures (+0x20..0x4F) are PID-scrambled and this build's "
+    "PokemonSubstruct bit layout is bespoke (species:11, teraType:5, heldItem:10, "
+    "nickname11/12, ivsWerePerfected). The release-side box cipher key is not the vanilla "
+    "checksum, so the harness does not decode it and does not invent a value")
+A1_FLAG_WORD = (
+    "composite flag word packed by the A1 exporter; its bit layout is defined by the A1 "
+    "README section 'v9 flag words', which is not present in this worktree")
+NOT_ONE_FIELD = "no single release RAM field carries this value (derived or exporter-owned)"
+TIMER_NOT_PINNED = (
+    "the countdown lives in the source's status-timer storage, which is not pinned in "
+    "RELEASE_MAP; adding a guessed offset would invent a value")
+
+
+def load_tables(path=TABLES_PATH) -> dict:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def projection_fields(group: str, path=TABLES_PATH) -> list:
+    return list(load_tables(path)["fields"][group])
+
+
+def _u16(raw: bytes, off: int) -> int:
+    return int.from_bytes(raw[off:off + 2], "little")
+
+
+def _u32(raw: bytes, off: int) -> int:
+    return int.from_bytes(raw[off:off + 4], "little")
+
+
+def _s8(value: int) -> int:
+    return value - 256 if value >= 128 else value
+
+
+def release_projection(client, *, battlers: int = 2, party_slots: int = 6) -> dict:
+    """Project release RAM into the SDR2 group/field vocabulary.
+
+    Returns ``{"party": [...], "active": [...], "field": [...], "side": [...],
+    "battle": [...], "rng": [...], "excluded": {group: {field: reason}}}``.
+    Every readable field is sourced from a named release address; anything the
+    release RAM cannot express 1:1 lands in ``excluded`` with a reason instead
+    of a fabricated zero.
+    """
+    fields = load_tables()["fields"]
+    out = {group: [] for group in PROJECTION_GROUPS}
+    excluded = {group: {} for group in PROJECTION_GROUPS}
+
+    def record(group, values):
+        rec = {}
+        for name in fields[group]:
+            if name in values and values[name] is not None:
+                rec[name] = values[name]
+            elif name not in excluded[group]:
+                excluded[group][name] = NOT_ONE_FIELD
+        out[group].append(rec)
+        return rec
+
+    # ----- rng: gRngValue / gRng2Value are struct Sfc32State {a,b,c,ctr}
+    main = [int.from_bytes(client.read_memory_block(RELEASE_MAP["gRngValue"], 16)[i * 4:i * 4 + 4], "little")
+            for i in range(4)]
+    sec = [int.from_bytes(client.read_memory_block(RELEASE_MAP["gRng2Value"], 16)[i * 4:i * 4 + 4], "little")
+           for i in range(4)]
+    record("rng", dict(zip(fields["rng"], main + sec)))
+
+    # ----- battle
+    results = client.read_memory_block(RELEASE_MAP["gBattleResults"], 0x30)
+    record("battle", {
+        "turn": results[0x13],
+        "outcome": client.read_memory(RELEASE_MAP["gBattleOutcome"], 2),
+        "type_flags": client.read_memory(RELEASE_MAP["gBattleTypeFlags"], 2),
+        "battler_count": client.read_memory(RELEASE_MAP["gBattlersCount"], 1),
+    })
+    for name in ("ai_flags", "item_count", "item1", "item2", "item3", "item4"):
+        excluded["battle"][name] = NOT_ONE_FIELD
+
+    # ----- field (gBattleWeather raw word; gFieldStatuses flag bits)
+    field_statuses = client.read_memory(RELEASE_MAP["gFieldStatuses"], 4)
+    record("field", {
+        "weather": client.read_memory(RELEASE_MAP["gBattleWeather"], 2),
+        "terrain": field_statuses & STATUS_FIELD_TERRAIN_MASK,
+        "trick_room": (field_statuses & STATUS_FIELD_TRICK_ROOM) and 1 or 0,
+    })
+    for name in ("weather_timer", "terrain_timer", "trick_room_timer"):
+        excluded["field"][name] = TIMER_NOT_PINNED
+
+    # ----- side (gSideStatuses[side] is the source side-status word)
+    for side in range(2):
+        status = client.read_memory(RELEASE_MAP["gSideStatuses"] + 4 * side, 4)
+        record("side", {
+            "side": side,
+            "screens": status & SIDE_STATUS_SCREEN_ANY,
+            "hazards": status & SIDE_STATUS_HAZARDS_ANY,
+            "conditions": status & SIDE_STATUS_CONDITIONS_ANY,
+        })
+    for name in ("hazard_layers", "reflect_timer", "light_screen_timer", "aurora_veil_timer",
+                 "mist_timer", "safeguard_timer", "tailwind_timer", "follow_me_timer"):
+        excluded["side"][name] = TIMER_NOT_PINNED if name.endswith("_timer") else NOT_ONE_FIELD
+
+    # ----- active (gBattleMons / gBattlerPartyIndexes / gDisableStructs)
+    for b in range(battlers):
+        base = RELEASE_MAP["gBattleMons"] + b * BATTLEMON_SIZE
+        mon = client.read_memory_block(base, BATTLEMON_SIZE)
+        disable = client.read_memory_block(RELEASE_MAP["gDisableStructs"] + b * DISABLE_STRUCT_SIZE,
+                                           DISABLE_STRUCT_SIZE)
+        values = {
+            "battler": b,
+            "party_slot": client.read_memory(RELEASE_MAP["gBattlerPartyIndexes"] + b, 1),
+            "species": _u16(mon, BATTLEMON["species"]),
+            "hp": _u16(mon, BATTLEMON["hp"]),
+            "max_hp": _u16(mon, BATTLEMON["max_hp"]),
+            "status1": _u32(mon, BATTLEMON["status1"]),
+            "status2": _u32(mon, BATTLEMON["status2"]),
+            "ability": _u16(mon, BATTLEMON["ability"]),
+            "item": _u16(mon, BATTLEMON["item"]),
+            "type1": mon[BATTLEMON["types"]],
+            "type2": mon[BATTLEMON["types"] + 1],
+            "type3": mon[BATTLEMON["types"] + 2],
+            "move1": _u16(mon, BATTLEMON["moves"]),
+            "move2": _u16(mon, BATTLEMON["moves"] + 2),
+            "move3": _u16(mon, BATTLEMON["moves"] + 4),
+            "move4": _u16(mon, BATTLEMON["moves"] + 6),
+            "disabled_move": _u16(disable, DS_DISABLED_MOVE),
+            "disable_timer": disable[DS_TIMERS] & 0x0F,
+            "encore_timer": disable[DS_TIMERS] >> 4,
+            "taunt_timer": disable[DS_TAUNT_TIMER] >> 4,
+            "substitute_hp": disable[DS_SUBSTITUTE_HP],
+        }
+        for i, name in enumerate(STAT_ORDER):
+            values[name] = _s8(mon[BATTLEMON["stat_stages"] + i]) - DEFAULT_STAT_STAGE
+        for i in range(4):
+            values[f"pp{i + 1}"] = mon[BATTLEMON["pp"] + i]
+        record("active", values)
+    for name in ("form", "status3", "volatile_flags", "protect_flags", "special_status_flags"):
+        excluded["active"][name] = A1_FLAG_WORD if name.endswith("_flags") else NOT_ONE_FIELD
+
+    # ----- party (struct Pokemon plaintext tail only)
+    for side, (party_sym, count_sym) in enumerate((("gPlayerParty", "gPlayerPartyCount"),
+                                                   ("gEnemyParty", "gEnemyPartyCount"))):
+        count = client.read_memory(RELEASE_MAP[count_sym], 1)
+        for slot in range(party_slots):
+            raw = client.read_memory_block(RELEASE_MAP[party_sym] + slot * POKEMON_SIZE,
+                                           POKEMON_SIZE)
+            present = (raw[POKEMON_BOX_FLAGS] & POKEMON_HAS_SPECIES_BIT) and slot < count
+            record("party", {
+                "side": side,
+                "slot": slot,
+                "level": raw[POKEMON_LEVEL] if present else 0,
+                "hp": _u16(raw, POKEMON_HP) if present else 0,
+                "max_hp": _u16(raw, POKEMON_MAX_HP) if present else 0,
+                "status1": _u32(raw, POKEMON_STATUS1) if present else 0,
+                "present": 1 if present else 0,
+            })
+    for name in fields["party"]:
+        if name not in ("side", "slot", "level", "hp", "max_hp", "status1", "present"):
+            excluded["party"][name] = PARTY_ENCRYPTED
+
+    return {**out, "excluded": excluded}
+
+
+def compare_projections(release: dict, normal: dict) -> dict:
+    """Per-field diff between two projections plus the excluded-field list.
+
+    ``normal`` is a decoded SDR2 record set (e.g. a golden vector's ``records``
+    or the test ELF's decode).  Returns ``{"diffs": [...], "excluded": [...]}``
+    where each diff names group/index/field and both values, and each excluded
+    entry names group/field/reason.  An identical pair yields no diffs.
+    """
+    diffs = []
+    for group in PROJECTION_GROUPS:
+        left = release.get(group) or []
+        right = normal.get(group) or []
+        for index, rec in enumerate(left):
+            if index >= len(right):
+                diffs.append({"group": group, "index": index, "field": None,
+                              "release": "present", "normal": "missing"})
+                continue
+            other = right[index]
+            for field_name, value in rec.items():
+                if field_name not in other:
+                    diffs.append({"group": group, "index": index, "field": field_name,
+                                  "release": value, "normal": "missing"})
+                elif other[field_name] != value:
+                    diffs.append({"group": group, "index": index, "field": field_name,
+                                  "release": value, "normal": other[field_name]})
+        for index in range(len(left), len(right)):
+            diffs.append({"group": group, "index": index, "field": None,
+                          "release": "missing", "normal": "present"})
+    excluded = [{"group": group, "field": field_name, "reason": reason}
+                for group, entries in sorted((release.get("excluded") or {}).items())
+                for field_name, reason in sorted(entries.items())]
+    return {"diffs": diffs, "excluded": excluded}
+
+
+# ------------------------------------------------------------------ C2.2 inject
+
+# scenario mon field -> (BattlePokemon offset, byte width)
+INJECT_ACTIVE_FIELDS = (
+    ("species", "species", 2), ("level", "level", 1), ("hp", "hp", 2),
+    ("max_hp", "max_hp", 2), ("status1", "status1", 4), ("ability", "ability", 2),
+    ("item", "item", 2),
+)
+# scenario "moves" / "pp" arrays -> BattlePokemon move/pp slots
+INJECT_ARRAY_FIELDS = (("moves", "moves", 2, 4), ("pp", "pp", 1, 4))
+
+INJECT_REFUSALS = {
+    "nature": PARTY_ENCRYPTED,
+    "evs": PARTY_ENCRYPTED,
+    "ivs": ("BattlePokemon packs the six IVs into 5-bit fields the A1 exporter owns, and the "
+            "party substructure that holds them is PID-scrambled; writing a guessed packing "
+            "would invent a value"),
+    "form": "form is derived from species/personality and has no release RAM field of its own",
+    "nickname": "nickname is encoded text in the encrypted box; not written",
+    "candidate_action": ("the legal-action / replay record is produced by the ROM hook and is "
+                         "not RAM state the harness can write"),
+    "replay_turns": "replay turns are root construction, not RAM state",
+    "ai_flags": NOT_ONE_FIELD,
+}
+
+
+def _word(value: int, width: int) -> bytes:
+    return int(value).to_bytes(width, "little")
+
+
+def inject_scenario(client, scenario: dict, *, battlers: int = 2) -> dict:
+    """Write a release_scenarios row's representable RAM state, then read it back.
+
+    Returns ``{"written": [...], "refused": {field: reason}, "readback": {...},
+    "verified": bool}``.  Only the fields the release RAM stores 1:1 (active
+    battlers, the plaintext party tail and both RNG streams) are written;
+    everything else is refused with a per-field reason rather than invented.
+    """
+    root = scenario.get("root", scenario)
+    written, refused = [], {}
+
+    def refuse(field_name, reason):
+        refused[field_name] = reason
+
+    sides = (("player_party", "gPlayerParty", "gPlayerPartyCount"),
+             ("opponent_party", "gEnemyParty", "gEnemyPartyCount"))
+    actives = [root.get("player_party") or [], root.get("opponent_party") or []]
+    for b in range(min(battlers, len(actives))):
+        party = actives[b]
+        base = RELEASE_MAP["gBattleMons"] + b * BATTLEMON_SIZE
+        if not party:
+            continue
+        mon = party[0]
+        for field_name, offset_name, width in INJECT_ACTIVE_FIELDS:
+            if field_name not in mon:
+                refuse(field_name, "scenario row does not carry this field")
+                continue
+            client.write_memory(base + BATTLEMON[offset_name], _word(mon[field_name], width))
+            written.append({"address": base + BATTLEMON[offset_name], "field": field_name,
+                            "value": mon[field_name]})
+        for field_name, offset_name, width, slots in INJECT_ARRAY_FIELDS:
+            for i in range(slots):
+                source = (mon.get(field_name) or [])
+                if i >= len(source):
+                    continue
+                address = base + BATTLEMON[offset_name] + i * width
+                client.write_memory(address, _word(source[i], width))
+                written.append({"address": address, "field": f"{field_name}{i + 1}",
+                                "value": source[i]})
+        for field_name in ("nature", "evs", "ivs", "form", "nickname"):
+            if field_name in mon:
+                refuse(field_name, INJECT_REFUSALS[field_name])
+        # plaintext party tail for the matching slot; also mark the slot present so the
+        # party group reads it back (the hasSpecies bit and the party count drive it)
+        party_sym, count_sym = sides[b][1], sides[b][2]
+        raw = bytearray(client.read_memory_block(RELEASE_MAP[party_sym], POKEMON_SIZE))
+        raw[POKEMON_BOX_FLAGS] |= POKEMON_HAS_SPECIES_BIT
+        raw[POKEMON_LEVEL] = mon.get("level", raw[POKEMON_LEVEL])
+        raw[POKEMON_HP:POKEMON_HP + 2] = _word(mon.get("hp", _u16(raw, POKEMON_HP)), 2)
+        raw[POKEMON_MAX_HP:POKEMON_MAX_HP + 2] = _word(mon.get("max_hp", _u16(raw, POKEMON_MAX_HP)), 2)
+        raw[POKEMON_STATUS1:POKEMON_STATUS1 + 4] = _word(mon.get("status1", _u32(raw, POKEMON_STATUS1)), 4)
+        client.write_memory(RELEASE_MAP[party_sym], bytes(raw))
+        client.write_memory(RELEASE_MAP[count_sym], bytes([max(1, client.read_memory(RELEASE_MAP[count_sym], 1))]))
+        written.append({"address": RELEASE_MAP[party_sym], "field": f"party[{b}] plaintext tail",
+                        "value": {"level": raw[POKEMON_LEVEL], "hp": _u16(raw, POKEMON_HP)}})
+
+    for key, symbol in (("rng_main", "gRngValue"), ("rng_secondary", "gRng2Value")):
+        words = root.get(key)
+        if words is None:
+            refuse(key, "scenario row does not carry this field")
+            continue
+        if len(words) != 4:
+            refuse(key, f"expected 4 rng words, got {len(words)}")
+            continue
+        payload = b"".join(_word(word, 4) for word in words)
+        client.write_memory(RELEASE_MAP[symbol], payload)
+        written.append({"address": RELEASE_MAP[symbol], "field": key, "value": list(words)})
+
+    for field_name in ("candidate_action", "replay_turns", "ai_flags"):
+        if field_name in root:
+            refuse(field_name, INJECT_REFUSALS.get(field_name, NOT_ONE_FIELD))
+
+    readback = release_projection(client, battlers=battlers)
+    verified = True
+    for b in range(min(battlers, len(actives))):
+        party = actives[b]
+        if not party:
+            continue
+        mon, got = party[0], readback["active"][b]
+        for field_name, _, _ in INJECT_ACTIVE_FIELDS:
+            if field_name in mon and field_name in got and got[field_name] != mon[field_name]:
+                verified = False
+        if "level" in mon:
+            # `level` is a party-group field; verify it on the party record's source
+            raw = client.read_memory_block(RELEASE_MAP[sides[b][1]], POKEMON_SIZE)
+            if raw[POKEMON_LEVEL] != mon["level"]:
+                verified = False
+        for i in range(4):
+            for field_name, wire_prefix in (("moves", "move"), ("pp", "pp")):
+                source = (mon.get(field_name) or [])
+                if i < len(source) and got.get(f"{wire_prefix}{i + 1}") != source[i]:
+                    verified = False
+    rng_rec = readback["rng"][0]
+    for key, prefix in (("rng_main", "main_"), ("rng_secondary", "sec_")):
+        words = root.get(key)
+        if not words:
+            continue
+        for suffix, word in zip(("a", "b", "c", "ctr"), words):
+            if rng_rec.get(prefix + suffix) != word:
+                verified = False
+    for side, entry in enumerate(sides):
+        raw = client.read_memory_block(RELEASE_MAP[entry[1]], POKEMON_SIZE)
+        rec = readback["party"][side * 6]
+        if rec.get("level") != raw[POKEMON_LEVEL] or rec.get("hp") != _u16(raw, POKEMON_HP):
+            verified = False
+    return {"written": written, "refused": refused, "readback": readback, "verified": verified}

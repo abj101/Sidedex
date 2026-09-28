@@ -153,3 +153,94 @@ Notes for the next package:
   disassembly and cross-checked against the truck intro's six `setflag` calls.
 - H2 over the R-P1..R-P28 scenario matrix is still `blocked` (the matrix is not
   enumerated); the release root itself is now captured and reproducible.
+
+## Wave 3 C2 result (2026-09-28): H3 boundary detection + projection plumbing
+
+Gate 0 (`fda0361`) and Gate V1 (`codex/gate-v1`) are merged.  Identity now comes
+from `rom_identity.py` in every file this package owns (no digest literals); the
+JSON inputs carry `<<rom_identity.NAME>>` placeholders that
+`release_harness.resolve_identity()` resolves and rejects when unknown.
+
+### H3 release-side boundary detection (no ROM hooks)
+
+Every input is a named release variable; the release map pins are in
+`release_harness.RELEASE_MAP`, the function pointers in `RELEASE_FUNCS`.
+
+| Appendix C.3 kind | Release signal | Source |
+| --- | --- | --- |
+| 3 terminal | `gBattleOutcome != 0` | EWRAM `0x020006A0`; `include/battle.h`, `B_OUTCOME_*` |
+| 2 forced switch | `gBattleMainFunc == HandleFaintedMonActions` **or** `gBattlerControllerFuncs[b] == PlayerHandleChoosePokemon` with `gBattleMons[b].hp == 0` | IWRAM `0x03004F80` / `0x03004F54`; `src/battle_util.c`, `src/battle_controller_player.c` |
+| 1 choice | `gBattleMainFunc == HandleTurnActionSelectionState` **and** `gBattlerControllerFuncs[b] == HandleInputChooseAction` | IWRAM, same addresses; `src/battle_main.c`, `src/battle_controller_player.c` |
+| 0 none | anything else | — |
+
+Evidence also reported: `gBattleControllerExecFlags` (EWRAM `0x02000340`) and
+`gBattlerControllerFuncs[0..3]`.  The earlier root was **not** a decision
+boundary: at frame 13056 it sat in `DoBattleIntro` with
+`Controller_WaitForString`, so the A mash that advanced it was dismissing intro
+text.  `root_settle` now mashes A (`keys`/`tap`/`gap`) until the **choice**
+boundary and stops there, because the next A opens the move menu.
+
+Live proof (pinned `0ccaaad0…` + worker `1529b4de…`, two fresh cold-boot runs):
+root `9fb8096553028b770a9959df29c559bd244a9b18269176d063f145ddf4b3eaaa` at
+frame **13236**, Route 101 (map 0/16), `gBattleTypeFlags=4`, `gBattleMainFunc=HandleTurnActionSelectionState`,
+`gBattlerControllerFuncs[0]=HandleInputChooseAction` -> **kind 1 (choice)**.
+Driving that root with A taps changes the boundary for real: at frame ~14916
+`boundary_report` returns **kind 3 (terminal)** with `gBattleOutcome=1` (won),
+`gBattleResults.opponentFaintCounter=1`, after 55 taps.
+Forced switch (kind 2) is **not producible live**: the captured wild battle has a
+single-mon player party, so `test_boundary_detection_kinds` covers kind 2 with
+unit-level positive and negative controls instead.
+
+### Projection vocabulary and exclusions
+
+`release_projection()` returns the six requested groups with **exactly** the
+`tools/rom_oracle/sdr2_vectors/tables.json` field names plus an `excluded` map.
+`compare_projections(release, normal)` returns per-field diffs and the excluded
+list with reasons.
+
+Readable (from release RAM, offsets verified against the live root): `rng` 8/8,
+`active` 32/37, `battle` 4/10, `field` 3/6, `side` 4/12, `party` 7/32
+(side, slot, level, hp, max_hp, status1, present).
+
+Excluded fields and reasons:
+
+| Group | Fields | Reason |
+| --- | --- | --- |
+| party | species, item, ability, form, nature, move1-4, pp1-4, iv_*, ev_* | `struct Pokemon` box substructures (+0x20..0x4F) are PID-scrambled and this build's `PokemonSubstruct` layout is bespoke (species:11, teraType:5, heldItem:10, nickname11/12, ivsWerePerfected); the release-side cipher key is not the vanilla checksum, so decoding is not implemented and no value is invented |
+| active | volatile_flags, protect_flags, special_status_flags | composite flag words packed by the A1 exporter; their bit layout is the A1 README's "v9 flag words", not present in this worktree |
+| active | form, status3 | form is derived from species/personality; status3 has no release RAM field |
+| battle | ai_flags, item_count, item1-4 | no single release RAM field carries these |
+| field, side | weather_timer, terrain_timer, trick_room_timer, reflect/light_screen/aurora_veil/mist/safeguard/tailwind/follow_me timers, hazard_layers | timers live in status-timer storage that is not pinned in `RELEASE_MAP` |
+
+Mapping assumptions to confirm with A1 before H2 runs: `weather` is the raw
+`gBattleWeather` word, `terrain`/`trick_room` are masked `gFieldStatuses` bits,
+`screens`/`hazards`/`conditions` are masked `gSideStatuses[side]` bits, `turn` is
+`gBattleResults.battleTurnCounter`, and `stage_*` subtract `DEFAULT_STAT_STAGE`
+(6) from `gBattleMons[b].statStages[]`.
+
+`inject_scenario()` writes a scenario row's active battlers (species, level, hp,
+max_hp, status1, ability, item, moves, pp), the party plaintext tail
+(level/hp/max_hp/status1 + hasSpecies + party count) and both RNG streams, then
+reads them back; nature/evs/ivs/form/nickname/candidate_action/replay_turns/
+ai_flags are refused per field with a reason.
+
+### Test tails
+
+```
+$ python -m pytest test_rom_release_harness.py -q
+25 passed in 0.16s
+
+$ python -m pytest test_rom_release_live.py -q
+7 passed, 1 skipped in 24.02s
+
+$ python -m pytest --ignore=work -q
+7 failed, 417 passed, 12 skipped, 49 subtests passed in 59.94s
+```
+
+The 7 failures are the Gate V1 flip's cross-package fallout, not this package:
+`test_rom_bridge.py::ProtocolTests` (5) drive fake workers that still announce
+`protocol: 2` while `rom_bridge` now expects wire 3, and
+`test_rom_diff_elf.py` (2) still compares against `rom_diff_harness.WORKER_SHA256`
+= `0601297e…`.  Both files belong to B/D (`ROM_TRANSITION_FINISH_PLAN.md` §9.3).
+Re-running the suite with this package's changes stashed reproduces the same 7
+failures at the merge point.

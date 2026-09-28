@@ -47,7 +47,8 @@ def test_input_script_is_well_formed_and_honest():
     driven = [s for s in flat if s.get("until")]
     assert len(driven) >= 10, len(driven)
     assert flat[-1]["name"] == "grass-down"
-    assert script["root_settle"]["symbol"] == "gBattleMons"
+    assert script["root_settle"]["until"] == {"kind": "boundary", "value": r.BOUNDARY_CHOICE}
+    assert script["root_settle"]["keys"]
     assert int(script["detect"]["gBattleTypeFlags"], 16) == r.RELEASE_MAP["gBattleTypeFlags"]
 
 
@@ -318,3 +319,159 @@ def test_exclude_list_names_presentation_only_exclusions():
     names = [name for name, _ in r.EXCLUDE_LIST]
     assert "requestId" in names
     assert all(reason for _, reason in r.EXCLUDE_LIST)
+
+
+# ---------------------------------------------------------------- C2: H3 + projection
+
+class ProjectionClient:
+    """Byte-addressable RAM double: projection and injection round-trip offline."""
+
+    def __init__(self):
+        self.ram = {}
+        self.frames = 0
+        self.keys = 0
+
+    def write_memory(self, address, data):
+        for offset, value in enumerate(bytes(data)):
+            self.ram[address + offset] = value
+
+    def read_memory_block(self, address, length):
+        return bytes(self.ram.get(address + i, 0) for i in range(length))
+
+    def read_memory(self, address, width):
+        return int.from_bytes(self.read_memory_block(address, width), "little")
+
+    def set_keys(self, keys):
+        self.keys = keys
+
+    def run_frames(self, frames, keys=None):
+        self.frames += frames
+        return {"trace_events": []}
+
+
+def _boundary_client(outcome=0, main="DoBattleIntro", ctrl="Controller_WaitForString", mon_hp=20):
+    client = ProjectionClient()
+    client.write_memory(r.RELEASE_MAP["gBattleOutcome"], int(outcome).to_bytes(2, "little"))
+    client.write_memory(r.RELEASE_MAP["gBattleMainFunc"], (r.RELEASE_FUNCS[main] | 1).to_bytes(4, "little"))
+    client.write_memory(r.RELEASE_MAP["gBattlerControllerFuncs"],
+                        (r.RELEASE_FUNCS[ctrl] | 1).to_bytes(4, "little"))
+    client.write_memory(r.RELEASE_MAP["gBattleMons"] + r.BATTLEMON["hp"], int(mon_hp).to_bytes(2, "little"))
+    return client
+
+
+def test_identity_is_read_from_rom_identity():
+    import rom_identity as ri
+    assert r.PINNED_ROM_SHA256 == ri.ROM_SHA256
+    assert r.PINNED_ELF_SHA256 == ri.ENGINE_ELF_SHA256
+    assert r.PINNED_WORKER_SHA256 == ri.WORKER_SHA256
+    assert r.PINNED_SOURCE_SHA == ri.SOURCE_SHA
+    script_raw = r.load_input_script_raw()
+    scenarios_raw = r.load_scenarios_raw()
+    for digest in (ri.ROM_SHA256, ri.ENGINE_ELF_SHA256, ri.WORKER_SHA256):
+        assert digest.lower() not in json.dumps(script_raw).lower()
+        assert digest.lower() not in json.dumps(scenarios_raw).lower()
+    assert "<<rom_identity.ROM_SHA256>>" in json.dumps(script_raw)
+    script = r.load_input_script()
+    assert script["rom_sha256"] == ri.ROM_SHA256
+    assert script["worker_sha256"] == ri.WORKER_SHA256
+    scenarios = r.load_scenarios()
+    assert scenarios["release_rom_sha256"] == ri.ROM_SHA256
+    assert scenarios["worker_sha256"] == ri.WORKER_SHA256
+    assert scenarios["elf_sha256"] == ri.ENGINE_ELF_SHA256
+
+
+def test_unknown_identity_placeholder_fails_closed():
+    with pytest.raises(r.ReleaseHarnessError):
+        r.resolve_identity("<<rom_identity.NOT_A_REAL_PIN>>")
+    assert r.resolve_identity({"a": ["<<rom_identity.ROM_SHA256>>"]})["a"] == [r.PINNED_ROM_SHA256]
+
+
+def test_boundary_detection_kinds():
+    assert r.detect_boundary_kind(_boundary_client()) == r.BOUNDARY_NONE
+    assert r.detect_boundary_kind(_boundary_client(
+        main="HandleTurnActionSelectionState", ctrl="HandleInputChooseAction")) == r.BOUNDARY_CHOICE
+    assert r.detect_boundary_kind(_boundary_client(main="HandleFaintedMonActions")) == r.BOUNDARY_FORCED_SWITCH
+    assert r.detect_boundary_kind(_boundary_client(
+        ctrl="PlayerHandleChoosePokemon", mon_hp=0)) == r.BOUNDARY_FORCED_SWITCH
+    assert r.detect_boundary_kind(_boundary_client(outcome=1)) == r.BOUNDARY_TERMINAL
+    # negative control: the party menu on a live mon is not a forced switch
+    assert r.detect_boundary_kind(_boundary_client(
+        ctrl="PlayerHandleChoosePokemon", mon_hp=20)) == r.BOUNDARY_NONE
+    report = r.boundary_report(_boundary_client(
+        main="HandleTurnActionSelectionState", ctrl="HandleInputChooseAction"))
+    assert report["name"] == "choice" and "HandleInputChooseAction" in report["reason"]
+    assert r.eval_condition(_boundary_client(
+        main="HandleTurnActionSelectionState", ctrl="HandleInputChooseAction"),
+        {"kind": "boundary", "value": 1}, {}) is True
+
+
+def test_projection_reads_every_tables_json_field_or_excludes_it():
+    tables = r.load_tables()
+    assert set(r.PROJECTION_GROUPS) <= set(tables["fields"])
+    projection = r.release_projection(ProjectionClient())
+    for group in r.PROJECTION_GROUPS:
+        expected = set(tables["fields"][group])
+        read = {name for record in projection[group] for name in record}
+        excluded = set(projection["excluded"][group])
+        assert read <= expected and excluded <= expected
+        assert read | excluded == expected, (group, sorted(expected - read - excluded))
+        assert read & excluded == set(), group
+        assert all(reason for reason in projection["excluded"][group].values())
+    assert len(projection["active"]) == 2 and len(projection["side"]) == 2
+    assert len(projection["party"]) == 12 and len(projection["rng"]) == 1
+
+
+def test_compare_projections_detects_a_field_difference_on_the_golden_vector():
+    vector = json.loads((r.SDR2_VECTORS / "choice_p1.json").read_text(encoding="utf-8"))
+    normal = vector["records"]
+    release = {group: normal[group] for group in r.PROJECTION_GROUPS}
+    release["excluded"] = {}
+    assert r.compare_projections(release, normal)["diffs"] == []
+    changed = dict(release)
+    changed["active"] = [dict(normal["active"][0], hp=999), normal["active"][1]]
+    assert r.compare_projections(changed, normal)["diffs"] == [
+        {"group": "active", "index": 0, "field": "hp", "release": 999, "normal": 100}]
+    changed = dict(release)
+    changed["rng"] = [dict(normal["rng"][0], main_ctr=7)]
+    diffs = r.compare_projections(changed, normal)["diffs"]
+    assert len(diffs) == 1 and diffs[0]["field"] == "main_ctr", diffs
+
+
+def test_projection_self_comparison_is_identical_and_exclusions_carry_reasons():
+    client = ProjectionClient()
+    result = r.compare_projections(r.release_projection(client), r.release_projection(client))
+    assert result["diffs"] == []
+    assert result["excluded"], "an all-readable projection would hide unreadable fields"
+    assert all(entry["reason"] for entry in result["excluded"])
+    for entry in result["excluded"]:
+        assert entry["group"] in r.PROJECTION_GROUPS
+        assert entry["field"] in r.load_tables()["fields"][entry["group"]]
+
+
+def _scenario_row():
+    return {"player_party": [{"species": 25, "level": 42, "hp": 111, "max_hp": 130, "status1": 0,
+                              "ability": 9, "item": 13, "moves": [85, 98, 87, 86],
+                              "pp": [15, 20, 10, 20], "nature": "NATURE_JOLLY",
+                              "evs": [0, 252, 0, 0, 4, 0], "ivs": [31] * 6}],
+            "opponent_party": [{"species": 143, "level": 40, "hp": 160, "max_hp": 200,
+                                "status1": 0, "ability": 17, "item": 0, "moves": [33, 0, 0, 0],
+                                "pp": [35, 0, 0, 0]}],
+            "rng_main": [1, 2, 3, 4], "rng_secondary": [5, 6, 7, 8],
+            "candidate_action": {"kind": "move"}}
+
+
+def test_inject_scenario_round_trips_and_refuses_unrepresentable_fields():
+    result = r.inject_scenario(ProjectionClient(), {"root": _scenario_row()})
+    assert result["verified"] is True
+    assert set(result["refused"]) == {"nature", "evs", "ivs", "candidate_action"}
+    assert all(reason for reason in result["refused"].values())
+    got = result["readback"]["active"][0]
+    assert got["species"] == 25 and got["hp"] == 111 and got["max_hp"] == 130
+    assert [got[f"move{i + 1}"] for i in range(4)] == [85, 98, 87, 86]
+    assert [got[f"pp{i + 1}"] for i in range(4)] == [15, 20, 10, 20]
+    assert result["readback"]["rng"][0] == {"main_a": 1, "main_b": 2, "main_c": 3, "main_ctr": 4,
+                                            "sec_a": 5, "sec_b": 6, "sec_c": 7, "sec_ctr": 8}
+    # a scenario without a field refuses it by name instead of writing a zero
+    sparse = {"root": {"player_party": [{"species": 1}], "rng_main": [1, 2, 3]}}
+    refused = r.inject_scenario(ProjectionClient(), sparse)["refused"]
+    assert "rng_main" in refused and "expected 4 rng words" in refused["rng_main"]

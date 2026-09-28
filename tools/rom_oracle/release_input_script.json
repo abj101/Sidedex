@@ -2,25 +2,37 @@
   "name": "release-cold-boot-first-battle",
   "version": 2,
   "status": "captured",
-  "root_sha256": "55324A88C4D682A62259E7E7ACC1A1F94B86282B85E1B7DC9CFC67811DB69840",
-  "root_frame": 13056,
-  "root_note": "Two fresh cold-boot runs on the pinned .gba + in-worktree worker produced this identical savestate SHA-256.",
-  "rom_sha256": "0CCAAAD0878A9CBFB36FBEFFF800E9B6DD66055924B7595038EDE1E8771EC5A2",
-  "worker_sha256": "0601297E8BED7CA1319DC9BE86A547AA01B16624CE0DE5431093E6B59D7E5122",
+  "root_sha256": "9FB8096553028B770A9959DF29C559BD244A9B18269176D063F145DDF4B3EAAA",
+  "root_frame": 13236,
+  "root_note": "Two fresh cold-boot runs on the pinned .gba + worker 1529 (wire 3) produced this identical savestate SHA-256; the root sits at the H3 choice boundary (boundary_report kind 1).",
+  "rom_sha256": "<<rom_identity.ROM_SHA256>>",
+  "worker_sha256": "<<rom_identity.WORKER_SHA256>>",
   "purpose": "Cold-boot the pinned release ROM with set_keys, walk the release intro and Littleroot, and stop at the first battle (gBattleTypeFlags != 0). Every hop after CB2_Overworld is condition-driven; each milestone hop writes a hashed savestate outside Git.",
-  "key_bits": {"A": 1, "B": 2, "SELECT": 4, "START": 8, "RIGHT": 16, "LEFT": 32, "UP": 64, "DOWN": 128},
+  "key_bits": {
+    "A": 1,
+    "B": 2,
+    "SELECT": 4,
+    "START": 8,
+    "RIGHT": 16,
+    "LEFT": 32,
+    "UP": 64,
+    "DOWN": 128
+  },
   "detect": {
     "gBattleTypeFlags": "0x020002C0",
     "gBattleCommunication": "0x02000698",
     "rule": "battle entered when gBattleTypeFlags != 0"
   },
   "root_settle": {
-    "symbol": "gBattleMons",
-    "offset": 0,
-    "width": 2,
-    "nonzero": true,
-    "frames": 1200,
-    "note": "after gBattleTypeFlags turns nonzero, wait (bounded) for the first battler to load; the battle then sits stable waiting for the player's first action"
+    "keys": 1,
+    "tap": 8,
+    "gap": 8,
+    "until": {
+      "kind": "boundary",
+      "value": 1
+    },
+    "frames": 2400,
+    "note": "after gBattleTypeFlags turns nonzero the battle is still in DoBattleIntro (main=DoBattleIntro, controller=Controller_WaitForString); mash A until the H3 choice boundary (main=HandleTurnActionSelectionState, ctrl0=HandleInputChooseAction) and stop there WITHOUT pressing A again, because the next A opens the move menu"
   },
   "map_pins": {
     "LittlerootTown": "0/9",
@@ -39,123 +51,565 @@
     "FLAG_HIDE_LITTLEROOT_TOWN_BIRCHS_LAB_BIRCH": "0x2D1"
   },
   "steps": [
-    {"name": "boot-to-title", "keys": 0, "frames": 700,
-     "note": "cold boot through the intro movie"},
-    {"name": "skip-intro", "keys": 8, "frames": 8, "note": "START skips the intro to title init"},
-    {"name": "title-settle", "keys": 0, "frames": 400,
-     "until": {"kind": "callback", "any": ["0x0821b9c0", "0x0821b6c4"]}},
-    {"name": "title-to-overworld", "keys": 1, "tap": 8, "gap": 20, "frames": 6000,
-     "until": {"kind": "callback", "any": ["0x08188e14", "0x08188edc"]},
-     "milestone": "truck-overworld",
-     "note": "mash A: title -> main menu -> NEW GAME -> Birch speech -> naming -> gender -> CB2_NewGame"},
-    {"name": "truck-walk-right", "keys": 16, "frames": 3000,
-     "until": {"kind": "pos", "x": 3},
-     "note": "truck controls unlock ~850 frames after CB2_Overworld, then RIGHT reaches the intro trigger"},
-    {"name": "truck-default-settings", "keys": 1, "tap": 8, "gap": 20, "frames": 900,
-     "milestone": "truck-trigger",
-     "note": "the trigger script's dialog is A-driven; no flag/var changes, so this hop is frame-bounded"},
-    {"name": "truck-exit-warp", "keys": 16, "frames": 1200,
-     "until": {"kind": "map", "group": 0, "num": 9},
-     "milestone": "littleroot",
-     "note": "RIGHT off the truck into Littleroot Town"},
-    {"name": "intro-move-in", "keys": 1, "tap": 8, "gap": 20, "frames": 3600,
-     "until": {"kind": "var", "id": "0x4092", "value": 4},
-     "milestone": "house-1f",
-     "note": "LittlerootTown OnFrame auto-walks the player and Mom into the house; A clears the dialogs"},
-    {"name": "stairs-to-2f", "keys": 64, "frames": 2000,
-     "until": {"kind": "map", "group": 1, "num": 1}},
-    {"name": "to-wall-clock", "keys": 32, "frames": 2000, "until": {"kind": "pos", "x": 5}},
-    {"name": "face-clock", "keys": 64, "frames": 40,
-     "note": "turn north against the wall so the wall-clock sign is in front; no observable state changes"},
-    {"name": "clock-open-ui", "keys": 1, "tap": 8, "gap": 20, "frames": 1200,
-     "until": {"kind": "callback", "value": "0x08243448"},
-     "note": "dismiss the 'clock is stopped' box and open the wall-clock UI"},
-    {"name": "clock-set", "keys": [64, 1], "frames": 4000,
-     "until": {"kind": "var", "id": "0x4092", "value": 6},
-     "milestone": "clock-set",
-     "note": "UP then A on separate frames: the yes/no menu starts on NO, so UP must move to YES first"},
-    {"name": "clock-mom-text", "keys": 1, "tap": 8, "gap": 20, "frames": 600},
-    {"name": "back-to-stairs", "keys": 16, "frames": 1200, "until": {"kind": "pos", "x": 7}},
-    {"name": "down-to-1f", "keys": 64, "frames": 2000,
-     "until": {"kind": "map", "group": 1, "num": 0}},
-    {"name": "tv-scene", "keys": 1, "tap": 8, "gap": 20, "frames": 2400,
-     "until": {"kind": "var", "id": "0x4092", "value": 7},
-     "milestone": "tv-done",
-     "note": "1F OnFrame auto-runs the Petalburg Gym TV report"},
-    {"name": "walk-to-door", "keys": 16, "frames": 1200, "until": {"kind": "pos", "x": 8}},
-    {"name": "leave-house", "keys": 128, "frames": 1200,
-     "until": {"kind": "map", "group": 0, "num": 9},
-     "milestone": "littleroot-after-tv"},
-    {"name": "step-off-door", "keys": 128, "frames": 200, "until": {"kind": "pos", "y": 9}},
-    {"name": "to-rival-house", "keys": 16, "frames": 3000, "until": {"kind": "pos", "x": 14}},
-    {"name": "enter-rival-house", "keys": 64, "frames": 1200,
-     "until": {"kind": "map", "group": 1, "num": 2},
-     "milestone": "rival-house-1f"},
-    {"name": "rival-house-1f-neighbor", "keys": [1, 64], "frames": 4000,
-     "until": {"kind": "map", "group": 1, "num": 3},
-     "milestone": "rival-house-2f",
-     "note": "the 1F 'new neighbor' event locks controls and is A-driven; alternate A and UP"},
-    {"name": "rival-2f-to-ball-x", "keys": [1, 16], "frames": 3000,
-     "until": {"kind": "pos", "x": 5}},
-    {"name": "rival-2f-to-ball-y", "keys": [1, 128], "frames": 3000,
-     "until": {"kind": "pos", "y": 3}},
-    {"name": "meet-rival", "keys": [1, 128], "frames": 4000,
-     "until": {"kind": "flag", "id": "0x2D1", "set": false},
-     "milestone": "birch-unhidden",
-     "note": "face DOWN at the rival's Poke Ball and mash A; clears FLAG_HIDE_LITTLEROOT_TOWN_BIRCHS_LAB_BIRCH"},
-    {"name": "rival-2f-back-up", "keys": [1, 64], "frames": 3000,
-     "until": {"kind": "pos", "y": 2}},
-    {"name": "leave-rival-house-2f", "keys": [1, 32], "frames": 3000,
-     "until": {"kind": "pos", "x": 1}},
-    {"name": "rival-2f-to-1f", "keys": 64, "frames": 2000,
-     "until": {"kind": "map", "group": 1, "num": 2}},
-    {"name": "exit-rival-house", "keys": 128, "frames": 2500,
-     "until": {"kind": "map", "group": 0, "num": 9},
-     "milestone": "littleroot-after-rival"},
-    {"name": "step-off-door-2", "keys": 128, "frames": 300, "until": {"kind": "pos", "y": 9}},
-    {"name": "lab-approach-right", "keys": 16, "frames": 2000, "until": {"kind": "pos", "x": 16}},
-    {"name": "lab-approach-back", "keys": 32, "frames": 2000, "until": {"kind": "pos", "x": 11}},
-    {"name": "lab-approach-down", "keys": 128, "frames": 3000, "until": {"kind": "pos", "y": 17}},
-    {"name": "lab-approach-right-2", "keys": 16, "frames": 2000, "until": {"kind": "pos", "x": 16}},
-    {"name": "enter-lab", "keys": 64, "frames": 2000,
-     "until": {"kind": "map", "group": 1, "num": 5},
-     "milestone": "lab"},
-    {"name": "lab-to-birch-y", "keys": 64, "frames": 3000, "until": {"kind": "pos", "y": 5}},
-    {"name": "lab-to-birch-x", "keys": 16, "frames": 2000, "until": {"kind": "pos", "x": 8}},
-    {"name": "lab-face-birch", "keys": 64, "frames": 40,
-     "note": "turn north against Birch; no observable state changes"},
-    {"name": "lab-talk-birch", "keys": 1, "tap": 8, "gap": 20, "frames": 2000,
-     "until": {"kind": "flag", "id": "0x23", "set": true},
-     "milestone": "birch-touched",
-     "note": "A sets FLAG_TOUCHED_BALLS and opens the custom ChangeStarters menu"},
-    {"name": "lab-close-birch-menu", "keys": 2, "frames": 400,
-     "note": "B dismisses the dynmultistack menu; it holds sLockFieldControls=1 until closed"},
-    {"name": "lab-settle", "keys": [2, 1], "frames": 800,
-     "note": "B/A dismiss the post-menu text; A must not linger facing Birch or his menu reopens"},
-    {"name": "lab-to-ball-x", "keys": [2, 32], "frames": 2500, "until": {"kind": "pos", "x": 6}},
-    {"name": "lab-to-ball-y", "keys": [2, 64], "frames": 2000, "until": {"kind": "pos", "y": 4}},
-    {"name": "lab-face-ball", "keys": 64, "frames": 40,
-     "note": "turn north onto the Poke Ball on the table; no observable state changes"},
-    {"name": "lab-take-starter", "keys": 1, "tap": 8, "gap": 20, "frames": 2000,
-     "until": {"kind": "party_count", "value": 1},
-     "milestone": "starter-obtained",
-     "note": "A answers YES to the starter prompt and fills the party"},
-    {"name": "lab-decline-nickname", "keys": 2, "frames": 400,
-     "note": "B declines the nickname prompt"},
-    {"name": "lab-exit", "keys": [2, 128], "frames": 4000,
-     "until": {"kind": "map", "group": 0, "num": 9},
-     "note": "B clears the post-starter text while DOWN walks to the lab door"},
-    {"name": "to-route101-x", "keys": 32, "frames": 3000, "until": {"kind": "pos", "x": 11}},
-    {"name": "to-route101-up", "keys": 64, "frames": 3000,
-     "until": {"kind": "map", "group": 0, "num": 16},
-     "milestone": "route101",
-     "note": "VAR_LITTLEROOT_TOWN_STATE is now 2, so the NeedPokemonTrigger no longer fires"},
-    {"name": "r101-to-grass-y", "keys": 64, "frames": 2000, "until": {"kind": "pos", "y": 16}},
-    {"name": "r101-to-grass-x", "keys": 32, "frames": 2000, "until": {"kind": "pos", "x": 5}},
-    {"repeat": 8, "steps": [
-      {"name": "grass-up", "keys": 64, "frames": 600, "until": {"kind": "pos", "y": 14}},
-      {"name": "grass-down", "keys": 128, "frames": 600, "until": {"kind": "pos", "y": 17}}
-    ],
-     "note": "walk back and forth in the tall-grass patch; run_route stops early when gBattleTypeFlags != 0"}
+    {
+      "name": "boot-to-title",
+      "keys": 0,
+      "frames": 700,
+      "note": "cold boot through the intro movie"
+    },
+    {
+      "name": "skip-intro",
+      "keys": 8,
+      "frames": 8,
+      "note": "START skips the intro to title init"
+    },
+    {
+      "name": "title-settle",
+      "keys": 0,
+      "frames": 400,
+      "until": {
+        "kind": "callback",
+        "any": [
+          "0x0821b9c0",
+          "0x0821b6c4"
+        ]
+      }
+    },
+    {
+      "name": "title-to-overworld",
+      "keys": 1,
+      "tap": 8,
+      "gap": 20,
+      "frames": 6000,
+      "until": {
+        "kind": "callback",
+        "any": [
+          "0x08188e14",
+          "0x08188edc"
+        ]
+      },
+      "milestone": "truck-overworld",
+      "note": "mash A: title -> main menu -> NEW GAME -> Birch speech -> naming -> gender -> CB2_NewGame"
+    },
+    {
+      "name": "truck-walk-right",
+      "keys": 16,
+      "frames": 3000,
+      "until": {
+        "kind": "pos",
+        "x": 3
+      },
+      "note": "truck controls unlock ~850 frames after CB2_Overworld, then RIGHT reaches the intro trigger"
+    },
+    {
+      "name": "truck-default-settings",
+      "keys": 1,
+      "tap": 8,
+      "gap": 20,
+      "frames": 900,
+      "milestone": "truck-trigger",
+      "note": "the trigger script's dialog is A-driven; no flag/var changes, so this hop is frame-bounded"
+    },
+    {
+      "name": "truck-exit-warp",
+      "keys": 16,
+      "frames": 1200,
+      "until": {
+        "kind": "map",
+        "group": 0,
+        "num": 9
+      },
+      "milestone": "littleroot",
+      "note": "RIGHT off the truck into Littleroot Town"
+    },
+    {
+      "name": "intro-move-in",
+      "keys": 1,
+      "tap": 8,
+      "gap": 20,
+      "frames": 3600,
+      "until": {
+        "kind": "var",
+        "id": "0x4092",
+        "value": 4
+      },
+      "milestone": "house-1f",
+      "note": "LittlerootTown OnFrame auto-walks the player and Mom into the house; A clears the dialogs"
+    },
+    {
+      "name": "stairs-to-2f",
+      "keys": 64,
+      "frames": 2000,
+      "until": {
+        "kind": "map",
+        "group": 1,
+        "num": 1
+      }
+    },
+    {
+      "name": "to-wall-clock",
+      "keys": 32,
+      "frames": 2000,
+      "until": {
+        "kind": "pos",
+        "x": 5
+      }
+    },
+    {
+      "name": "face-clock",
+      "keys": 64,
+      "frames": 40,
+      "note": "turn north against the wall so the wall-clock sign is in front; no observable state changes"
+    },
+    {
+      "name": "clock-open-ui",
+      "keys": 1,
+      "tap": 8,
+      "gap": 20,
+      "frames": 1200,
+      "until": {
+        "kind": "callback",
+        "value": "0x08243448"
+      },
+      "note": "dismiss the 'clock is stopped' box and open the wall-clock UI"
+    },
+    {
+      "name": "clock-set",
+      "keys": [
+        64,
+        1
+      ],
+      "frames": 4000,
+      "until": {
+        "kind": "var",
+        "id": "0x4092",
+        "value": 6
+      },
+      "milestone": "clock-set",
+      "note": "UP then A on separate frames: the yes/no menu starts on NO, so UP must move to YES first"
+    },
+    {
+      "name": "clock-mom-text",
+      "keys": 1,
+      "tap": 8,
+      "gap": 20,
+      "frames": 600
+    },
+    {
+      "name": "back-to-stairs",
+      "keys": 16,
+      "frames": 1200,
+      "until": {
+        "kind": "pos",
+        "x": 7
+      }
+    },
+    {
+      "name": "down-to-1f",
+      "keys": 64,
+      "frames": 2000,
+      "until": {
+        "kind": "map",
+        "group": 1,
+        "num": 0
+      }
+    },
+    {
+      "name": "tv-scene",
+      "keys": 1,
+      "tap": 8,
+      "gap": 20,
+      "frames": 2400,
+      "until": {
+        "kind": "var",
+        "id": "0x4092",
+        "value": 7
+      },
+      "milestone": "tv-done",
+      "note": "1F OnFrame auto-runs the Petalburg Gym TV report"
+    },
+    {
+      "name": "walk-to-door",
+      "keys": 16,
+      "frames": 1200,
+      "until": {
+        "kind": "pos",
+        "x": 8
+      }
+    },
+    {
+      "name": "leave-house",
+      "keys": 128,
+      "frames": 1200,
+      "until": {
+        "kind": "map",
+        "group": 0,
+        "num": 9
+      },
+      "milestone": "littleroot-after-tv"
+    },
+    {
+      "name": "step-off-door",
+      "keys": 128,
+      "frames": 200,
+      "until": {
+        "kind": "pos",
+        "y": 9
+      }
+    },
+    {
+      "name": "to-rival-house",
+      "keys": 16,
+      "frames": 3000,
+      "until": {
+        "kind": "pos",
+        "x": 14
+      }
+    },
+    {
+      "name": "enter-rival-house",
+      "keys": 64,
+      "frames": 1200,
+      "until": {
+        "kind": "map",
+        "group": 1,
+        "num": 2
+      },
+      "milestone": "rival-house-1f"
+    },
+    {
+      "name": "rival-house-1f-neighbor",
+      "keys": [
+        1,
+        64
+      ],
+      "frames": 4000,
+      "until": {
+        "kind": "map",
+        "group": 1,
+        "num": 3
+      },
+      "milestone": "rival-house-2f",
+      "note": "the 1F 'new neighbor' event locks controls and is A-driven; alternate A and UP"
+    },
+    {
+      "name": "rival-2f-to-ball-x",
+      "keys": [
+        1,
+        16
+      ],
+      "frames": 3000,
+      "until": {
+        "kind": "pos",
+        "x": 5
+      }
+    },
+    {
+      "name": "rival-2f-to-ball-y",
+      "keys": [
+        1,
+        128
+      ],
+      "frames": 3000,
+      "until": {
+        "kind": "pos",
+        "y": 3
+      }
+    },
+    {
+      "name": "meet-rival",
+      "keys": [
+        1,
+        128
+      ],
+      "frames": 4000,
+      "until": {
+        "kind": "flag",
+        "id": "0x2D1",
+        "set": false
+      },
+      "milestone": "birch-unhidden",
+      "note": "face DOWN at the rival's Poke Ball and mash A; clears FLAG_HIDE_LITTLEROOT_TOWN_BIRCHS_LAB_BIRCH"
+    },
+    {
+      "name": "rival-2f-back-up",
+      "keys": [
+        1,
+        64
+      ],
+      "frames": 3000,
+      "until": {
+        "kind": "pos",
+        "y": 2
+      }
+    },
+    {
+      "name": "leave-rival-house-2f",
+      "keys": [
+        1,
+        32
+      ],
+      "frames": 3000,
+      "until": {
+        "kind": "pos",
+        "x": 1
+      }
+    },
+    {
+      "name": "rival-2f-to-1f",
+      "keys": 64,
+      "frames": 2000,
+      "until": {
+        "kind": "map",
+        "group": 1,
+        "num": 2
+      }
+    },
+    {
+      "name": "exit-rival-house",
+      "keys": 128,
+      "frames": 2500,
+      "until": {
+        "kind": "map",
+        "group": 0,
+        "num": 9
+      },
+      "milestone": "littleroot-after-rival"
+    },
+    {
+      "name": "step-off-door-2",
+      "keys": 128,
+      "frames": 300,
+      "until": {
+        "kind": "pos",
+        "y": 9
+      }
+    },
+    {
+      "name": "lab-approach-right",
+      "keys": 16,
+      "frames": 2000,
+      "until": {
+        "kind": "pos",
+        "x": 16
+      }
+    },
+    {
+      "name": "lab-approach-back",
+      "keys": 32,
+      "frames": 2000,
+      "until": {
+        "kind": "pos",
+        "x": 11
+      }
+    },
+    {
+      "name": "lab-approach-down",
+      "keys": 128,
+      "frames": 3000,
+      "until": {
+        "kind": "pos",
+        "y": 17
+      }
+    },
+    {
+      "name": "lab-approach-right-2",
+      "keys": 16,
+      "frames": 2000,
+      "until": {
+        "kind": "pos",
+        "x": 16
+      }
+    },
+    {
+      "name": "enter-lab",
+      "keys": 64,
+      "frames": 2000,
+      "until": {
+        "kind": "map",
+        "group": 1,
+        "num": 5
+      },
+      "milestone": "lab"
+    },
+    {
+      "name": "lab-to-birch-y",
+      "keys": 64,
+      "frames": 3000,
+      "until": {
+        "kind": "pos",
+        "y": 5
+      }
+    },
+    {
+      "name": "lab-to-birch-x",
+      "keys": 16,
+      "frames": 2000,
+      "until": {
+        "kind": "pos",
+        "x": 8
+      }
+    },
+    {
+      "name": "lab-face-birch",
+      "keys": 64,
+      "frames": 40,
+      "note": "turn north against Birch; no observable state changes"
+    },
+    {
+      "name": "lab-talk-birch",
+      "keys": 1,
+      "tap": 8,
+      "gap": 20,
+      "frames": 2000,
+      "until": {
+        "kind": "flag",
+        "id": "0x23",
+        "set": true
+      },
+      "milestone": "birch-touched",
+      "note": "A sets FLAG_TOUCHED_BALLS and opens the custom ChangeStarters menu"
+    },
+    {
+      "name": "lab-close-birch-menu",
+      "keys": 2,
+      "frames": 400,
+      "note": "B dismisses the dynmultistack menu; it holds sLockFieldControls=1 until closed"
+    },
+    {
+      "name": "lab-settle",
+      "keys": [
+        2,
+        1
+      ],
+      "frames": 800,
+      "note": "B/A dismiss the post-menu text; A must not linger facing Birch or his menu reopens"
+    },
+    {
+      "name": "lab-to-ball-x",
+      "keys": [
+        2,
+        32
+      ],
+      "frames": 2500,
+      "until": {
+        "kind": "pos",
+        "x": 6
+      }
+    },
+    {
+      "name": "lab-to-ball-y",
+      "keys": [
+        2,
+        64
+      ],
+      "frames": 2000,
+      "until": {
+        "kind": "pos",
+        "y": 4
+      }
+    },
+    {
+      "name": "lab-face-ball",
+      "keys": 64,
+      "frames": 40,
+      "note": "turn north onto the Poke Ball on the table; no observable state changes"
+    },
+    {
+      "name": "lab-take-starter",
+      "keys": 1,
+      "tap": 8,
+      "gap": 20,
+      "frames": 2000,
+      "until": {
+        "kind": "party_count",
+        "value": 1
+      },
+      "milestone": "starter-obtained",
+      "note": "A answers YES to the starter prompt and fills the party"
+    },
+    {
+      "name": "lab-decline-nickname",
+      "keys": 2,
+      "frames": 400,
+      "note": "B declines the nickname prompt"
+    },
+    {
+      "name": "lab-exit",
+      "keys": [
+        2,
+        128
+      ],
+      "frames": 4000,
+      "until": {
+        "kind": "map",
+        "group": 0,
+        "num": 9
+      },
+      "note": "B clears the post-starter text while DOWN walks to the lab door"
+    },
+    {
+      "name": "to-route101-x",
+      "keys": 32,
+      "frames": 3000,
+      "until": {
+        "kind": "pos",
+        "x": 11
+      }
+    },
+    {
+      "name": "to-route101-up",
+      "keys": 64,
+      "frames": 3000,
+      "until": {
+        "kind": "map",
+        "group": 0,
+        "num": 16
+      },
+      "milestone": "route101",
+      "note": "VAR_LITTLEROOT_TOWN_STATE is now 2, so the NeedPokemonTrigger no longer fires"
+    },
+    {
+      "name": "r101-to-grass-y",
+      "keys": 64,
+      "frames": 2000,
+      "until": {
+        "kind": "pos",
+        "y": 16
+      }
+    },
+    {
+      "name": "r101-to-grass-x",
+      "keys": 32,
+      "frames": 2000,
+      "until": {
+        "kind": "pos",
+        "x": 5
+      }
+    },
+    {
+      "repeat": 8,
+      "steps": [
+        {
+          "name": "grass-up",
+          "keys": 64,
+          "frames": 600,
+          "until": {
+            "kind": "pos",
+            "y": 14
+          }
+        },
+        {
+          "name": "grass-down",
+          "keys": 128,
+          "frames": 600,
+          "until": {
+            "kind": "pos",
+            "y": 17
+          }
+        }
+      ],
+      "note": "walk back and forth in the tall-grass patch; run_route stops early when gBattleTypeFlags != 0"
+    }
   ]
 }
