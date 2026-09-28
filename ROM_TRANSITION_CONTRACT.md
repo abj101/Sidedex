@@ -401,10 +401,17 @@ The v8 request's first 864 bytes keep their offsets. v9 appends little-endian
 `resultVersion:u16=1` at 872, and `flags:u16` at 874 (bit 0 requests compact
 result; remaining bits zero); total **876 bytes**. The ROM validates the
 address/capacity as an EWRAM range disjoint from the request and its own active
-battle state. Its compile-time reserved result array is authoritative; the
-worker supplies that exact address/capacity obtained from a versioned ready
-announcement, not an arbitrary caller address. A v8 request uses the old trace
-path only.
+battle state. The test runner reserves 8192 bytes from the existing EWRAM
+`gHeap` immediately after `InitHeap` and retains the allocation through all
+held transitions; allocation failure fails closed. It announces the actual
+pointer/capacity in `ROMTRACE|ready|<request_addr>|876|9|3|<result_addr>|8192`.
+The worker supplies exactly that address/capacity, and the ROM checks the echo;
+neither side accepts an arbitrary caller address. The pinned source linker map
+puts `gHeap` at `0x0201A6E8` and the mailbox at `0x0203FC3C`; the runtime
+pointer, not this predicted address, is authoritative. This heap reservation
+replaces the proposed static result array because adding 8192 bytes to
+`.ewram.sbss` overflows the test ELF by 8104 bytes. A v8 request uses the old
+trace path only.
 
 Result bytes are little-endian. Header (64 bytes): magic `SDR2` (4), format
 version `u16=1`, header bytes `u16=64`, total bytes `u32`, CRC32 of bytes
