@@ -27,14 +27,27 @@ def _blob(payload=b"\x00" * 64):
 def test_input_script_is_well_formed_and_honest():
     script = r.load_input_script()
     assert script["rom_sha256"].upper() == r.PINNED_ROM_SHA256
-    assert script["status"] == "incomplete", "the capture script must not claim success"
-    assert script["blocker"] == "root-capture-unavailable"
-    assert script["steps"], "the script needs at least one step"
-    flat = []
-    for step in script["steps"]:
-        flat.extend(step["steps"] * step["repeat"] if "repeat" in step else [step])
-    assert all({"frames", "keys"} <= set(s) for s in flat)
-    assert all(s["frames"] > 0 for s in flat)
+    assert script["worker_sha256"].upper() == r.PINNED_WORKER_SHA256
+    assert script["status"] in ("captured", "incomplete")
+    if script["status"] == "captured":
+        assert len(script["root_sha256"]) == 64
+        assert script["root_frame"] > 0
+    else:
+        assert script.get("blocker"), "an incomplete script must name its blocker"
+    flat = r._flatten_steps(script["steps"])
+    assert flat, "the script needs at least one step"
+    for step in flat:
+        assert step["frames"] > 0
+        spec = step["keys"]
+        if isinstance(spec, list):
+            assert spec and all(isinstance(k, int) for k in spec)
+        else:
+            assert isinstance(spec, int)
+    # Every hop after the fixed intro movie must be condition-driven.
+    driven = [s for s in flat if s.get("until")]
+    assert len(driven) >= 10, len(driven)
+    assert flat[-1]["name"] == "grass-down"
+    assert script["root_settle"]["symbol"] == "gBattleMons"
     assert int(script["detect"]["gBattleTypeFlags"], 16) == r.RELEASE_MAP["gBattleTypeFlags"]
 
 
@@ -42,8 +55,9 @@ def test_scenarios_are_pinned_and_narrow():
     data = r.load_scenarios()
     assert data["release_rom_sha256"].upper() == r.PINNED_ROM_SHA256
     assert data["elf_sha256"] == r.PINNED_ELF_SHA256
-    assert data["status"]["h2"] == "blocked"
-    assert data["status"]["root_sha256"] is None
+    assert data["status"]["root_capture"] == "captured"
+    assert len(data["status"]["root_sha256"]) == 64
+    assert data["status"]["h2"] == "blocked"  # the R-P* scenario matrix is not enumerated yet
     assert len(data["scenarios"]) >= 10
     assert "query mode" in data["not_claimed"]
     for scenario in data["scenarios"]:
@@ -155,20 +169,108 @@ def test_run_input_script_returns_on_battle_entry():
 
 
 def test_run_input_script_fails_closed_with_the_last_state():
-    script = r.load_input_script()
+    # Keep this check independent of the real route: a tiny fixed script proves the
+    # wrapper reports the last machine state when no battle ever appears.
+    minimal = {"name": "minimal", "steps": [{"keys": 0, "frames": 4},
+                                             {"keys": 8, "frames": 4}],
+               "detect": {"gBattleTypeFlags": "0x020002C0"}}
     with pytest.raises(r.ReleaseRootUnavailable) as excinfo:
-        r.run_input_script(FakeClient(), script, progress=lambda *a: None)
+        r.run_input_script(FakeClient(), minimal, progress=lambda *a: None)
     message = str(excinfo.value)
-    assert "0x8188e15" in message
-    assert "player_party_count" in message
-    assert "player_position" in message
-    assert "map_layout_id" in message
+    assert "callback2" in message
+    assert "party_count" in message
+    assert "player_x" in message
+    assert "map_group" in message
     assert "root-capture-unavailable" not in message  # the error names the script instead
-    assert excinfo.value.frames == sum(
-        s["frames"] * s.get("repeat", 1) for s in script["steps"]
-        if "frames" in s) + sum(
-        inner["frames"] * s["repeat"] for s in script["steps"] if "repeat" in s
-        for inner in s["steps"])
+    assert excinfo.value.frames == 8
+
+
+def test_route_step_error_reports_the_blocked_hop(tmp_path):
+    script = {"name": "t", "steps": [
+        {"name": "blocked-hop", "keys": 16, "frames": 8, "until": {"kind": "pos", "x": 999}}]}
+    with pytest.raises(r.RouteStepError) as excinfo:
+        r.run_route(FakeClient(), script, milestones_dir=tmp_path)
+    assert excinfo.value.step["name"] == "blocked-hop"
+    assert "blocked-hop" in str(excinfo.value)
+    assert "map=" in str(excinfo.value) and "pos=" in str(excinfo.value)
+
+
+def test_multi_mask_step_cycles_the_key_sequence():
+    script = {"name": "seq", "steps": [
+        {"name": "up-then-a", "keys": [64, 1], "frames": 8, "until": {"kind": "pos", "x": 999}}]}
+    client = FakeClient()
+    with pytest.raises(r.RouteStepError):
+        r.run_input_script(client, script)
+    # poll_every is 4, so masks alternate per chunk: 64 then 1.
+    assert client.key_calls[:2] == [64, 1]
+
+
+class MilestoneClient(FakeClient):
+    """Client double that keeps exported savestate blobs in memory."""
+
+    def __init__(self):
+        super().__init__()
+        self.slots = {}
+
+    def save_checkpoint(self, name):
+        raw = ("state:" + name).encode()
+        self.slots[name] = base64.b64encode(raw).decode()
+        return {"handle": name, "sha256": hashlib.sha256(raw).hexdigest(), "bytes": len(raw)}
+
+    def export_state(self, handle):
+        return {"blob": self.slots[handle]}
+
+    def import_state(self, blob, name=None):
+        self.slots[name] = blob
+        return {"handle": name}
+
+    def restore_state(self, handle):
+        return None
+
+
+def test_run_route_records_a_hashed_milestone_manifest(tmp_path):
+    script = {"name": "m", "steps": [
+        {"name": "hop", "keys": 0, "frames": 4, "until": {"kind": "pos", "x": 2},
+         "milestone": "first"}]}
+    with pytest.raises(r.ReleaseRootUnavailable):
+        r.run_route(MilestoneClient(), script, milestones_dir=tmp_path)
+    manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    blob_path = tmp_path / "first.sdxstate"
+    assert blob_path.is_file()
+    entry = manifest["milestones"]["first"]
+    assert entry["sha256"] == hashlib.sha256(blob_path.read_bytes()).hexdigest()
+    assert entry["bytes"] == blob_path.stat().st_size
+    assert manifest["rom_sha256"] == r.PINNED_ROM_SHA256
+
+
+class RamClient:
+    """Client double with a byte-addressable RAM so write/read-back is provable."""
+
+    def __init__(self):
+        self.ram = {}
+
+    def read_memory_block(self, address, length):
+        if address not in self.ram:
+            self.ram[address] = bytes(range(256))[0:1] * length
+        return self.ram[address]
+
+    def write_memory(self, address, data):
+        self.ram[address] = bytes(data)
+
+
+def test_verify_root_projection_writes_back_and_restores():
+    result = r.verify_root_projection(RamClient())
+    assert set(result) == {"gBattleMons", "gPlayerParty", "gRngValue", "gRng2Value"}
+    assert all(v["write_landed"] and v["restored"] for v in result.values())
+
+
+def test_verify_identity_refuses_a_wrong_artifact(tmp_path):
+    rom = tmp_path / "rom.gba"
+    rom.write_bytes(b"not the pinned rom")
+    worker = tmp_path / "rom_worker.exe"
+    worker.write_bytes(b"not the pinned worker")
+    with pytest.raises(r.IdentityMismatch):
+        r.verify_identity({}, rom, worker)
 
 
 def _projection(**over):
@@ -192,6 +294,16 @@ def test_compare_h2_equal_and_mismatch():
     diffs = r.compare_h2(_projection(), other)
     assert len(diffs) == 2 and any("outcome" in d for d in diffs) and \
         any("rng_main" in d for d in diffs), diffs
+
+
+def test_mem_condition_reads_a_release_symbol():
+    client = FakeClient()
+    # FakeClient reports gBattleTypeFlags == 0 until a battle is scheduled.
+    assert r.eval_condition(client, {"kind": "mem", "symbol": "gBattleTypeFlags", "value": 0}, {}) is True
+    assert r.eval_condition(client, {"kind": "mem", "symbol": "gBattleTypeFlags", "nonzero": True}, {}) is False
+    battle = FakeClient(battle_at=1)
+    battle.frames = 10
+    assert r.eval_condition(battle, {"kind": "mem", "symbol": "gBattleTypeFlags", "nonzero": True}, {}) is True
 
 
 def test_identify_refuses_a_wrong_artifact(tmp_path):

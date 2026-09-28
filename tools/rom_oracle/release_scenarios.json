@@ -36,9 +36,12 @@
     {"id": "R-P28", "fixture": "P28", "release_ready": false, "note": "terminal loss"}
   ],
   "status": {
+    "root_capture": "captured",
+    "root_sha256": "55324A88C4D682A62259E7E7ACC1A1F94B86282B85E1B7DC9CFC67811DB69840",
+    "root_frame": 13056,
+    "root_reproducible_runs": 2,
     "h2": "blocked",
-    "blocker": "no-compatible-playable-release-save-or-cold-boot-battle-root",
-    "root_sha256": null,
+    "blocker": "release-ready-scenario-matrix-not-enumerated",
     "scenarios_run": [],
     "label": "compiled-engine",
     "save_probe": {

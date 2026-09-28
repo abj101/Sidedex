@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import os
 import sys
 from pathlib import Path
@@ -102,21 +103,44 @@ def test_battlemon_struct_offsets_match_the_test_elf():
         session.close()
 
 
-def test_release_cold_boot_enters_a_battle():
-    """Check cold-boot battle entry; this does not establish a choice boundary."""
+def _script_path() -> Path:
+    return Path(r.__file__).with_name("release_input_script.json")
+
+
+def test_release_cold_boot_route_captures_a_battle_root(tmp_path):
+    """Run the full condition-driven route and verify the release root (Task 3)."""
     script = r.load_input_script()
     with _client() as client:
         try:
-            frames = r.run_input_script(client, script, progress=lambda f, s: None)
-        except r.ReleaseRootUnavailable as exc:
+            out = r.run_route(client, script, milestones_dir=tmp_path, script_path=_script_path())
+        except (r.ReleaseRootUnavailable, r.RouteStepError) as exc:
             pytest.skip(f"release root capture blocked: {exc}")
-        slot = client.save_checkpoint("release-entry-candidate")
         projection = r.read_projection(client)
-        assert frames > 0
+        assert out["frames"] > 0
+        assert out["state"]["battle_type_flags"] != 0
         assert projection["mons"][0]["species"] != 0
-        # Keep the candidate blob out of Git; a battle-entry save is not an H3 root.
-        raw = base64.b64decode(client.export_state(slot["handle"])["blob"], validate=True)
-        assert hashlib.sha256(raw).hexdigest()
+        assert projection["mons"][0]["hp"] > 0
+        # Task 3: read, write back and re-read gBattleMons, party and both RNG streams.
+        roundtrip = r.verify_root_projection(client)
+        assert all(v["write_landed"] and v["restored"] for v in roundtrip.values()), roundtrip
+        manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["root"]["sha256"] == out["root_sha256"]
+
+
+def test_release_route_root_is_reproducible(tmp_path):
+    """Acceptance: two fresh cold-boot runs on the pinned .gba agree on the root SHA."""
+    script = r.load_input_script()
+    roots = []
+    for i in range(2):
+        with _client() as client:
+            out = r.run_route(client, script, milestones_dir=tmp_path / f"run{i}",
+                              script_path=_script_path())
+            roots.append(out["root_sha256"])
+            if i == 0:
+                assert out["state"]["battle_type_flags"] != 0
+    assert roots[0] == roots[1], roots
+    if script.get("root_sha256"):
+        assert roots[0].upper() == script["root_sha256"].upper()
 
 
 def test_empty_valid_save_loads_but_is_not_a_playable_release_root(tmp_path):

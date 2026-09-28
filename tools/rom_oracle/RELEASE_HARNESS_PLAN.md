@@ -112,3 +112,44 @@ revision/ROM provenance. Populating SaveBlock1/2 and party/story state by hand
 would manufacture game progress, so the fallback is rejected for H2. The
 release root hash stays unset; H2 and release H3 remain blocked, and no turn
 comparison was run.
+
+## Wave 2 C result (release root captured)
+
+The cold-boot route is no longer blocked. Every hop after `CB2_Overworld` is now
+**condition-driven** (`until` on callback / map group+num / player x,y / flag /
+var / `gBattleTypeFlags` / a release-map `mem` read), each hop is frame-bounded,
+and every milestone writes a hashed savestate outside Git under
+`C:\Users\Abj1\.codex\artifacts\C\milestones\` with its sha256 recorded in
+`manifest.json`. `run_route` stops as soon as `gBattleTypeFlags != 0`, then waits
+(bounded) for the first battler to load so the root carries live `gBattleMons`.
+
+Result on the pinned ROM (`0ccaaad0…`) and the in-worktree worker
+(`0601297e…`):
+
+- root savestate sha256 `55324a88c4d682a62259e7e7acc1a1f94b86282b85e1b7dc9cfc67811db69840`
+  at frame **13056**, on Route 101 (map 0/16), `gBattleTypeFlags=4`,
+  `gBattleMons[0]=species 4 (Charmander), hp 20, level 5` vs `species 659, hp 16, level 3`.
+- **Two fresh cold-boot runs produced the identical root SHA-256.**
+- Task 3 round-trip at the root: `gBattleMons`, `gPlayerParty`, `gRngValue` and
+  `gRng2Value` were each read, written back, re-read (write landed) and restored.
+
+Route (milestone -> frame): truck-overworld 3036, truck-trigger 4812, littleroot
+4852, house-1f 5612, clock-set 6060, tv-done 7292, littleroot-after-tv 7436,
+rival-house-1f 7744, rival-house-2f 8172, birch-unhidden 8832,
+littleroot-after-rival 9120, lab 9600, birch-touched 10228, starter-obtained
+11620, route101 12716, root 13056.
+
+Notes for the next package:
+- This Emerald Imperium build diverges from vanilla: `Route101_EventScript_StartBirchRescue`
+  and `Route101_EventScript_BirchsBag` are unreferenced dead code. The starter is
+  chosen in `NewBirchsLab`, and the north exit is gated on
+  `VAR_LITTLEROOT_TOWN_STATE != 0`, which only the lab starter sets.
+- `FLAG_HIDE_LITTLEROOT_TOWN_BIRCHS_LAB_BIRCH` is cleared by meeting the rival in
+  their bedroom; Birch's object script opens a custom dynmultistack menu that
+  holds `sLockFieldControls=1` until it is dismissed with B.
+- `include/global.h` SaveBlock1 comments are stale for this build
+  (`FREE_EXTRA_SEEN_FLAGS_SAVEBLOCK1 = TRUE`); the authoritative `flags`/`vars`
+  offsets in `release_harness.py` were read from the ELF's `FlagGet`/`VarGet`
+  disassembly and cross-checked against the truck intro's six `setflag` calls.
+- H2 over the R-P1..R-P28 scenario matrix is still `blocked` (the matrix is not
+  enumerated); the release root itself is now captured and reproducible.
