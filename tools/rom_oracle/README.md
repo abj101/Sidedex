@@ -262,8 +262,30 @@ contract 5: the runtime mode switch is present but there is no separate
 `SIDEDEX_LOGIC_ONLY` compile-time define — the whole hook only exists in the test
 build, so the test ELF is already the gate.
 
-**Presentation audit (A2-4): attempted, not achieved; the 4× pump stands.** What
-blocks the stronger version is that the remaining frame cost is not a
+**Presentation audit (A2-4): attempted, not achieved; the 4× pump stands.**
+Measured on the same scenario (branch A, Tackle from the root boundary):
+
+| mode | frames to next boundary | wall ms |
+| --- | --- | --- |
+| normal | 205 | 43.5 |
+| logic-only (4×, shipped) | 130 | 51.3 |
+| logic-only (controller-flags gate) | 180 | 59.8 |
+
+So logic-only genuinely reduces EMULATED FRAMES (~37%), which is what the
+contract's 24,000-frame cap and frame-based budgets care about, but it does
+**not** reduce wall time: the extra same-frame advances are CPU work on top of
+the fixed per-frame emulation, and the waits it collapses are frame-counted, so
+130 frames × 4 advances (520) does more total work than 205 × 1. This is a
+frame-budget optimisation, not a latency optimisation, and callers should not
+expect logic-only to be faster in wall-clock terms.
+
+The attempted gate — yield as soon as `gBattleControllerExecFlags != 0` ("a
+controller is still executing") — was tried, built and measured, and it is
+strictly worse: frames rose 130 → 180 and latency rose to 59.8 ms, while still
+not beating normal. It was reverted (the rebuilt ELF hashes identically to the
+4× version, which also demonstrates the build is deterministic).
+
+What blocks the stronger version is that the remaining frame cost is not a
 classification problem the ROM hook can solve locally:
 
 - The presentation handlers are `static` in `src/battle_controllers.c` and
@@ -273,16 +295,15 @@ classification problem the ROM hook can solve locally:
   without editing every controller (a large, behaviour-risking change).
 - The already-headless paths short-circuit the obvious cases (`gTestRunnerHeadless`
   returns early from print-string, ability pop-up and animation), so the residual
-  waits are `gBattleControllerExecFlags` / `waitstate` waits whose semantics are
-  per-command, not per-controller.
+  waits are frame-counted `waitstate`/`waitmessage` counters whose semantics are
+  per-command, not per-controller — collapsing them is exactly what the 4×
+  iteration already does.
 - `BattleMainCB2` still does real per-frame video/sprite work between
   `BattleMainCB1` calls; raising the iteration count without a proven-safe
-  classification risks skipping side effects the battle logic depends on. 4 was
-  chosen as the safe, measurable bound.
+  classification risks skipping side effects the battle logic depends on.
 
-So the honest status is: coarse pump kept, stronger per-command audit blocked on
-controller-handler attribution, with the measurement above as the baseline to
-beat.
+The honest status: coarse pump kept, stronger per-command audit blocked on
+controller-handler attribution, with the table above as the baseline to beat.
 
 ### Trainer items in a resolved turn (root-caused and fixed)
 
