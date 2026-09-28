@@ -541,7 +541,7 @@ parity-passing transitions only. Warm end-to-end card latency target: p50 <= 40 
 ### C.6 Request flags and worker stop rule (2026-09-28 amendment)
 
 v9 request `flags:u16` at offset 874: bit 0 = compact result, bits 1-2 = battle
-difficulty override (0 keep the test default, 1 easy, 2 medium, 3 hard; mapped by
+difficulty override (0 keep the test default, 1 easy, 2 normal, 3 reserved and refused: the tree defines only GAME_SETTING_DIFFICULTY_NORMAL_MODE and _EASY_MODE in include/constants/game_settings.h; mapped by
 the hook to the ROM's DIFFICULTY_* values, with the source cited in the A1/A2
 README). All other bits must be zero and the ROM rejects a request that sets
 them. Difficulty is part of the canonical request hash and of cache identity.
