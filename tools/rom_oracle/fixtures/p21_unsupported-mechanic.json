@@ -1,0 +1,8 @@
+{
+  "id": "P21",
+  "row": "P21",
+  "status": "unsupported",
+  "reason": "unsupported-mechanic",
+  "detail": "terrain cannot be set through the mailbox (clear-field validator); the exporter reports it read-only",
+  "rom_record": "ROMTRACE|phase|<turn>|state|field|<terrain>"
+}

@@ -1,0 +1,8 @@
+{
+  "id": "P30",
+  "row": "P30",
+  "status": "unsupported",
+  "reason": "unsupported-mechanic",
+  "detail": "the exporter declares the AI scoring scratch unrepresentable, so the AI's internal comparison cannot be part of the differential projection",
+  "rom_record": "ROMTRACE|unrepresentable|ai-scoring-scratch"
+}

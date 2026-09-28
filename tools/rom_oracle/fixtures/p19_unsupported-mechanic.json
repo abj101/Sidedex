@@ -1,0 +1,8 @@
+{
+  "id": "P19",
+  "row": "P19",
+  "status": "unsupported",
+  "reason": "unsupported-mechanic",
+  "detail": "a resolved-turn trainer item is blocked in v8: the turn finishes action selection then makes no progress and never emits hp/faint/boundary (tools/rom_oracle/README.md 'Trainer items in a resolved turn (blocked, documented)')",
+  "rom_record": "no ROMTRACE|hp| or ROMTRACE|boundary| record completes"
+}

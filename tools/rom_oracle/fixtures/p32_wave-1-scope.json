@@ -1,0 +1,8 @@
+{
+  "id": "P32",
+  "row": "P32",
+  "status": "unsupported",
+  "reason": "wave-1-scope",
+  "detail": "QUERY_DAMAGE multi-hit enumeration is package C's op and is compared against normal-mode outcomes, not the normal-vs-logic-only ELF pair; deferred to the phase-2/4 boundary",
+  "rom_record": null
+}

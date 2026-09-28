@@ -1,0 +1,240 @@
+{
+  "id": "P5",
+  "row": "P5",
+  "scenario": "accuracy miss (Hydro Pump 80% acc)",
+  "status": "green-target",
+  "critical_policy": "normal",
+  "root": {
+    "ai_flags": 16391,
+    "candidate_action": {
+      "kind": "move",
+      "move_id": "MOVE_TACKLE"
+    },
+    "replay_turns": [],
+    "rng_main": [
+      305419896,
+      2596069104,
+      195948557,
+      1
+    ],
+    "rng_secondary": [
+      1,
+      2,
+      3,
+      29
+    ],
+    "player_party": [
+      {
+        "species": "SPECIES_BULBASAUR",
+        "level": 50,
+        "ability": "ABILITY_OVERGROW",
+        "item": "ITEM_NONE",
+        "moves": [
+          "MOVE_TACKLE",
+          "MOVE_GROWL",
+          "MOVE_HYDRO_PUMP",
+          "MOVE_SLASH"
+        ],
+        "nature": "NATURE_HARDY",
+        "hp": 105,
+        "max_hp": 105,
+        "status1": "STATUS1_NONE",
+        "ivs": [
+          31,
+          31,
+          31,
+          31,
+          31,
+          31
+        ],
+        "evs": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "pp": [
+          35,
+          40,
+          5,
+          20
+        ]
+      },
+      {
+        "species": "SPECIES_CHARIZARD",
+        "level": 50,
+        "ability": "ABILITY_BLAZE",
+        "item": "ITEM_NONE",
+        "moves": [
+          "MOVE_TACKLE",
+          "MOVE_NONE",
+          "MOVE_NONE",
+          "MOVE_NONE"
+        ],
+        "nature": "NATURE_HARDY",
+        "hp": 138,
+        "max_hp": 138,
+        "status1": "STATUS1_NONE",
+        "ivs": [
+          31,
+          31,
+          31,
+          31,
+          31,
+          31
+        ],
+        "evs": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "pp": [
+          35,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "opponent_party": [
+      {
+        "species": "SPECIES_GYARADOS",
+        "level": 50,
+        "ability": "ABILITY_INTIMIDATE",
+        "item": "ITEM_NONE",
+        "moves": [
+          "MOVE_TACKLE",
+          "MOVE_NONE",
+          "MOVE_NONE",
+          "MOVE_NONE"
+        ],
+        "nature": "NATURE_HARDY",
+        "hp": 155,
+        "max_hp": 155,
+        "status1": "STATUS1_NONE",
+        "ivs": [
+          31,
+          31,
+          31,
+          31,
+          31,
+          31
+        ],
+        "evs": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "pp": [
+          35,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "species": "SPECIES_BLASTOISE",
+        "level": 50,
+        "ability": "ABILITY_TORRENT",
+        "item": "ITEM_NONE",
+        "moves": [
+          "MOVE_TACKLE",
+          "MOVE_NONE",
+          "MOVE_NONE",
+          "MOVE_NONE"
+        ],
+        "nature": "NATURE_HARDY",
+        "hp": 139,
+        "max_hp": 139,
+        "status1": "STATUS1_NONE",
+        "ivs": [
+          31,
+          31,
+          31,
+          31,
+          31,
+          31
+        ],
+        "evs": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "pp": [
+          35,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "field": {
+      "weather": "WEATHER_NONE",
+      "terrain": "TERRAIN_NONE",
+      "trick_room": false,
+      "player_screens": 0,
+      "enemy_screens": 0,
+      "player_hazards": 0,
+      "enemy_hazards": 0
+    }
+  },
+  "inject_rng": {
+    "main": [
+      3668339987,
+      4386,
+      13124,
+      7
+    ],
+    "secondary": [
+      3,
+      22,
+      41,
+      54
+    ]
+  },
+  "actions": [
+    {
+      "label": "hydro-pump-miss",
+      "action": {
+        "kind": "move",
+        "move_id": "MOVE_HYDRO_PUMP"
+      },
+      "expect": {
+        "stop": "boundary",
+        "target_hp_unchanged": true
+      }
+    }
+  ],
+  "evidence": {
+    "miss_seed_scan": {
+      "seeds": [
+        3,
+        7,
+        16,
+        20,
+        24,
+        33,
+        37,
+        41,
+        46,
+        50,
+        54,
+        58
+      ],
+      "of": 59,
+      "method": "no ROMTRACE|hp| record for battler 1 although the action record shows MOVE_HYDRO_PUMP chosen"
+    },
+    "control_hit_seed": 1
+  }
+}

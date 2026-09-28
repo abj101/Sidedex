@@ -1,0 +1,8 @@
+{
+  "id": "P25",
+  "row": "P25",
+  "status": "unsupported",
+  "reason": "wave-1-scope",
+  "detail": "player switch is a supported candidate kind (SIDEDEX_DYNAMIC_SWITCH) but no fixture landed in wave 1",
+  "rom_record": null
+}

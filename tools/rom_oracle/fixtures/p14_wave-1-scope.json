@@ -1,0 +1,8 @@
+{
+  "id": "P14",
+  "row": "P14",
+  "status": "unsupported",
+  "reason": "wave-1-scope",
+  "detail": "mutable ability is a mailbox field (SidedexDynamicMon.ability) but no fixture landed in wave 1",
+  "rom_record": null
+}

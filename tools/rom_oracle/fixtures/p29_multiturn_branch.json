@@ -1,0 +1,219 @@
+{
+  "id": "P29",
+  "row": "P29",
+  "scenario": "multi-turn branch (two first actions from one root)",
+  "status": "green-target",
+  "critical_policy": "normal",
+  "root": {
+    "ai_flags": 16391,
+    "candidate_action": {
+      "kind": "move",
+      "move_id": "MOVE_TACKLE"
+    },
+    "replay_turns": [],
+    "rng_main": [
+      305419896,
+      2596069104,
+      195948557,
+      1
+    ],
+    "rng_secondary": [
+      1,
+      2,
+      3,
+      29
+    ],
+    "player_party": [
+      {
+        "species": "SPECIES_BULBASAUR",
+        "level": 50,
+        "ability": "ABILITY_OVERGROW",
+        "item": "ITEM_NONE",
+        "moves": [
+          "MOVE_TACKLE",
+          "MOVE_GROWL",
+          "MOVE_HYDRO_PUMP",
+          "MOVE_SLASH"
+        ],
+        "nature": "NATURE_HARDY",
+        "hp": 105,
+        "max_hp": 105,
+        "status1": "STATUS1_NONE",
+        "ivs": [
+          31,
+          31,
+          31,
+          31,
+          31,
+          31
+        ],
+        "evs": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "pp": [
+          35,
+          40,
+          5,
+          20
+        ]
+      },
+      {
+        "species": "SPECIES_CHARIZARD",
+        "level": 50,
+        "ability": "ABILITY_BLAZE",
+        "item": "ITEM_NONE",
+        "moves": [
+          "MOVE_TACKLE",
+          "MOVE_NONE",
+          "MOVE_NONE",
+          "MOVE_NONE"
+        ],
+        "nature": "NATURE_HARDY",
+        "hp": 138,
+        "max_hp": 138,
+        "status1": "STATUS1_NONE",
+        "ivs": [
+          31,
+          31,
+          31,
+          31,
+          31,
+          31
+        ],
+        "evs": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "pp": [
+          35,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "opponent_party": [
+      {
+        "species": "SPECIES_GYARADOS",
+        "level": 50,
+        "ability": "ABILITY_INTIMIDATE",
+        "item": "ITEM_NONE",
+        "moves": [
+          "MOVE_TACKLE",
+          "MOVE_NONE",
+          "MOVE_NONE",
+          "MOVE_NONE"
+        ],
+        "nature": "NATURE_HARDY",
+        "hp": 155,
+        "max_hp": 155,
+        "status1": "STATUS1_NONE",
+        "ivs": [
+          31,
+          31,
+          31,
+          31,
+          31,
+          31
+        ],
+        "evs": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "pp": [
+          35,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "species": "SPECIES_BLASTOISE",
+        "level": 50,
+        "ability": "ABILITY_TORRENT",
+        "item": "ITEM_NONE",
+        "moves": [
+          "MOVE_TACKLE",
+          "MOVE_NONE",
+          "MOVE_NONE",
+          "MOVE_NONE"
+        ],
+        "nature": "NATURE_HARDY",
+        "hp": 139,
+        "max_hp": 139,
+        "status1": "STATUS1_NONE",
+        "ivs": [
+          31,
+          31,
+          31,
+          31,
+          31,
+          31
+        ],
+        "evs": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "pp": [
+          35,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "field": {
+      "weather": "WEATHER_NONE",
+      "terrain": "TERRAIN_NONE",
+      "trick_room": false,
+      "player_screens": 0,
+      "enemy_screens": 0,
+      "player_hazards": 0,
+      "enemy_hazards": 0
+    }
+  },
+  "actions": [
+    {
+      "label": "branch-tackle",
+      "action": {
+        "kind": "move",
+        "move_id": "MOVE_TACKLE"
+      },
+      "expect": {
+        "stop": "boundary",
+        "boundary_kind": "player-choice"
+      }
+    },
+    {
+      "label": "branch-growl",
+      "action": {
+        "kind": "move",
+        "move_id": "MOVE_GROWL"
+      },
+      "expect": {
+        "stop": "boundary",
+        "boundary_kind": "player-choice"
+      }
+    }
+  ],
+  "evidence": {
+    "mechanics": "node re-use + restore determinism; the two branches must differ from one root and each must be reproducible"
+  }
+}

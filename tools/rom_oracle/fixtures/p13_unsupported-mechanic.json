@@ -1,0 +1,8 @@
+{
+  "id": "P13",
+  "row": "P13",
+  "status": "unsupported",
+  "reason": "unsupported-mechanic",
+  "detail": "no mailbox input for disable/protect structs; SidedexDynamicMon has no such field and the exporter reports them read-only",
+  "rom_record": "ROMTRACE|phase|<turn>|state|active"
+}

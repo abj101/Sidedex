@@ -1,0 +1,8 @@
+{
+  "id": "P12",
+  "row": "P12",
+  "status": "unsupported",
+  "reason": "unsupported-mechanic",
+  "detail": "no mailbox input for volatile status2 (confusion); SidedexDynamicMon (contract Appendix A) has no volatile field, and the exporter reports status2 read-only",
+  "rom_record": "ROMTRACE|phase|<turn>|state|active|<status2>"
+}

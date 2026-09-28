@@ -1,0 +1,8 @@
+{
+  "id": "P26",
+  "row": "P26",
+  "status": "unsupported",
+  "reason": "wave-1-scope",
+  "detail": "the forced-switch-player boundary exists (ROMTRACE|boundary|forced-switch-player) but no fixture landed in wave 1",
+  "rom_record": null
+}

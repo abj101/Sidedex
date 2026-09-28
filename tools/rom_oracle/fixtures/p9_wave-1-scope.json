@@ -1,0 +1,8 @@
+{
+  "id": "P9",
+  "row": "P9",
+  "status": "unsupported",
+  "reason": "wave-1-scope",
+  "detail": "speed tie is representable (equal speed / mailbox statStages) but no fixture landed in wave 1",
+  "rom_record": null
+}

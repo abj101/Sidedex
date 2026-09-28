@@ -1,0 +1,294 @@
+{
+  "id": "P31",
+  "row": "P31",
+  "scenario": "first-turn KO regression (TRAINER_MATT_SEAFLOOR_CAVERN)",
+  "status": "green-target",
+  "critical_policy": "normal",
+  "root": {
+    "ai_flags": [
+      "AI_FLAG_CHECK_BAD_MOVE",
+      "AI_FLAG_TRY_TO_FAINT",
+      "AI_FLAG_CHECK_VIABILITY",
+      "AI_FLAG_SMART_SWITCHING",
+      "AI_FLAG_OMNISCIENT",
+      "AI_FLAG_SMART_MON_CHOICES"
+    ],
+    "candidate_action": {
+      "kind": "move",
+      "move_id": "MOVE_THUNDER_SHOCK"
+    },
+    "replay_turns": [],
+    "rng_main": [
+      305419896,
+      2596069104,
+      195948557,
+      1
+    ],
+    "rng_secondary": [
+      1,
+      2,
+      3,
+      29
+    ],
+    "player_party": [
+      {
+        "species": "SPECIES_PIKACHU",
+        "level": 100,
+        "ability": "ABILITY_NONE",
+        "item": "ITEM_NONE",
+        "nature": "NATURE_HARDY",
+        "hp": 60,
+        "max_hp": 60,
+        "status1": "STATUS1_NONE",
+        "moves": [
+          "MOVE_THUNDER_SHOCK",
+          "MOVE_QUICK_ATTACK",
+          "MOVE_GROWL",
+          "MOVE_NONE"
+        ],
+        "pp": [
+          30,
+          30,
+          40,
+          0
+        ],
+        "ivs": [
+          31,
+          31,
+          31,
+          31,
+          31,
+          31
+        ],
+        "evs": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "species": "SPECIES_PIKACHU",
+        "level": 100,
+        "ability": "ABILITY_NONE",
+        "item": "ITEM_NONE",
+        "nature": "NATURE_HARDY",
+        "hp": 60,
+        "max_hp": 60,
+        "status1": "STATUS1_NONE",
+        "moves": [
+          "MOVE_THUNDER_SHOCK",
+          "MOVE_QUICK_ATTACK",
+          "MOVE_GROWL",
+          "MOVE_NONE"
+        ],
+        "pp": [
+          30,
+          30,
+          40,
+          0
+        ],
+        "ivs": [
+          31,
+          31,
+          31,
+          31,
+          31,
+          31
+        ],
+        "evs": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "opponent_party": [
+      {
+        "species": "SPECIES_FROSLASS",
+        "level": 80,
+        "ability": "ABILITY_STAKEOUT",
+        "item": "ITEM_WIDE_LENS",
+        "nature": "NATURE_JOLLY",
+        "hp": 227,
+        "max_hp": 227,
+        "status1": "STATUS1_NONE",
+        "moves": [
+          "MOVE_TRIPLE_AXEL",
+          "MOVE_POLTERGEIST",
+          "MOVE_WAKE_UP_SLAP",
+          "MOVE_ICE_SHARD"
+        ],
+        "pp": [
+          10,
+          5,
+          10,
+          30
+        ],
+        "ivs": [
+          31,
+          31,
+          31,
+          31,
+          31,
+          31
+        ],
+        "evs": [
+          6,
+          252,
+          0,
+          0,
+          0,
+          252
+        ]
+      },
+      {
+        "species": "SPECIES_GRENINJA",
+        "level": 80,
+        "ability": "ABILITY_BATTLE_BOND",
+        "item": "ITEM_EXPERT_BELT",
+        "nature": "NATURE_TIMID",
+        "hp": 230,
+        "max_hp": 230,
+        "status1": "STATUS1_NONE",
+        "moves": [
+          "MOVE_DARK_PULSE",
+          "MOVE_SURF",
+          "MOVE_ICE_BEAM",
+          "MOVE_GRASS_KNOT"
+        ],
+        "pp": [
+          15,
+          15,
+          10,
+          20
+        ],
+        "ivs": [
+          31,
+          31,
+          31,
+          31,
+          31,
+          31
+        ],
+        "evs": [
+          6,
+          0,
+          0,
+          252,
+          0,
+          252
+        ]
+      },
+      {
+        "species": "SPECIES_DRAGONITE",
+        "level": 80,
+        "ability": "ABILITY_MULTISCALE",
+        "item": "ITEM_HEAVY_DUTY_BOOTS",
+        "nature": "NATURE_JOLLY",
+        "hp": 261,
+        "max_hp": 261,
+        "status1": "STATUS1_NONE",
+        "moves": [
+          "MOVE_DRAGON_DANCE",
+          "MOVE_DUAL_WINGBEAT",
+          "MOVE_EARTHQUAKE",
+          "MOVE_DRAGON_CLAW"
+        ],
+        "pp": [
+          20,
+          10,
+          10,
+          15
+        ],
+        "ivs": [
+          31,
+          31,
+          31,
+          31,
+          31,
+          31
+        ],
+        "evs": [
+          6,
+          252,
+          0,
+          0,
+          0,
+          252
+        ]
+      },
+      {
+        "species": "SPECIES_MACHAMP",
+        "level": 80,
+        "ability": "ABILITY_GUTS",
+        "item": "ITEM_MACHAMPITE",
+        "nature": "NATURE_ADAMANT",
+        "hp": 259,
+        "max_hp": 259,
+        "status1": "STATUS1_NONE",
+        "moves": [
+          "MOVE_MACH_PUNCH",
+          "MOVE_DRAIN_PUNCH",
+          "MOVE_THUNDER_PUNCH",
+          "MOVE_FIRE_PUNCH"
+        ],
+        "pp": [
+          30,
+          10,
+          15,
+          15
+        ],
+        "ivs": [
+          31,
+          31,
+          31,
+          31,
+          31,
+          31
+        ],
+        "evs": [
+          6,
+          252,
+          0,
+          0,
+          0,
+          252
+        ]
+      }
+    ],
+    "field": {
+      "weather": "WEATHER_NONE",
+      "terrain": "TERRAIN_NONE",
+      "trick_room": false,
+      "player_screens": 0,
+      "enemy_screens": 0,
+      "player_hazards": 0,
+      "enemy_hazards": 0
+    }
+  },
+  "actions": [
+    {
+      "label": "thunder-shock-first-turn",
+      "action": {
+        "kind": "move",
+        "move_id": "MOVE_THUNDER_SHOCK"
+      },
+      "expect": {
+        "stop": "boundary",
+        "boundary_kind": "forced-switch-player",
+        "faint": true
+      }
+    }
+  ],
+  "evidence": {
+    "party": "data/game_data.json TRAINER_MATT_SEAFLOOR_CAVERN (levels, abilities, items, natures, IVs/EVs, PP); ai_flags copied verbatim",
+    "observed": "player Pikachu faints on turn 0 (ROMTRACE|faint|0|0|0|25) and the ROM holds at ROMTRACE|boundary|forced-switch-player|0|1",
+    "regression": "test_rom_eval.py::KnownSeedEvaluation.test_matt_first_turn_ko_fills_all_four_cards"
+  }
+}

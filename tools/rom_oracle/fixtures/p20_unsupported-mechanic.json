@@ -1,0 +1,8 @@
+{
+  "id": "P20",
+  "row": "P20",
+  "status": "unsupported",
+  "reason": "unsupported-mechanic",
+  "detail": "the request validator only accepts a verified clear field (run_dynamic._validate_clear_field / SidedexDynamicRequestValid); weather cannot be set through the mailbox and the exporter reports it read-only",
+  "rom_record": "ROMTRACE|phase|<turn>|state|field|<weather>"
+}

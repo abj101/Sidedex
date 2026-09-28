@@ -1,0 +1,8 @@
+{
+  "id": "P17",
+  "row": "P17",
+  "status": "unsupported",
+  "reason": "wave-1-scope",
+  "detail": "Focus Sash + multi-hit is representable (item field + move ids) but no fixture landed in wave 1; query-side Sash flags exist (query flag bit 2)",
+  "rom_record": null
+}

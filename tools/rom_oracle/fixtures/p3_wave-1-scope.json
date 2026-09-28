@@ -1,0 +1,8 @@
+{
+  "id": "P3",
+  "row": "P3",
+  "status": "unsupported",
+  "reason": "wave-1-scope",
+  "detail": "type effectiveness is representable (mailbox species/type data) but no fixture landed in wave 1",
+  "rom_record": null
+}

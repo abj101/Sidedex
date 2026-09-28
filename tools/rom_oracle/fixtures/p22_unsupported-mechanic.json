@@ -1,0 +1,8 @@
+{
+  "id": "P22",
+  "row": "P22",
+  "status": "unsupported",
+  "reason": "unsupported-mechanic",
+  "detail": "hazards cannot be set through the mailbox (clear-field validator); the exporter reports side statuses read-only",
+  "rom_record": "ROMTRACE|phase|<turn>|state|field"
+}
