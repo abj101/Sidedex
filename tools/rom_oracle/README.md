@@ -59,6 +59,45 @@ At switch settlement and after the next turn, the trace records all six party sl
 
 The trace does not snapshot every global byte or prove that the release ROM follows the same path. It is a deterministic, broad state capture for this bounded test scenario, not a full RAM snapshot, universal replay format, or the complete calculation contract.
 
+## Dynamic battle request v9
+
+The v9 test hook keeps the v8 request bytes through offset 863 and appends
+`resultAddress:u32`, `resultCapacity:u32`, `resultVersion:u16=1`, and
+`flags:u16` at 864, 868, 872, and 874 (876 bytes total). The hook announces
+`ROMTRACE|ready|<request_addr>|876|9|3|<result_addr>|8192`; the result array
+is an aligned 8192-byte allocation from `gHeap`, and requests must echo that exact address
+and capacity with compact-result bit 0 set. The ELF announces its runtime
+address so the worker never guesses its location.
+
+The reserved result buffer is transport storage, not a decoded state or a
+replacement savestate. A transition result uses `SDR2`, format version 1 and a
+64-byte header; records use the contract Appendix B tags 1–11. Compact result
+serialization and the final `binary-ready` marker are still incomplete, so the
+v9 path must remain fail-closed until both are present.
+
+#### v9 compact result record schema
+
+Typed records use `entry_count:u16, words_per_entry:u16` followed by little-endian
+`u32` words:
+
+| Tag | Count and field order |
+|---|---|
+| 1 party | 12 × 32: side, slot, species, level, HP, max HP, status1, item, ability number, form, nature, moves 1–4, PP 1–4, six IVs, six EVs, present bit |
+| 2 active | two × 33 for singles: battler, party slot, species, HP, max HP, status1/status2/status3, ability, item, form, three types, seven stat stages, four moves, four PP, volatile flags, disable/protect/special-status fields, substitute HP, encore and taunt timers |
+| 3 field | one × 6: weather/timer, terrain/timer, trick-room/timer |
+| 4 side | two × 12: side, screens, hazards/layers, conditions, reflect, light screen, aurora veil, mist, safeguard, tailwind, follow-me timers |
+| 5 battle | one × 10: turn, outcome, battle type flags, battler count, trainer AI flags, item count, four trainer item IDs |
+| 6 RNG | one × 8: main and secondary four-word streams; duplicates the header pair |
+| 7 legal | N × 4: `kind,id,pp_or_species,target_or_slot`; kind 0 move, 1 switch, 2 item |
+| 8 trainer action | one × 3: kind, id, target |
+| 9 events | concatenated `event_kind:u16,payload_words:u16,payload:u32[]` subrecords |
+| 10 terminal | one × 2: result and reason code |
+| 11 unsupported | one × 2: reason code and source code |
+
+Tags 1–7 are required for a successful nonterminal result. The current test hook
+only emits a nonzero status with tag 11 reason 1 (`incomplete-state`) and source
+1 (export coverage), with no child token. The compact header and error record are
+CRC checked; typed successful projections are still unimplemented.
 ## Dynamic battle request v8
 
 The mailbox layout below is unchanged by the A2/A3 revisions (the A2 artifact

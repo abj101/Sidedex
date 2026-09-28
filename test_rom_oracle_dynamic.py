@@ -213,3 +213,19 @@ def test_unknown_field_and_unsupported_history_fail_closed():
         assert "both recorded actions" in str(error)
     else:
         raise AssertionError("incomplete replay was accepted")
+
+
+def test_low_hp_trainer_item_fixture_reaches_the_rom_request():
+    request = json.loads((ROOT / "tools/rom_oracle/dynamic_trainer_item.json").read_text(encoding="utf-8"))
+    assert request["opponent_party"][0]["hp"] < request["opponent_party"][0]["max_hp"]
+    assert request["trainer_items"] == {"ITEM_POTION": 1}
+    encoded = RUNNER.encode_request(request, protocol_version=8)
+    assert struct.unpack_from("<4H", encoded, 844) == (RUNNER.numeric_id("items", "ITEM_POTION"), 0, 0, 0)
+    assert struct.unpack_from("<2H", encoded, 852) == (1, 0)
+
+
+def test_p25_voluntary_player_switch_fixture_is_a_switch_action():
+    request = json.loads((ROOT / "tools/rom_oracle/dynamic_switch.json").read_text(encoding="utf-8"))
+    assert request["candidate_action"] == {"kind": "switch", "slot": 1}
+    encoded = RUNNER.encode_request(request, protocol_version=8)
+    assert struct.unpack_from("<3H", encoded, 12) == (1, 0, 1)
