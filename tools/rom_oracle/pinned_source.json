@@ -44,14 +44,30 @@
       "status": "pass",
       "rom_sha256": "0CCAAAD0878A9CBFB36FBEFFF800E9B6DD66055924B7595038EDE1E8771EC5A2",
       "payload_bytes": 528448,
-      "ewram_probe": {"address": "0x02030000", "wrote": "0xabcd1234", "read": "0xabcd1234"},
-      "iwram_probe": {"address": "0x0300627c", "wrote": "0x55667788", "read": "0x55667788"},
+      "ewram_probe": {
+        "address": "0x02030000",
+        "wrote": "0xabcd1234",
+        "read": "0xabcd1234"
+      },
+      "iwram_probe": {
+        "address": "0x0300627c",
+        "wrote": "0x55667788",
+        "read": "0x55667788"
+      },
       "source_blob_unchanged": true
     },
     "h5_worker_iwram_write": {
       "status": "pass",
-      "gRngValue": {"address": "0x0300627c", "wrote": "0xd0d1d2d3", "read": "0xd0d1d2d3"},
-      "gRng2Value": {"address": "0x0300628c", "wrote": "0x11121314", "read": "0x11121314"}
+      "gRngValue": {
+        "address": "0x0300627c",
+        "wrote": "0xd0d1d2d3",
+        "read": "0xd0d1d2d3"
+      },
+      "gRng2Value": {
+        "address": "0x0300628c",
+        "wrote": "0x11121314",
+        "read": "0x11121314"
+      }
     },
     "h2_release_vs_test_elf": {
       "status": "blocked",
@@ -71,5 +87,17 @@
       }
     },
     "narrow_claim": "The patched source is byte-for-byte release-neutral (H1) and the pinned release ROM supports savestate RAM patching and worker IWRAM writes (H4/H5). No release-vs-test-ELF battle comparison is claimed (H2 blocked); the product stays labelled compiled-engine."
+  },
+  "dynamic_oracle_v9": {
+    "status": "candidate (not the active pin; see ROM_TRANSITION_LEDGER.md)",
+    "rom_hook_protocol": 9,
+    "wire_protocol": 3,
+    "wsl_branch": "sidedex/a1-export",
+    "wsl_commit": "c9001b29358154da5e5ac68934940b13f79710d5",
+    "patch": "tools/rom_oracle/dynamic_request_v9.patch",
+    "test_elf_sha256": "ebf37e1be08570184569098a2088bb58cf1948b8c91a6c5213db141ab77d7f35",
+    "headless_elf_sha256": "04060ed874dbf36a51189c98f95ab4a9f8dcadf6dd6093f6ca56e268347d76d2",
+    "worker_sha256": "1529b4de02f2b9dd922ff79257c7a4cd3e6de0eb1b9ab4cd1071cc2c97994a22",
+    "release_neutral_sha256": "0CCAAAD0878A9CBFB36FBEFFF800E9B6DD66055924B7595038EDE1E8771EC5A2"
   }
 }

@@ -101,7 +101,7 @@ def snapshot_key(snapshot):
                         ("worker_sha256", getattr(rom_bridge, "WORKER_SHA256", None)),
                         ("worker_version", getattr(rom_bridge, "WORKER_VERSION", None)))
         payload = json.dumps(snapshot, sort_keys=True, separators=(",", ":"), default=str)
-        return hashlib.sha256(repr(("rom-v4", snapshot.get("source_sha"), identity, payload)).encode("utf-8")).hexdigest()
+        return hashlib.sha256(repr(("rom-v5", snapshot.get("source_sha"), identity, payload)).encode("utf-8")).hexdigest()
     engine, _ = _safe_engine()
     try:
         canonical = engine.normalize_snapshot(snapshot) if engine else snapshot

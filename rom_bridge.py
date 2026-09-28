@@ -16,6 +16,7 @@ import re
 import subprocess
 import threading
 import time
+import zlib
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -33,6 +34,20 @@ from rom_identity import (
     ENGINE_ELF_SHA256,
     WORKER_SHA256,
 )  # noqa: F401  (re-exported)
+
+# Contract Appendix B (v2 execution amendment). The pinned v8 / wire-2 path keeps
+# the rom_identity values above; the v9 ROM hook and the wire-3 compact turn are
+# named here explicitly so neither side ever guesses a layout from a reply.
+ROM_HOOK_V9 = 9
+LEGACY_PROTOCOL_VERSION = PROTOCOL_VERSION              # 2, pinned wire protocol
+LEGACY_WORKER_VERSION = WORKER_VERSION                 # sidedex-mgba-worker/0.2.0
+WORKER_V3_VERSION = "sidedex-mgba-worker/0.3.0"
+TRANSITION_SCHEMA_V2 = "sidedex-transition-v2"
+DECODE_SCHEMA = "decode-v2"
+
+# Contract C.1: tools/rom_oracle/sdr2.py is the only SDR2 parser; rom_bridge
+# only maps its result onto the wire/child rules.
+from tools.rom_oracle import sdr2  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_SOURCE_LOCK = ROOT / "data" / "source_lock.json"
@@ -55,6 +70,37 @@ MAX_BLOB_BASE64_BYTES = 900_000
 STOP_KINDS = ("boundary", "terminal", "turn-complete")
 # 256 bounded trace events (up to 510 bytes each, JSON escaped) fit below 1 MiB.
 MAX_MESSAGE_BYTES = 1_048_576
+V3_PROTOCOL_VERSION = 3
+# Contract C.3: a nonzero SDR2 status carries a tag 11 {reason, source} record.
+V3_RESULT_ERROR_CODES = {(1, 1, 1): "incomplete-state"}
+
+# Optional JSONL transport profiling for the B0 profile. Default off (no
+# behaviour change); tools/rom_oracle/profile_b0.py sets this True and reads
+# RomWorkerClient.transport_samples for the encode/write/decode split.
+PROFILE_TRANSPORT = False
+
+
+def _percentile(values: Sequence[float], percentile: float) -> float:
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, max(0, int(len(ordered) * percentile + 0.999999) - 1))
+    return ordered[index]
+
+
+def parse_v9_ready(events: Sequence[str]) -> dict[str, int]:
+    """Select the announced v9/v3 request and result buffers from ROMTRACE."""
+    for event in reversed(events):
+        match = re.fullmatch(r"ROMTRACE\|ready\|(\d+)\|876\|9\|3\|(\d+)\|(\d+)", event)
+        if match:
+            address, result_address, capacity = map(int, match.groups())
+            if (not EWRAM_START <= address <= EWRAM_END - 876 or
+                    not EWRAM_START <= result_address < EWRAM_END or
+                    capacity != 8192 or capacity > EWRAM_END - result_address or
+                    address < result_address + capacity and result_address < address + 876):
+                raise WorkerProtocolError("ROM announced overlapping or out-of-range v9 buffers")
+            return {"address": address, "mailbox_bytes": 876,
+                    "result_address": result_address, "result_capacity": capacity,
+                    "rom_hook_protocol": 9, "wire_protocol": 3}
+    raise WorkerProtocolError("ROM did not announce a v9/v3 mailbox")
 
 
 class RomBridgeError(RuntimeError):
@@ -110,7 +156,7 @@ def _reject_constant(value):
     raise ValueError(f"invalid JSON constant: {value}")
 
 
-def _parse_reply(line: str) -> dict[str, Any]:
+def _parse_reply(line: str, expected_protocol: int = PROTOCOL_VERSION) -> dict[str, Any]:
     if len(line.encode("utf-8")) > MAX_MESSAGE_BYTES:
         raise WorkerProtocolError("worker response exceeded the message limit")
     try:
@@ -119,7 +165,7 @@ def _parse_reply(line: str) -> dict[str, Any]:
         raise WorkerProtocolError(f"worker returned invalid JSON: {exc}") from exc
     if not isinstance(value, dict):
         raise WorkerProtocolError("worker response must be a JSON object")
-    if type(value.get("protocol")) is not int or value["protocol"] != PROTOCOL_VERSION:
+    if type(value.get("protocol")) is not int or value["protocol"] != expected_protocol:
         raise WorkerProtocolError("worker protocol version mismatch")
     if type(value.get("ok")) is not bool:
         raise WorkerProtocolError("worker response is missing a boolean ok field")
@@ -151,6 +197,11 @@ def worker_identity(worker_version: str, pid: int, started_at: float, artifact_s
 class RomWorkerClient:
     """One serialized request stream connected to a persistent mGBA process."""
 
+    # Defaults for the pinned v8 / wire-2 path, so a partially built client
+    # (object.__new__ in the tests) still validates identity predictably.
+    wire_protocol = PROTOCOL_VERSION
+    worker_version = WORKER_VERSION
+
     def __init__(
         self,
         worker_path: str | os.PathLike[str] = DEFAULT_WORKER,
@@ -161,15 +212,21 @@ class RomWorkerClient:
         expected_artifact_sha256: str = ROM_SHA256,
         expected_worker_sha256: str = WORKER_SHA256,
         worker_args: Sequence[str] = (),
+        wire_protocol: int = PROTOCOL_VERSION,
     ):
         if type(timeout) not in (int, float) or timeout <= 0:
             raise ValueError("timeout must be a positive number")
         worker = Path(worker_path).expanduser().resolve()
         rom = Path(rom_path).expanduser().resolve()
         self._timeout = float(timeout)
+        if type(wire_protocol) is not int or wire_protocol not in (LEGACY_PROTOCOL_VERSION, V3_PROTOCOL_VERSION):
+            raise ValueError("wire_protocol must be 2 or 3")
+        self.wire_protocol = wire_protocol
+        self.worker_version = WORKER_V3_VERSION if wire_protocol == V3_PROTOCOL_VERSION else WORKER_VERSION
         self._lock = threading.Lock()
         self._closed = False
         self._stderr_lines: queue.Queue = queue.Queue(maxsize=16)
+        self._transport_samples: list[dict[str, Any]] = []
 
         if not isinstance(expected_artifact_sha256, str) or len(expected_artifact_sha256) != 64 or any(
             char not in "0123456789abcdefABCDEF" for char in expected_artifact_sha256
@@ -243,6 +300,11 @@ class RomWorkerClient:
         return actual
 
     @property
+    def transport_samples(self) -> list[dict[str, Any]]:
+        """Per-request JSONL transport timings, populated only when PROFILE_TRANSPORT."""
+        return list(self._transport_samples)
+
+    @property
     def worker_id(self) -> str:
         """Stable owner_worker identity for this client's lifetime (contract §2/§8).
 
@@ -289,15 +351,22 @@ class RomWorkerClient:
         return " ".join(piece for piece in pieces if piece)[:500]
 
     def _read_status(self) -> dict[str, Any]:
-        reply = _parse_reply(self._read_line())
+        reply = _parse_reply(self._read_line(), self.wire_protocol)
         required = {
-            "worker": WORKER_VERSION,
+            "worker": self.worker_version,
             "mgba": MGBA_VERSION,
             "platform": "gba",
         }
         for key, expected in required.items():
             if reply.get(key) != expected:
                 raise WorkerProtocolError(f"worker {key} does not match the pinned build")
+        if self.wire_protocol == V3_PROTOCOL_VERSION:
+            if reply.get("supported_wire_protocols") != [V3_PROTOCOL_VERSION]:
+                raise WorkerProtocolError("worker does not advertise wire protocol 3")
+            for key, expected in (("state_schema", STATE_SCHEMA), ("transition_schema", TRANSITION_SCHEMA_V2),
+                                  ("decode_schema", DECODE_SCHEMA)):
+                if reply.get(key) != expected:
+                    raise WorkerProtocolError(f"worker {key} does not match the transition contract")
         if type(reply.get("rom_bytes")) is not int or reply["rom_bytes"] <= 0:
             raise WorkerProtocolError("worker status has an invalid ROM size")
         if reply["rom_bytes"] != self._rom_size:
@@ -313,22 +382,39 @@ class RomWorkerClient:
         with self._lock:
             if self._closed or self._process.poll() is not None:
                 raise WorkerExitedError("mGBA worker is not running")
-            request = {"protocol": PROTOCOL_VERSION, "op": op, **fields}
+            request = {"protocol": self.wire_protocol, "op": op, **fields}
+            t_encode_start = time.perf_counter()
             wire = json.dumps(request, separators=(",", ":"), allow_nan=False)
             if len(wire.encode("utf-8")) + 1 > MAX_MESSAGE_BYTES:
                 raise ValueError("request exceeds the worker message limit")
+            t_encode_end = time.perf_counter()
             try:
+                request_wire_bytes = len(wire.encode("utf-8")) + 1
                 self._process.stdin.write(wire + "\n")
                 self._process.stdin.flush()
             except (BrokenPipeError, OSError) as exc:
                 raise WorkerExitedError("mGBA worker closed its input pipe") from exc
-            reply = _parse_reply(self._read_line(_timeout))
+            t_write_end = time.perf_counter()
+            reply_line = self._read_line(_timeout)
+            t_read_end = time.perf_counter()
+            reply = _parse_reply(reply_line, self.wire_protocol)
+            t_decode_end = time.perf_counter()
+            if PROFILE_TRANSPORT:
+                self._transport_samples.append({
+                    "op": op,
+                    "encode_ns": (t_encode_end - t_encode_start) * 1e9,
+                    "write_ns": (t_write_end - t_encode_end) * 1e9,
+                    "read_ns": (t_read_end - t_write_end) * 1e9,
+                    "decode_ns": (t_decode_end - t_read_end) * 1e9,
+                })
+            reply["_wire_bytes"] = len(reply_line.encode("utf-8")) + 1
+            reply["_request_wire_bytes"] = request_wire_bytes
             if op in {"status", "run_frames", "reset", "load_state", "load_state_blob", "write_memory"}:
                 self._status = self._validate_status_reply(reply)
             return reply
 
     def _validate_status_reply(self, reply: dict[str, Any]) -> dict[str, Any]:
-        if reply.get("worker") != WORKER_VERSION or reply.get("mgba") != MGBA_VERSION:
+        if reply.get("worker") != self.worker_version or reply.get("mgba") != MGBA_VERSION:
             raise WorkerProtocolError("worker identity changed during the session")
         if reply.get("platform") != "gba":
             raise WorkerProtocolError("worker returned a non-GBA core")
@@ -395,9 +481,9 @@ class RomWorkerClient:
         if not isinstance(identity, dict):
             raise WorkerProtocolError("worker state slot is missing its identity")
         for key, expected in (
-            ("worker_version", WORKER_VERSION),
+            ("worker_version", self.worker_version),
             ("mgba_version", MGBA_VERSION),
-            ("wire_protocol", PROTOCOL_VERSION),
+            ("wire_protocol", self.wire_protocol),
             ("save_format", SAVE_FORMAT_ID),
         ):
             if identity.get(key) != expected:
@@ -516,6 +602,8 @@ class RomWorkerClient:
             events = turn.get("events")
             if (type(turn.get("complete")) is not bool or type(turn.get("frames")) is not int or
                     not 0 <= turn["frames"] <= max_frames or type(turn.get("trace_overflow")) is not bool or
+                    ("elapsed_ms" in turn and (type(turn["elapsed_ms"]) not in (int, float) or turn["elapsed_ms"] < 0)) or
+                    ("restore_ms" in turn and (type(turn["restore_ms"]) not in (int, float) or turn["restore_ms"] < 0)) or
                     not isinstance(events, list) or len(events) > 256 or
                     any(not isinstance(event, str) or len(event.encode("utf-8")) >= 512 for event in events) or
                     turn["trace_overflow"]):
@@ -611,8 +699,145 @@ class RomWorkerClient:
                 raise WorkerProtocolError(f"batch response {key} mismatch")
         turns = self._validate_batch_reply(reply, len(payloads), max_frames)
         elapsed_ms = (time.monotonic() - started) * 1000
-        return {"protocol_version": 3, **expected, "turns": turns,
-                "elapsed_ms": elapsed_ms, "mean_turn_ms": elapsed_ms / len(turns)}
+        timed_turns = [turn for turn in turns if "elapsed_ms" in turn and "restore_ms" in turn]
+        # Kept at the v3 literal: this was integration's pinned value for the
+        # batch envelope before the v9/wire-3 work and the current suite pins it.
+        return {"protocol_version": V3_PROTOCOL_VERSION, **expected, "turns": turns,
+                "elapsed_ms": elapsed_ms, "mean_turn_ms": elapsed_ms / len(turns),
+                "ipc_request_bytes": reply["_request_wire_bytes"],
+                "ipc_response_bytes": reply["_wire_bytes"],
+                "transition_per_second": len(turns) / (elapsed_ms / 1000) if elapsed_ms else 0.0,
+                "turn_p50_ms": _percentile([turn["elapsed_ms"] for turn in timed_turns], 0.50) if timed_turns else None,
+                "turn_p95_ms": _percentile([turn["elapsed_ms"] for turn in timed_turns], 0.95) if timed_turns else None,
+                "restore_p50_ms": _percentile([turn["restore_ms"] for turn in timed_turns], 0.50) if timed_turns else None,
+                "restore_p95_ms": _percentile([turn["restore_ms"] for turn in timed_turns], 0.95) if timed_turns else None}
+
+    def batch_turns_v3(
+        self, address: int, result_address: int, result_capacity: int,
+        payloads: Sequence[bytes], *, mailbox_bytes: int, engine_elf_sha256: str,
+        deadline_ms: int, request_id: str, max_frames: int = 24_000,
+        handle: str | None = None, mode: int = 0, critical_policy: int = 0,
+    ) -> dict[str, Any]:
+        """Run v9 mailboxes and return verified SDR2 results plus immutable children."""
+        if self.wire_protocol != V3_PROTOCOL_VERSION:
+            raise WorkerProtocolError("batch_turns_v3 requires a protocol-3 worker")
+        if handle is not None:
+            handle = self._validate_handle(handle)
+        elif not self._has_checkpoint:
+            raise ValueError("save a pre-choice checkpoint before batch_turns_v3")
+        if type(address) is not int or not EWRAM_START <= address < EWRAM_END:
+            raise ValueError("mailbox address must be within EWRAM")
+        if type(result_address) is not int or not EWRAM_START <= result_address < EWRAM_END:
+            raise ValueError("result address must be within EWRAM")
+        if type(result_capacity) is not int or not 64 <= result_capacity <= EWRAM_END - result_address:
+            raise ValueError("result capacity must fit the announced EWRAM buffer")
+        if type(mailbox_bytes) is not int or not 1 <= mailbox_bytes <= MAX_MEMORY_WRITE_BYTES:
+            raise ValueError("mailbox_bytes is outside the bounded mailbox limit")
+        if address < result_address + result_capacity and result_address < address + mailbox_bytes:
+            raise ValueError("result and mailbox ranges must not overlap")
+        if not isinstance(payloads, Sequence) or isinstance(payloads, (str, bytes)) or not 1 <= len(payloads) <= MAX_BATCH_TURNS:
+            raise ValueError(f"payloads must contain 1 to {MAX_BATCH_TURNS} byte strings")
+        if any(type(payload) is not bytes or len(payload) != mailbox_bytes for payload in payloads):
+            raise ValueError("each payload must match the announced v9 mailbox length")
+        if type(mode) is not int or mode not in (0, 1) or type(critical_policy) is not int or critical_policy not in (0, 1):
+            raise ValueError("mode and critical_policy must be 0 or 1")
+        if type(max_frames) is not int or not 1 <= max_frames <= 24_000:
+            raise ValueError("max_frames must be from 1 to 24000")
+        if type(deadline_ms) is not int or deadline_ms <= int(time.monotonic() * 1000):
+            raise WorkerTimeoutError("batch deadline has expired")
+        if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", request_id):
+            raise ValueError("request_id must be 1 to 128 safe ASCII characters")
+        if not isinstance(engine_elf_sha256, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", engine_elf_sha256):
+            raise ValueError("engine_elf_sha256 must be a 64-character SHA-256 hex digest")
+        if engine_elf_sha256.upper() != self.rom_sha256:
+            raise RomIdentityError("batch engine ELF identity differs from the artifact loaded by this worker")
+        remaining = (deadline_ms - int(time.monotonic() * 1000)) / 1000
+        started = time.monotonic()
+        fields: dict[str, Any] = {
+            "address": address, "result_address": result_address,
+            "result_capacity": result_capacity, "mailbox_bytes": mailbox_bytes,
+            "mailbox_count": len(payloads), "mailboxes": base64.b64encode(b"".join(payloads)).decode("ascii"),
+            "budget_ms": max(1, int(remaining * 1000)), "max_frames": max_frames,
+            "request_id": request_id,
+            "request_token": int.from_bytes(hashlib.sha256(request_id.encode("ascii")).digest()[:2], "little"),
+            "source_sha": SOURCE_SHA, "engine_elf_sha256": engine_elf_sha256.upper(),
+            "worker_sha256": self.worker_sha256, "mode": mode, "critical_policy": critical_policy,
+        }
+        if handle is not None:
+            fields["handle"] = handle
+        reply = self._request("batch_turns_v3", _timeout=min(self._timeout, remaining), **fields)
+        expected = {"request_id": request_id, "source_sha": SOURCE_SHA,
+                    "engine_elf_sha256": engine_elf_sha256.upper(), "worker_sha256": self.worker_sha256}
+        for key, value in expected.items():
+            if reply.get(key) != value:
+                raise WorkerProtocolError(f"v3 batch response {key} mismatch")
+        turns = reply.get("turns")
+        if not isinstance(turns, list) or len(turns) != len(payloads):
+            raise WorkerProtocolError("v3 batch response has a mismatched turn count")
+        parsed = []
+        turn_times = []
+        save_times = []
+        restore_times = []
+        for turn in turns:
+            if not isinstance(turn, dict) or type(turn.get("frames")) is not int or not 0 <= turn["frames"] <= max_frames:
+                raise WorkerProtocolError("v3 batch contains an invalid frame count")
+            result_text = turn.get("result")
+            if not isinstance(result_text, str):
+                raise WorkerProtocolError("v3 batch result is missing compact bytes")
+            try:
+                result_bytes = base64.b64decode(result_text, validate=True)
+            except (ValueError, binascii.Error) as exc:
+                raise WorkerProtocolError("v3 batch result is not valid base64") from exc
+            if len(result_bytes) > result_capacity:
+                raise WorkerProtocolError("v3 batch result exceeds the announced result capacity")
+            try:
+                binary = sdr2.parse(result_bytes, request_id=fields["request_token"], mode=mode,
+                                    critical_policy=critical_policy, capacity=result_capacity)
+            except sdr2.SDR2Error as exc:
+                raise WorkerResponseError(exc.code) from exc
+            for key in ("elapsed_ms", "save_ms", "restore_ms"):
+                if type(turn.get(key)) not in (int, float) or turn[key] < 0:
+                    raise WorkerProtocolError(f"v3 batch turn has invalid {key}")
+            turn_times.append(float(turn["elapsed_ms"]))
+            save_times.append(float(turn["save_ms"]))
+            restore_times.append(float(turn["restore_ms"]))
+            status = binary["header"]["status"]
+            if status != 0:
+                error = (binary["records"].get("unsupported") or [{}])[0]
+                reason, source = error.get("reason", 0), error.get("source", 0)
+                code = V3_RESULT_ERROR_CODES.get((status, reason, source))
+                if code is None:
+                    code = "binary-result-status-%d-reason-%d-source-%d" % (status, reason, source)
+                raise WorkerResponseError(code)
+            child = turn.get("child")
+            if binary["header"]["boundary"] == sdr2.BOUNDARY_TERMINAL:
+                if child is not None:
+                    raise WorkerProtocolError("terminal result must not have a child state")
+            else:
+                if not isinstance(child, dict):
+                    raise WorkerProtocolError("nonterminal result has no saved child state")
+                if (not isinstance(child.get("handle"), str) or
+                        not re.fullmatch(r"[0-9a-f]{32}", child["handle"]) or
+                        type(child.get("bytes")) is not int or child["bytes"] <= 0 or
+                        not isinstance(child.get("sha256"), str) or
+                        not re.fullmatch(r"[0-9a-f]{64}", child["sha256"])):
+                    raise WorkerProtocolError("child state summary is malformed")
+                self._validate_state_identity(child.get("identity"))
+                child = {**child, "owner_worker": self.worker_id, "portable": True}
+            parsed.append({**turn, "binary": binary, "child": child})
+        elapsed_ms = (time.monotonic() - started) * 1000
+        return {"protocol_version": V3_PROTOCOL_VERSION, **expected, "turns": parsed,
+                "ipc_request_bytes": len(json.dumps({"protocol": 3, "op": "batch_turns_v3", **fields},
+                                                     separators=(",", ":")).encode("utf-8")) + 1,
+                "ipc_response_bytes": reply["_wire_bytes"], "elapsed_ms": elapsed_ms,
+                "mean_turn_ms": elapsed_ms / len(parsed),
+                "transition_per_second": len(parsed) / (elapsed_ms / 1000) if elapsed_ms else 0.0,
+                "turn_p50_ms": _percentile(turn_times, 0.50),
+                "turn_p95_ms": _percentile(turn_times, 0.95),
+                "save_p50_ms": _percentile(save_times, 0.50),
+                "save_p95_ms": _percentile(save_times, 0.95),
+                "restore_p50_ms": _percentile(restore_times, 0.50),
+                "restore_p95_ms": _percentile(restore_times, 0.95)}
 
     def read_memory(self, address: int, width: int = 4) -> int:
         if type(address) is not int or not 0 <= address <= 0xFFFFFFFF:
@@ -676,10 +901,10 @@ class RomWorkerClient:
             if self._process.poll() is None:
                 try:
                     self._process.stdin.write(
-                        json.dumps({"protocol": PROTOCOL_VERSION, "op": "quit"}) + "\n"
+                        json.dumps({"protocol": self.wire_protocol, "op": "quit"}) + "\n"
                     )
                     self._process.stdin.flush()
-                    _parse_reply(self._read_line())
+                    _parse_reply(self._read_line(), self.wire_protocol)
                     self._process.wait(timeout=self._timeout)
                 except (OSError, RomBridgeError, subprocess.TimeoutExpired):
                     self._terminate()

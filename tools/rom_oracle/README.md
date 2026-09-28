@@ -59,6 +59,167 @@ At switch settlement and after the next turn, the trace records all six party sl
 
 The trace does not snapshot every global byte or prove that the release ROM follows the same path. It is a deterministic, broad state capture for this bounded test scenario, not a full RAM snapshot, universal replay format, or the complete calculation contract.
 
+## Dynamic battle request v9
+
+The v9 test hook keeps the v8 request bytes through offset 863 and appends
+`resultAddress:u32`, `resultCapacity:u32`, `resultVersion:u16=1`, and
+`flags:u16` at 864, 868, 872, and 874 (876 bytes total). The hook announces
+`ROMTRACE|ready|<request_addr>|876|9|3|<result_addr>|8192`; the result array
+is an aligned 8192-byte allocation from `gHeap`, and requests must echo that exact address
+and capacity with compact-result bit 0 set. The ELF announces its runtime
+address so the worker never guesses its location.
+
+The reserved result buffer is transport storage, not a decoded state or a
+replacement savestate. A transition result uses `SDR2`, format version 1 and a
+64-byte header: `magic` 0, `format:u16=1` 4, `header_bytes:u16=64` 6,
+`total_bytes:u32` 8, `crc32:u32` 12, `request_id:u16` 16, `status:u16` 18,
+`boundary:u16` 20, `mode:u16` 22, `critical_policy:u16` 24, `record_count:u16`
+26, `turn:u32` 28, `rng_main:u32[4]` 32 and `rng_secondary:u32[4]` 48. Records
+follow as `tag:u16, payload_bytes:u16, payload`, zero-padded to four bytes;
+`payload_bytes` excludes the padding. The CRC is the zlib CRC-32 of
+`buffer[12:total_bytes]` with the CRC field zeroed.
+
+At each held boundary the hook completes the projection, commits the header and
+CRC, emits `ROMTRACE|boundary|...`, and ends with
+`ROMTRACE|binary-ready|<addr>|<len>` (which stays last). The commit precedes the
+boundary marker so the worker's batch stop on `ROMTRACE|boundary|` can never
+observe a half-written result. A nonzero status carries exactly one tag 11
+`reason:u16, source:u16` record and nothing else (contract C.3); the exporter
+fails closed with `reason=3 source=6` (unsupported-mechanic / non-singles
+battle) and `reason=2 source=5` (unrepresentable-state / trainer item use).
+
+#### v9 compact result record schema
+
+Typed records use `entry_count:u16, words_per_entry:u16` followed by little-endian
+`u32` words:
+
+| Tag | Count and field order |
+|---|---|
+| 1 party | 12 × 32: side, slot, species, level, HP, max HP, status1, item, ability number, form, nature, moves 1–4, PP 1–4, six IVs (hp/atk/def/spe/spa/spd), six EVs, present bit |
+| 2 active | two × 37 for singles: battler, party slot, species, HP, max HP, status1/status2/status3, ability, item, form, three types, seven stat stages, four moves, four PP, volatile flags, disabled move, disable timer, protect flags, special-status flags, substitute HP, encore timer, taunt timer |
+| 3 field | one × 6: weather, weather timer, terrain, terrain timer, trick room, trick-room timer |
+| 4 side | two × 12: side, screens, hazards, hazard layers, conditions, reflect, light screen, aurora veil, mist, safeguard, tailwind, follow-me timers |
+| 5 battle | one × 10: turn, outcome, battle type flags, battler count, trainer AI flags, item count, four trainer item IDs |
+| 6 RNG | one × 8: main and secondary four-word streams; duplicates the header pair |
+| 7 legal | N × 4: `kind,id,pp_or_species,target_or_slot`; kind 0 move, 1 switch, 2 item |
+| 8 trainer action | one × 3: kind, id, target |
+| 9 events | concatenated `event_kind:u16,payload_words:u16,payload:u32[]` subrecords |
+| 10 terminal | one × 2: result and reason code |
+| 11 unsupported | one × 2: reason code and source code |
+
+Tags 1–9 are required for a successful nonterminal result and tags 1–6, 8, 9,
+10 for terminal success (no tag 7 at terminal). Tag 9 may be empty.
+
+#### v9 flag words and field sources
+
+Every word is read from a named C source at the boundary; nothing is zero-filled.
+Unreadable values fail the transition with tag 11 instead.
+
+| Word (active/side index) | Bit meaning and source |
+|---|---|
+| `volatile_flags` (active 29) | `struct DisableStruct` one-bit persistent trackers (`gDisableStructs[]`, `include/battle.h`): 0 `truantCounter`, 1 `truantSwitchInHack`, 2 `noRetreat`, 3 `tarShot`, 4 `octolock`, 5 `cudChew`, 6 `spikesDone`, 7 `toxicSpikesDone`, 8 `stickyWebDone`, 9 `stealthRockDone`, 10 `syrupBombIsShiny`, 11 `steelSurgeDone`, 12 `weatherAbilityDone`, 13 `terrainAbilityDone`, 14 `usedProteanLibero` |
+| `protect_flags` (active 32) | low 32-bit bitfield of `struct ProtectStruct` (`gProtectStructs[]`) in declaration order: 0 `protected`, 1 `spikyShielded`, 2 `kingsShielded`, 3 `banefulBunkered`, 4 `obstructed`, 5 `endured`, 6 `noValidMoves`, 7 `helpingHand`, 8 `bounceMove`, 9 `stealMove`, 10 `prlzImmobility`, 11 `confusionSelfDmg`, 12 `targetAffected`, 13 `chargingTurn`, 14–15 `fleeType`, 16 `usedImprisonedMove`, 17 `loveImmobility`, 18 `usedDisabledMove`, 19 `usedTauntedMove`, 20 `flag2Unknown`, 21 `flinchImmobility`, 22 `notFirstStrike`, 23 `palaceUnableToUseMove`, 24 `usedHealBlockedMove`, 25 `usedGravityPreventedMove`, 26 `powderSelfDmg`, 27 `usedThroatChopPreventedMove`, 28 `statRaised`, 29 `usedCustapBerry`, 30 `touchedProtectLike`. The secondary `u16` bitfield (`disableEjectPack`..`padding`) is not carried in this word. |
+| `special_status_flags` (active 33) | the four flag bytes of `struct SpecialStatus` (`gSpecialStatuses[]`): 0 `statLowered`, 1 `lightningRodRedirected`, 2 `restoredBattlerSprite`, 3 `faintedHasReplacement`, 4 `focusBanded`, 5 `focusSashed`, 8 `sturdied`, 9 `stormDrainRedirected`, 10 `switchInAbilityDone`, 11 `switchInItemDone`, 12–14 `instructedChosenTarget`, 15 `berryReduced`, 16 `gemBoost`, 17 `rototillerAffected`, 18–19 `parentalBondState`, 20 `multiHitOn`, 21 `announceNeutralizingGas`, 22 `neutralizingGasRemoved`, 23 `affectionEndured`, 24–27 `damagedMons`, 28 `dancerUsedMove`, 29–31 `dancerOriginalTarget`. The trailing byte (`emergencyExited`, `afterYou`, `preventLifeOrbDamage`, `oraoraoraoraState`, `distortedTypeMatchups`) is not carried in this word. |
+| `screens` (side 1) | `gSideStatuses[side] & SIDE_STATUS_SCREEN_ANY`: 0 reflect, 1 light screen, 11 aurora veil (`include/constants/battle.h`) |
+| `hazards` (side 2) | `gSideStatuses[side] & SIDE_STATUS_HAZARDS_ANY`: 2 sticky web, 4 spikes, 13 toxic spikes, 14 stealth rock, 22 steel surge |
+| `hazard_layers` (side 3) | nibble-packed `struct SideTimer` counts (`gSideTimers[]`): 0–3 `spikesAmount`, 4–7 `toxicSpikesAmount`, 8–11 `stealthRockAmount`, 12–15 `stickyWebAmount`, 16–19 `steelsurgeAmount` |
+| `conditions` (side 4) | the full `gSideStatuses[side]` word |
+
+| Field | Source |
+|---|---|
+| party species/level/HP/max HP/status1/item/ability/nature/moves/PP/IVs/EVs | `GetMonData` on `gPlayerParty`/`gEnemyParty`; `GetNature`; `present = species != SPECIES_NONE` |
+| party and active `form` | `GetFormIdFromFormSpeciesId(species)` (`include/pokemon.h`) |
+| active HP/max HP/status1/status2/ability/item/types/stat stages/moves/PP | `struct BattlePokemon gBattleMons[]` |
+| active `status3` | `gStatuses3[battler]` |
+| active disabled move, disable/encore/taunt timers, substitute HP | `struct DisableStruct gDisableStructs[]` |
+| field `weather` | `gBattleWeather` |
+| field `weather_timer` | `gWishFutureKnock.weatherDuration` |
+| field terrain/timers, trick room/timer | `gFieldStatuses` masks and `gFieldTimers` |
+| side timers | `struct SideTimer gSideTimers[]` |
+| battle turn/outcome/type flags/battler count | `gBattleResults.battleTurnCounter`, `gBattleOutcome`, `gBattleTypeFlags`, `gBattlersCount` |
+| battle `ai_flags` | `AI_THINKING_STRUCT->aiFlags[opponent battler]` |
+| battle item count/items | `gBattleResources->battleHistory->itemsNo` / `trainerItems[]` |
+| `rng` | `gRngValue` and `gRng2Value` (must equal the header pair) |
+| `legal` | the ROM's own move/switch enumeration, the same source as the v8 `ROMTRACE|legal|` lines |
+| `trainer action` | the AI side's most recently chosen action captured in `TestRunner_Battle_CheckChosenMove` / `CheckSwitch` |
+| `events` | tagged from `RecordHP`/`RecordStatus1`/`RecordAbilityPopUp`/`CheckChosenMove`/`CheckSwitch`/`TraceChosenItem`/`TraceSwitchOut` |
+
+Event kinds emitted: 1 move used, 2 damage, 3 heal, 6 faint, 7 switch out, 8 switch
+in, 11 ability activated, 12 item used/consumed. Kind 7 is recorded in
+`Cmd_getswitchedmondata` (`src/battle_script_commands.c`) while the outgoing
+party slot is still readable, and only when the departing battler is alive — a
+faint replacement leaves as kind 6 (faint) instead. No green fixture exercises
+it: the only switch row, P25, is `unsupported-mechanic` (`a mailbox switch
+candidate … emits no ROMTRACE|boundary|`, see `FIXTURE_MATRIX.md`), so kind 7 is
+compiled and guarded but not demonstrated live. The other C.3 kinds have no ROM
+callback wired yet and are omitted rather than invented.
+
+#### Commit ordering (hard rule)
+
+The native worker stops a batch at the first `ROMTRACE|boundary|`,
+`ROMTRACE|terminal|` or `ROMTRACE|complete|` line, and `ROMTRACE|binary-ready|`
+is not on the worker's slim filter. The header and CRC must therefore be written
+*before* the first stop marker of a transition. For a boundary that order is
+projection → header+CRC → `boundary` → `binary-ready`; for a terminal it is
+projection → tag 10 → header+CRC → `terminal` → `binary-ready` → `complete`.
+Getting this wrong yields a decoded result with a zero CRC and record count, or
+no result at all (P27/P28 did exactly that before the fix).
+
+#### IWRAM headroom is a hard constraint (task for A2)
+
+The test ELF's IWRAM is effectively full: `.iwram.sbss` sits at the stack
+boundary, and a 1280-byte static array added to `test/test_runner_battle.c`
+corrupted the stack and crashed the ROM before the first turn (`arm-none-eabi-
+readelf` still reported the old section size, so per-symbol addresses from
+`arm-none-eabi-nm` are the dependable check). The tag 9 event ring therefore
+lives in the upper half of the 8192-byte result reservation
+(`SIDEDEX_EVENT_SCRATCH` 4096, `SIDEDEX_EVENT_STRIDE` 20). Any A2 change that
+adds statics here must rebuild the test ELF and re-run a driven turn to confirm
+the boundary hold still fires. The release ROM is unaffected (IWRAM 26,488 B of
+32 KiB, 80.83%).
+
+Also note: the standard build recipe runs the release (`TEST=0`) and test
+(`TEST=1`) builds in the *same* `build/modern` objdir, and `make` does not track
+flag changes, so after a `TEST=0` build the objects that depend on
+`-DTESTING` must be deleted before relinking the test ELF or the link fails on
+`sBattlerAbilities` (static under `TEST=0`, global under `TEST=1`).
+
+#### Compact-vs-`ROMTRACE` diagnostic equality
+
+Unless the request sets compact-result bit 0, the hook mirrors every compact
+record word-for-word to ROMTRACE as
+`ROMTRACE|phase|<turn>|state|c<tag>|<base index>|<up to 16 words>` with names
+`cparty`, `cactive`, `cfield`, `cside`, `cbattle`, `crng`, `clegal`, `ctrainer`
+and `cterminal`. `test_rom_oracle_dynamic.py` reassembles the chunks and asserts
+that binary tags 1–8 and 10 equal their textual counterparts for P1, P26, P27,
+P28 and P29's first move. The test is live (it drives the pinned worker and a
+staged candidate ELF) and skips cleanly when no candidate is present; point
+`SIDEDEX_V9_ELF` at one to force it.
+
+Accepted rows against `pokeemerald-test-headless.elf` (WSL `5b72eec`, sha256
+`c6271a8b248fb0ca12dfad814a8ef6c1a3f9b927e2316297c83d7700491eff2b`): every row
+decodes with a valid CRC, the required tags for its boundary kind, and zero
+compact-vs-trace mismatches.
+
+| Fixture | Boundary | status | total | tags | events | compact==trace |
+| --- | --- | --- | --- | --- | --- | --- |
+| P1 tackle | choice | 0 | 2312 | 1–9 | 1, 2 | yes |
+| P26 growl | forced-switch | 0 | 2240 | 1–9 | 1, 2, 6 | yes |
+| P27 tackle-ko | terminal | 0 | 2232 | 1–6, 8–10 | 1, 2, 6 | yes |
+| P28 growl-into-ko | terminal | 0 | 2232 | 1–6, 8–10 | 1, 2, 6 | yes |
+| P29 branch-tackle | choice | 0 | 2312 | 1–9 | 1, 2 | yes |
+| P29 branch-growl | choice | 0 | 2296 | 1–9 | 1, 2 | yes |
+
+Tag 10 codes match Appendix C.3: P27 `{result: 1 (win), reason: 0 (normal)}`,
+P28 `{result: 2 (loss), reason: 0 (normal)}`. A draw or escape is out of scope —
+no fixture produces one.
+
+In compact mode the state records (and the v8 `state|` diagnostic lines) are
+suppressed. Measured per-transition cost, 30 runs each on the P1 boundary:
+trace p50 123.7 ms / p95 133.4 ms with 70 trace lines, compact p50 122.8 ms /
+p95 129.7 ms with 2 lines — a 0.9 ms p50 delta, i.e. inside noise. Compact
+transport is worth using for the 70 → 2 line reduction in the worker trace
+buffer, not for latency.
 ## Dynamic battle request v8
 
 The mailbox layout below is unchanged by the A2/A3 revisions (the A2 artifact
@@ -344,6 +505,12 @@ already 0 for the live-AI battler of a non-link recorded battle, underflowing to
 past the end of a `u8[MAX_BATTLERS_COUNT][BATTLER_RECORD_SIZE]` array, corrupting
 EWRAM and wedging the turn. Fixed in `src/recorded_battle.c` by guarding the
 cursor before the decrement (clear nothing when the cursor is already 0).
+
+That guard is part of the v8c release-neutral hook and **must stay on the
+branch**: an early v9 WIP commit dropped it (it made
+`RecordedBattle_ClearBattlerAction` flag-independent), which silently re-opened
+the 64 KiB out-of-bounds write. Any diff that shows
+`src/recorded_battle.c` as changed against `sidedex/base-v8c` is a regression.
 
 With that fixed, a resolved `SIMULATE_TURN` now carries the request's
 `trainer_items` like a query does, so the AI makes the **real** item decision.
