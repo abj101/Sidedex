@@ -79,6 +79,15 @@ BLOB_HEADER_BYTES = 216
 BLOB_PAYLOAD_SHA_OFFSET = 56
 BLOB_MAGIC = b"SDXSTT01"
 
+# Pokémon Emerald uses 32 4 KiB flash sectors.  Sectors 0..27 are the
+# checksummed save slot; 28..31 may remain erased.  This image is useful only
+# for exercising mGBA's save loader.  Zeroed SaveBlock payloads are not a
+# playable save and must never be used as a release battle root.
+SAVE_SECTOR_BYTES = 4096
+SAVE_SECTOR_DATA_BYTES = 4084
+SAVE_SECTOR_COUNT = 32
+SAVE_SECTOR_SIGNATURE = 0x08012025
+
 # Volatile bytes/fields that are not part of the compared projection.  Anything not
 # named here must match or the comparison fails.
 EXCLUDE_LIST = (
@@ -133,6 +142,41 @@ def _capture_diagnostics(client) -> dict:
 
 def sha256_file(path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def _save_sector_checksum(data: bytes) -> int:
+    """Pokémon Emerald ``CalculateChecksum`` over little-endian u32 words."""
+    if len(data) != SAVE_SECTOR_DATA_BYTES:
+        raise ReleaseHarnessError("save sector data must be exactly 4084 bytes")
+    total = sum(int.from_bytes(data[i:i + 4], "little")
+                for i in range(0, len(data), 4)) & 0xFFFFFFFF
+    return ((total >> 16) + total) & 0xFFFF
+
+
+def write_empty_valid_save(path) -> dict:
+    """Write a sector-valid, empty Emerald flash image for loader diagnostics.
+
+    Save sectors 0..27 have the source-defined sector IDs, checksums,
+    signature, and counter.  This validates raw save loading only; its zeroed
+    save blocks do not represent an initialized player or game and cannot be
+    used to claim a battle root.
+    """
+    image = bytearray(b"\xff" * (SAVE_SECTOR_BYTES * SAVE_SECTOR_COUNT))
+    for sector_id in range(28):
+        offset = sector_id * SAVE_SECTOR_BYTES
+        data = bytes(SAVE_SECTOR_DATA_BYTES)
+        image[offset:offset + SAVE_SECTOR_DATA_BYTES] = data
+        footer = offset + SAVE_SECTOR_DATA_BYTES
+        image[footer:footer + 12] = (
+            sector_id.to_bytes(2, "little")
+            + _save_sector_checksum(data).to_bytes(2, "little")
+            + SAVE_SECTOR_SIGNATURE.to_bytes(4, "little")
+            + (1).to_bytes(4, "little")
+        )
+    target = Path(path)
+    target.write_bytes(image)
+    return {"path": str(target), "bytes": len(image),
+            "sha256": hashlib.sha256(image).hexdigest()}
 
 
 # ------------------------------------------------------------------ input script

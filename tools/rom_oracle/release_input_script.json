@@ -46,6 +46,6 @@
       "saved_warp_bytes": [25, 40, 255, 0, 255, 255],
       "map_layout_id": "0x00ed"
     },
-    "detail": "The 15,528-frame cold-boot input sequence did not reach a battle. The naming callback appears, but subsequent A presses return to the main-menu callback and the full sequence ends in CB2_Overworld with no party or battle flags. The saved warp bytes encode group 25/map 40; no battle-root state was captured. No compatible release save or savestate is present in the local repository, worktrees, or pinned source checkouts."
+    "detail": "The 15,528-frame cold-boot input sequence did not reach a battle. The naming callback appears, but subsequent A presses return to the main-menu callback and the full sequence ends in CB2_Overworld with no party or battle flags. The saved warp bytes encode group 25/map 40; no battle-root state was captured. A reproducible 128 KiB image with valid source-format sectors/checksums was loaded by the optional worker save loader, and the ROM reported SAVE_STATUS_OK (1), but its all-zero SaveBlock payload had no player party or initialized playable map. It is a loader diagnostic only, not a compatible game save or release root. No compatible playable release save or savestate is present in the local repository, worktrees, or pinned source checkouts."
   }
 }

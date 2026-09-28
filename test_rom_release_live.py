@@ -119,6 +119,31 @@ def test_release_cold_boot_enters_a_battle():
         assert hashlib.sha256(raw).hexdigest()
 
 
+def test_empty_valid_save_loads_but_is_not_a_playable_release_root(tmp_path):
+    """Exercise the external-save loader without treating empty blocks as a root."""
+    save_worker_value = os.environ.get("SIDEDEX_RELEASE_SAVE_WORKER")
+    if not save_worker_value:
+        pytest.skip("set SIDEDEX_RELEASE_SAVE_WORKER to a worker built with --save support")
+    save_worker = Path(save_worker_value)
+    if not save_worker.is_file():
+        pytest.skip("SIDEDEX_RELEASE_SAVE_WORKER does not exist")
+    save = tmp_path / "release-empty-valid.sav"
+    fixture = r.write_empty_valid_save(save)
+    import rom_bridge as rb
+    with rb.RomWorkerClient(
+        rom_path=ROM, worker_path=save_worker,
+        expected_artifact_sha256=r.PINNED_ROM_SHA256,
+        expected_worker_sha256=rb.sha256_file(save_worker),
+        worker_args=["--save", str(save)], timeout=180.0,
+    ) as client:
+        assert client.status["save_bytes"] == fixture["bytes"]
+        assert client.status["save_sha256"] == fixture["sha256"]
+        client.run_frames(1200)
+        assert client.read_memory(0x030062C0, 2) == 1  # SAVE_STATUS_OK
+        assert client.read_memory(r.RELEASE_MAP["gPlayerPartyCount"], 1) == 0
+        assert client.read_memory(r.RELEASE_MAP["gBattleTypeFlags"], 2) == 0
+
+
 def test_release_state_identity_is_rejected_by_test_elf():
     """A release save blob must fail closed when presented to the test ELF."""
     if not ELF.is_file():

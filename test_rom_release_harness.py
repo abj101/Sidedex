@@ -62,6 +62,25 @@ def test_release_map_matches_the_documented_pins():
     assert r.BATTLEMON["status1"] + 4 <= r.BATTLEMON_SIZE
 
 
+def test_empty_valid_save_uses_release_sector_layout_but_has_no_game_state(tmp_path):
+    path = tmp_path / "empty-valid.sav"
+    result = r.write_empty_valid_save(path)
+    image = path.read_bytes()
+    assert len(image) == 32 * 4096
+    assert result["bytes"] == len(image)
+    assert result["sha256"] == hashlib.sha256(image).hexdigest()
+    for sector_id in range(28):
+        start = sector_id * r.SAVE_SECTOR_BYTES
+        data = image[start:start + r.SAVE_SECTOR_DATA_BYTES]
+        footer = image[start + r.SAVE_SECTOR_DATA_BYTES:start + r.SAVE_SECTOR_BYTES]
+        assert int.from_bytes(footer[0:2], "little") == sector_id
+        assert int.from_bytes(footer[2:4], "little") == r._save_sector_checksum(data)
+        assert int.from_bytes(footer[4:8], "little") == r.SAVE_SECTOR_SIGNATURE
+    assert image[28 * r.SAVE_SECTOR_BYTES:] == b"\xff" * (4 * r.SAVE_SECTOR_BYTES)
+    assert image[4 * r.SAVE_SECTOR_BYTES:4 * r.SAVE_SECTOR_BYTES +
+                 r.SAVE_SECTOR_DATA_BYTES] == bytes(r.SAVE_SECTOR_DATA_BYTES)
+
+
 def test_patch_payload_targets_ewram_and_iwram():
     payload = bytes(r.SAVESTATE_EWRAM_OFFSET + 0x40000)
     patched = r.patch_payload(payload, {0x02030000: 0xABCD1234, 0x0300627C: 0x55667788})

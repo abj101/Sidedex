@@ -93,3 +93,22 @@ no alternate save recipe. The root SHA is therefore unset; every release
 scenario remains `release_ready: false`, H2 remains `blocked`, and the runtime
 label remains `compiled-engine`. H3 release boundary detection also remains
 blocked because no battle can be entered. No H2 turn comparison was run.
+
+## Follow-up: external save fallback probe (2026-09-28)
+
+The worker's optional `--save <path>` startup path was used with a 131072-byte
+fixture generated from the pinned source's flash layout: sectors 0–27 carry
+the correct IDs, signatures (`0x08012025`), checksums, and counters; sectors
+28–31 are erased. The worker reported the exact loaded byte count and SHA-256,
+and the ROM reported `gSaveFileStatus=SAVE_STATUS_OK` (1). This proves that the
+raw `.sav` fallback reaches the unmodified release ROM's save reader.
+
+The fixture's SaveBlock payloads are all zero. The ROM therefore has no
+initialized player or party (`gPlayerPartyCount=0`) and cannot serve as a
+playable save or battle root. We found no actual compatible `.sav` or
+savestate in local worktrees/source checkouts, and public fixture search found
+only unrelated stock Emerald or other expansion forks without matching source
+revision/ROM provenance. Populating SaveBlock1/2 and party/story state by hand
+would manufacture game progress, so the fallback is rejected for H2. The
+release root hash stays unset; H2 and release H3 remain blocked, and no turn
+comparison was run.

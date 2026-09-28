@@ -37,9 +37,17 @@
   ],
   "status": {
     "h2": "blocked",
-    "blocker": "root-capture-unavailable",
+    "blocker": "no-compatible-playable-release-save-or-cold-boot-battle-root",
     "root_sha256": null,
     "scenarios_run": [],
-    "label": "compiled-engine"
+    "label": "compiled-engine",
+    "save_probe": {
+      "sector_format_valid": true,
+      "rom_save_status": "SAVE_STATUS_OK",
+      "save_sha256": "642f97b89cb4acc48d31e997f2b8933609cbf34a9401cc57a60f2ba5f8851d52",
+      "player_party_count": 0,
+      "usable_as_battle_root": false,
+      "note": "The valid-sector fixture has zeroed SaveBlock payloads. It validates loading only and does not contain a playable game."
+    }
   }
 }
