@@ -1,7 +1,11 @@
 """Focused checks for the dynamic oracle request and pinned source IDs."""
+import hashlib
 import importlib.util
 import json
+import os
 import struct
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -332,11 +336,172 @@ def test_sdr2_decoder_rejects_the_negative_vectors():
             decode_sdr2((vectors / f"{name}.bin").read_bytes())
 
 
-@pytest.mark.skip(reason="live compact==trace equality needs B's v9 driver and a staged candidate ELF")
 def test_compact_projection_matches_trace_for_frozen_fixtures():
-    """P1, P26, P27, P28 and P29-first-move: tags 1-8 and 10 must equal the trace.
+    """P1, P26, P27, P28 and P29-first-move against a staged v9 candidate ELF.
 
-    Enabled once package B exposes a v9 request encoder/memory reader; the
-    assertion is `decode_sdr2(result_bytes)` vs `trace_words(events, tag)` for
-    each `cparty`/`cactive`/`cfield`/`cside`/`cbattle`/`crng`/`clegal`/`ctrainer`.
+    For each fixture: decode the committed SDR2 and check Appendix C.1 (CRC,
+    record count, required tags for the boundary kind, switch-only tag 7 at a
+    forced switch); then run the same request with the compact flag set and
+    compare every field of tags 1-8 and 10 against the `c<tag>` ROMTRACE mirror
+    the trace-flag run emits, so the transport path and the diagnostic path
+    cannot drift.
     """
+    elf = _v9_candidate_elf()
+    if elf is None:
+        pytest.skip("no staged v9 candidate ELF (set SIDEDEX_V9_ELF)")
+    worker_path = ROOT / "native/rom_worker/build/mingw/rom_worker.exe"
+    if not worker_path.is_file():
+        pytest.skip("pinned mGBA worker is not staged")
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from tools.rom_oracle import rom_diff_harness as harness  # noqa: PLC0415
+    import rom_bridge  # noqa: PLC0415
+
+    sha = hashlib.sha256(elf.read_bytes()).hexdigest().upper()
+    for fixture_id, stem, expected_boundary in V9_FIXTURES:
+        fixture = json.loads(
+            (ROOT / "tools/rom_oracle/fixtures" / f"{stem}.json").read_text(encoding="utf-8"))
+        with rom_bridge.RomWorkerClient(rom_path=elf, expected_artifact_sha256=sha,
+                                        timeout=60.0) as worker:
+            rows = _run_v9_fixture(harness, rom_bridge, worker, sha, fixture, fixture_id)
+        assert rows, fixture_id
+        assert rows[0]["boundary"] == expected_boundary, (fixture_id, rows[0])
+        for row in rows:
+            assert row["mismatches"] == [], (fixture_id, row["label"], row["mismatches"])
+            assert row["order"] == sorted(row["order"])
+        if expected_boundary == 3:
+            expect = fixture["actions"][0]["expect"]["result"]
+            code = {"win": 1, "loss": 2, "draw": 3}[expect]
+            assert rows[0]["terminal"] == [{"result": code, "reason": 0}], (fixture_id, rows[0])
+        if fixture_id == "P29":
+            assert len(rows) == 2 and rows[0]["order"] == rows[1]["order"]
+
+
+def _run_v9_fixture(harness, rom_bridge, worker, sha, fixture, fixture_id):
+    events, ready = [], None
+    for _ in range(400):
+        events.extend(worker.run_frames(60)["trace_events"])
+        found = [e for e in events if e.startswith("ROMTRACE|ready|")]
+        if found:
+            ready = found[-1]
+            break
+    assert ready, "the ROM never announced a v9 mailbox"
+    cells = ready.split("|")
+    worker.address = int(cells[2])
+    mailbox_bytes, result_addr = int(cells[3]), int(cells[6])
+    base = worker.save_checkpoint(name="a1b-base")
+    rid = [0]
+
+    def submit(request, flags, handle):
+        rid[0] += 1
+        payload = bytearray(harness.encode_request(request, request_id=rid[0]))
+        payload[4:6] = struct.pack("<H", 9)
+        payload = bytes(payload) + struct.pack("<IIHH", result_addr, 8192, 1, flags)
+        reply = worker.batch_turns(worker.address, [payload], mailbox_bytes=mailbox_bytes,
+                                   engine_elf_sha256=sha,
+                                   deadline_ms=int((time.monotonic() + 120) * 1000),
+                                   request_id=f"a1b-{fixture_id}-{rid[0]}", max_frames=24000,
+                                   handle=handle)
+        return reply["turns"][0]
+
+    root = fixture["root"]
+    submit(json.loads(json.dumps(root)), 0, base["handle"])
+    opening = worker.save_checkpoint(name="a1b-opening")
+    rows = []
+    for entry in fixture["actions"]:
+        branch = json.loads(json.dumps(root))
+        branch["candidate_action"] = entry["action"]
+        runs = {}
+        for flags in (0, 1):
+            worker.restore_state(opening["handle"])
+            turn = submit(branch, flags, opening["handle"])
+            head = worker.read_memory_block(result_addr, 64)
+            blob = None
+            if head[:4] == b"SDR2":
+                total = struct.unpack_from("<I", head, 8)[0]
+                if 64 <= total <= 8192:
+                    blob = head + worker.read_memory_block(result_addr + 64, total - 64)
+            runs[flags] = {"turn": turn, "blob": blob}
+        assert runs[0]["blob"] is not None, f"{fixture_id}: trace run committed no result"
+        assert runs[1]["blob"] is not None, f"{fixture_id}: compact run committed no result"
+        header, records = decode_sdr2(runs[1]["blob"])
+        order = sdr2_tag_order(runs[1]["blob"])
+        _check_c1(header, order, records)
+        # The request id is per-run by design; every other header field must match.
+        trace_header = decode_sdr2(runs[0]["blob"])[0]
+        assert {k: v for k, v in trace_header.items() if k != "request_id"} ==                {k: v for k, v in header.items() if k != "request_id"},             f"{fixture_id}: the compact flag changed the committed header"
+        mismatches = []
+        for mirror_name, tag_name, words in MIRROR:
+            if (tag_name == "legal" and header["boundary"] == 3) or \
+                    (tag_name == "terminal" and header["boundary"] != 3):
+                continue
+            traced = trace_words(runs[0]["turn"]["events"], mirror_name)
+            if not traced:
+                mismatches.append((tag_name, -1, None, None))
+                continue
+            flat = [word for row in records[tag_name] for word in row.values()]
+            if flat != traced[:len(flat)]:
+                mismatches.extend((tag_name, i, a, b)
+                                  for i, (a, b) in enumerate(zip(flat, traced)) if a != b)
+        rows.append({"label": entry["label"], "boundary": header["boundary"],
+                     "status": header["status"], "total": len(runs[1]["blob"]),
+                     "order": order, "mismatches": mismatches,
+                     "terminal": records.get("terminal")})
+    return rows
+
+
+V9_FIXTURES = (
+    ("P1", "p01_physical_neutral", 1),
+    ("P26", "p26_faint_forced_replacement", 2),
+    ("P27", "p27_terminal_win", 3),
+    ("P28", "p28_terminal_loss", 3),
+    ("P29", "p29_multiturn_branch", 1),
+)
+
+# Appendix C.1 required tag sets per boundary kind.
+C1_REQUIRED = {1: {1, 2, 3, 4, 5, 6, 7, 8, 9},
+               2: {1, 2, 3, 4, 5, 6, 7, 8, 9},
+               3: {1, 2, 3, 4, 5, 6, 8, 9, 10}}
+# name on the ROMTRACE mirror, tag name in the decoded result, words per entry.
+MIRROR = (("party", "party", 32), ("active", "active", 37), ("field", "field", 6),
+          ("side", "side", 12), ("battle", "battle", 10), ("rng", "rng", 8),
+          ("legal", "legal", 4), ("trainer", "trainer_action", 3),
+          ("terminal", "terminal", 2))
+
+
+def _v9_candidate_elf():
+    """The staged v9 candidate ELF, from SIDEDEX_V9_ELF or the A1 artifact dir."""
+    env = os.environ.get("SIDEDEX_V9_ELF")
+    if env:
+        path = Path(env)
+        return path if path.is_file() else None
+    artifacts = Path.home() / ".codex/artifacts/A1"
+    found = sorted(artifacts.glob("*/pokeemerald-test-headless.elf"),
+                   key=lambda path: path.stat().st_mtime)
+    return found[-1] if found else None
+
+
+def sdr2_tag_order(blob):
+    """The tags in wire order, walked from the record headers."""
+    total = struct.unpack_from("<I", blob, 8)[0]
+    order, off = [], 64
+    while off < total:
+        tag, size = struct.unpack_from("<HH", blob, off)
+        order.append(tag)
+        off += 4 + size + (-size % 4)
+    return order
+
+
+def _check_c1(header, order, records):
+    """Appendix C.1 structural rules for a committed result."""
+    if header["status"] != 0:
+        assert order == [11], "a nonzero status carries exactly tag 11"
+        return
+    assert order == sorted(order) and len(set(order)) == len(order), order
+    required = C1_REQUIRED[header["boundary"]]
+    assert required <= set(order), sorted(required - set(order))
+    assert len(records["party"]) == 12 and len(records["active"]) == 2
+    if header["boundary"] in (1, 2):
+        assert len(records["legal"]) >= 1, "a nonterminal boundary needs a legal action"
+    if header["boundary"] == 2:
+        assert {row["kind"] for row in records["legal"]} == {1}, "switch-only at a forced switch"

@@ -142,11 +142,47 @@ Unreadable values fail the transition with tag 11 instead.
 | `rng` | `gRngValue` and `gRng2Value` (must equal the header pair) |
 | `legal` | the ROM's own move/switch enumeration, the same source as the v8 `ROMTRACE|legal|` lines |
 | `trainer action` | the AI side's most recently chosen action captured in `TestRunner_Battle_CheckChosenMove` / `CheckSwitch` |
-| `events` | tagged from `RecordHP`/`RecordStatus1`/`RecordAbilityPopUp`/`CheckChosenMove`/`CheckSwitch`/`TraceChosenItem` |
+| `events` | tagged from `RecordHP`/`RecordStatus1`/`RecordAbilityPopUp`/`CheckChosenMove`/`CheckSwitch`/`TraceChosenItem`/`TraceSwitchOut` |
 
-Event kinds emitted: 1 move used, 2 damage, 3 heal, 6 faint, 8 switch in, 11
-ability activated, 12 item used/consumed. The other C.3 kinds have no ROM
+Event kinds emitted: 1 move used, 2 damage, 3 heal, 6 faint, 7 switch out, 8 switch
+in, 11 ability activated, 12 item used/consumed. Kind 7 is recorded in
+`Cmd_getswitchedmondata` (`src/battle_script_commands.c`) while the outgoing
+party slot is still readable, and only when the departing battler is alive — a
+faint replacement leaves as kind 6 (faint) instead. No green fixture exercises
+it: the only switch row, P25, is `unsupported-mechanic` (`a mailbox switch
+candidate … emits no ROMTRACE|boundary|`, see `FIXTURE_MATRIX.md`), so kind 7 is
+compiled and guarded but not demonstrated live. The other C.3 kinds have no ROM
 callback wired yet and are omitted rather than invented.
+
+#### Commit ordering (hard rule)
+
+The native worker stops a batch at the first `ROMTRACE|boundary|`,
+`ROMTRACE|terminal|` or `ROMTRACE|complete|` line, and `ROMTRACE|binary-ready|`
+is not on the worker's slim filter. The header and CRC must therefore be written
+*before* the first stop marker of a transition. For a boundary that order is
+projection → header+CRC → `boundary` → `binary-ready`; for a terminal it is
+projection → tag 10 → header+CRC → `terminal` → `binary-ready` → `complete`.
+Getting this wrong yields a decoded result with a zero CRC and record count, or
+no result at all (P27/P28 did exactly that before the fix).
+
+#### IWRAM headroom is a hard constraint (task for A2)
+
+The test ELF's IWRAM is effectively full: `.iwram.sbss` sits at the stack
+boundary, and a 1280-byte static array added to `test/test_runner_battle.c`
+corrupted the stack and crashed the ROM before the first turn (`arm-none-eabi-
+readelf` still reported the old section size, so per-symbol addresses from
+`arm-none-eabi-nm` are the dependable check). The tag 9 event ring therefore
+lives in the upper half of the 8192-byte result reservation
+(`SIDEDEX_EVENT_SCRATCH` 4096, `SIDEDEX_EVENT_STRIDE` 20). Any A2 change that
+adds statics here must rebuild the test ELF and re-run a driven turn to confirm
+the boundary hold still fires. The release ROM is unaffected (IWRAM 26,488 B of
+32 KiB, 80.83%).
+
+Also note: the standard build recipe runs the release (`TEST=0`) and test
+(`TEST=1`) builds in the *same* `build/modern` objdir, and `make` does not track
+flag changes, so after a `TEST=0` build the objects that depend on
+`-DTESTING` must be deleted before relinking the test ELF or the link fails on
+`sBattlerAbilities` (static under `TEST=0`, global under `TEST=1`).
 
 #### Compact-vs-`ROMTRACE` diagnostic equality
 
@@ -156,8 +192,34 @@ record word-for-word to ROMTRACE as
 `cparty`, `cactive`, `cfield`, `cside`, `cbattle`, `crng`, `clegal`, `ctrainer`
 and `cterminal`. `test_rom_oracle_dynamic.py` reassembles the chunks and asserts
 that binary tags 1–8 and 10 equal their textual counterparts for P1, P26, P27,
-P28 and P29's first move. In compact mode the state records (and the v8
-`state|` diagnostic lines) are suppressed to measure the printing cost.
+P28 and P29's first move. The test is live (it drives the pinned worker and a
+staged candidate ELF) and skips cleanly when no candidate is present; point
+`SIDEDEX_V9_ELF` at one to force it.
+
+Accepted rows against `pokeemerald-test-headless.elf` (WSL `5b72eec`, sha256
+`c6271a8b248fb0ca12dfad814a8ef6c1a3f9b927e2316297c83d7700491eff2b`): every row
+decodes with a valid CRC, the required tags for its boundary kind, and zero
+compact-vs-trace mismatches.
+
+| Fixture | Boundary | status | total | tags | events | compact==trace |
+| --- | --- | --- | --- | --- | --- | --- |
+| P1 tackle | choice | 0 | 2312 | 1–9 | 1, 2 | yes |
+| P26 growl | forced-switch | 0 | 2240 | 1–9 | 1, 2, 6 | yes |
+| P27 tackle-ko | terminal | 0 | 2232 | 1–6, 8–10 | 1, 2, 6 | yes |
+| P28 growl-into-ko | terminal | 0 | 2232 | 1–6, 8–10 | 1, 2, 6 | yes |
+| P29 branch-tackle | choice | 0 | 2312 | 1–9 | 1, 2 | yes |
+| P29 branch-growl | choice | 0 | 2296 | 1–9 | 1, 2 | yes |
+
+Tag 10 codes match Appendix C.3: P27 `{result: 1 (win), reason: 0 (normal)}`,
+P28 `{result: 2 (loss), reason: 0 (normal)}`. A draw or escape is out of scope —
+no fixture produces one.
+
+In compact mode the state records (and the v8 `state|` diagnostic lines) are
+suppressed. Measured per-transition cost, 30 runs each on the P1 boundary:
+trace p50 123.7 ms / p95 133.4 ms with 70 trace lines, compact p50 122.8 ms /
+p95 129.7 ms with 2 lines — a 0.9 ms p50 delta, i.e. inside noise. Compact
+transport is worth using for the 70 → 2 line reduction in the worker trace
+buffer, not for latency.
 ## Dynamic battle request v8
 
 The mailbox layout below is unchanged by the A2/A3 revisions (the A2 artifact
