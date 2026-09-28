@@ -23,10 +23,20 @@ import hashlib
 import json
 import os
 import struct
+import sys
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:  # rom_identity lives at the repository root
+    sys.path.insert(0, str(ROOT))
+
+from rom_identity import (  # noqa: E402
+    ENGINE_ELF_SHA256,
+    PROTOCOL_VERSION,
+    WORKER_SHA256 as ACTIVE_WORKER_SHA256,
+)
+
 TOOLS = Path(__file__).resolve().parent
 FIXTURES_DIR = TOOLS / "fixtures"
 ID_MAP_PATH = TOOLS / "numeric_id_map.json"
@@ -43,14 +53,30 @@ V8_ELF = HISTORICAL_V8_ELF
 V8B_ELF = HISTORICAL_V8B_ELF
 DEFAULT_WORKER = MINGW / "rom_worker.exe"
 
-# Pinned wave-2 gate identity (contract section 1): the fixture ``gate`` blocks and the
-# release harness refuse to run when the on-disk artifacts do not match these.
+# Active pin (contract section 1): the harness and its RawWorker refuse to run
+# when the on-disk artifacts or the wire protocol do not match rom_identity.
+# Gate V1 flipped the worker to wire 3; the ELF is still the v8c pin (hook 8)
+# until the Gate F flip.
 PINNED_SOURCE_SHA = "2576d0f3f4c861c760f0c55198e37e6d7b91683e"
-ELF_SHA256 = "422ade3e159916f9cc8bc1350ad274201b6af6cb9b9d38c14d073f85e982bc77"
-WORKER_SHA256 = "0601297e8bed7ca1319dc9be86a547aa01b16624ce0de5431093e6b59d7e5122"
-WIRE_PROTOCOL = 2
+ELF_SHA256 = ENGINE_ELF_SHA256.lower()
+WORKER_SHA256 = ACTIVE_WORKER_SHA256.lower()
+WIRE_PROTOCOL = PROTOCOL_VERSION
 ROM_HOOK_PROTOCOL = 8
 STATE_SCHEMA = "sidedex-state-v1"
+
+# Frozen provenance: the wave-2 ``gate`` block every fixture JSON was recorded
+# with. Fixtures are evidence and are never rewritten, so these values
+# deliberately do not follow the active pin.
+FIXTURE_GATE_IDENTITY = {
+    "source_sha": PINNED_SOURCE_SHA,
+    "elf_sha256": ELF_SHA256,
+    "worker_sha256": "0601297e8bed7ca1319dc9be86a547aa01b16624ce0de5431093e6b59d7e5122",
+    "wire_protocol": 2,
+    "rom_hook_protocol": 8,
+    "state_schema": "sidedex-state-v1",
+    "mode": "normal|logic-only",
+    "critical_policy": "normal",
+}
 
 MAGIC = 0x53445831  # SDX1
 VERSION_V8 = 8
@@ -657,8 +683,8 @@ def evidence(fixture, run, *, elf_sha, worker_sha):
             "raw_state_sha256": normal["state"]["masked_sha256"],
             "ram_windows_sha256": normal["state"]["ram_windows_sha256"],
             "gate": {"elf_sha256": elf_sha, "worker_sha256": worker_sha,
-                     "wire_protocol": 2, "state_schema": "sidedex-state-v1",
-                     "rom_hook_protocol": 8, "mode": "normal|logic-only",
+                     "wire_protocol": WIRE_PROTOCOL, "state_schema": STATE_SCHEMA,
+                     "rom_hook_protocol": ROM_HOOK_PROTOCOL, "mode": "normal|logic-only",
                      "critical_policy": run["policy"]},
             "regenerate": f"python -m pytest test_rom_diff_elf.py -q -k {fixture['id']}",
         })
@@ -685,14 +711,14 @@ class RawWorker:
         self.status = json.loads(self.proc.stdout.readline())
 
     def send(self, **fields):
-        request = {"protocol": fields.pop("protocol", 2), **fields}
+        request = {"protocol": fields.pop("protocol", WIRE_PROTOCOL), **fields}
         self.proc.stdin.write(json.dumps(request) + "\n")
         self.proc.stdin.flush()
         return json.loads(self.proc.stdout.readline())
 
     def close(self):
         try:
-            self.proc.stdin.write(json.dumps({"protocol": 2, "op": "quit"}) + "\n")
+            self.proc.stdin.write(json.dumps({"protocol": WIRE_PROTOCOL, "op": "quit"}) + "\n")
             self.proc.stdin.flush()
             self.proc.stdout.readline()
         except (OSError, ValueError):

@@ -272,7 +272,8 @@ def test_mode_and_policy_identity_rejection():
     identity = h.mint_token_identity(
         source_sha=h.ID_MAP["source_sha"], artifact_sha256=h.sha256_bytes(
             Path(ELFS[0]).read_bytes()).lower(), worker_sha256="0" * 64,
-        wire_protocol=2, rom_hook_protocol=8, state_schema="sidedex-state-v1",
+        wire_protocol=h.WIRE_PROTOCOL, rom_hook_protocol=h.ROM_HOOK_PROTOCOL,
+        state_schema=h.STATE_SCHEMA,
         mode="normal", critical_policy="normal")
     h.check_token_identity(identity, mode="normal", critical_policy="normal")
     with pytest.raises(h.IdentityMismatch):
@@ -324,17 +325,16 @@ def test_multihit_enumeration_matches_normal_engine(elf):
 
 
 def test_fixture_gate_identity_is_pinned():
-    """Every fixture carries the wave-2 pinned gate identity (source/ELF/worker/protocol)."""
+    """Every fixture still carries the frozen wave-2 gate block it was recorded with.
+
+    This is provenance, not the active pin: Gate V1 flipped the worker to wire 3 and
+    the fixtures are evidence, so ``h.FIXTURE_GATE_IDENTITY`` is deliberately fixed.
+    """
     for _, data in ALL_FIXTURES:
         gate = data.get("gate")
         assert gate, f"{data['id']} is missing its gate block"
-        assert gate["source_sha"] == h.ID_MAP["source_sha"], data["id"]
-        assert gate["elf_sha256"] == h.ELF_SHA256, data["id"]
-        assert gate["worker_sha256"] == h.WORKER_SHA256, data["id"]
-        assert gate["wire_protocol"] == 2 and gate["rom_hook_protocol"] == 8, data["id"]
-        assert gate["state_schema"] == "sidedex-state-v1", data["id"]
-        assert gate["mode"] == "normal|logic-only", data["id"]
-        assert gate["critical_policy"] == "normal", data["id"]
+        for field, expected in h.FIXTURE_GATE_IDENTITY.items():
+            assert gate.get(field) == expected, (data["id"], field, gate.get(field))
 
 
 def test_pinned_artifact_hashes():
