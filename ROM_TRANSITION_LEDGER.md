@@ -47,6 +47,14 @@ which has no child token. P25 and P19 remain unsupported. This benchmark
 confirms that the current logic-only mode is slower in wall time on four of
 five fixture rows and has no established throughput win.
 
+P1 fixed-root query microbenchmark (five runs, root savestate restored before
+each, timing the ROM query execution only): `QUERY_DAMAGE` p50/p95
+12.75/13.34 ms, `QUERY_AI_ACTION` 11.98/12.22 ms, 25 frames each.
+Root construction was 136.23 ms in the same run. The 528,448-byte root
+savestate restored in 0.19/0.22 ms p50/p95 over ten runs. These primitive
+timings explain why the earlier end-to-end query was around 137 ms; they do
+not establish end-to-end card latency at deeper nodes.
+
 | Item | Value |
 | --- | --- |
 | Integration branch | `codex/rom-transition-phases-1-4` |
