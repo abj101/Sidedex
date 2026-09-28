@@ -25,7 +25,8 @@ the older `handoff.md`, and scratch `work/**`. Bring the portraits over only if 
 | Source `pokeemerald-expansion` | `2576d0f3f4c861c760f0c55198e37e6d7b91683e` |
 | Release ROM `pokeemerald.gba` | `0ccaaad0878a9cbfb36fbefff800e9b6dd66055924b7595038ede1e8771ec5a2` |
 | Test ELF headless `pokeemerald-test-headless.elf` | `b26561e3f0590de47167730f93ed11427450dbc835a306272c9b898d39b473db` |
-| mGBA worker `rom_worker.exe` | `a3f9fca863136b9f1cb66c0493c692fc6a63d6e0c7fae178fb6089203f3cf2` |
+| mGBA worker `rom_worker.exe` | `9086977abe27597aa67ed8311c82f1e7f5e66a5f0b2fe4f665b7518a1c82fe86` (wire protocol 2, worker version 0.2.0; previous v1 binary retained as `rom_worker-v1-a3f9fca8.exe`) |
+| Test ELF v8 (STAGED, not yet pinned) | `3b34ac36db5b4139cde8a9308e2dba329fe9e87fecc812c046d0ebe31848d818` at `native/rom_worker/build/mingw/pokeemerald-test-v8.elf` (ROM hook protocol 8, mailbox 864 B) |
 
 The WSL checkout `/home/abj1/rom-oracle-checkout` sits on the pinned source commit and its `git diff HEAD`
 content-matches `tools/rom_oracle/dynamic_request.patch`, which applies cleanly to the pinned tree. The
@@ -76,10 +77,11 @@ The product keeps the `compiled-engine` label until H1/H2 and the scenario gates
 | --- | --- | --- |
 | Baseline preserved, pins verified | done | this file |
 | Contract v1 frozen | done | `ROM_TRANSITION_CONTRACT.md` |
-| Phase 1 | open | — |
-| Phase 2 | open | — |
+| Phase 1 | partial | A landed (commit `1aa0c82`): v8 ops/mode/policy, choice boundary, state export, RNG injection, real AI + no-leakage verified. Open: trainer items in a resolved turn (blocked, documented in `tools/rom_oracle/README.md`), forced-switch/faint boundary unverified, logic-only is a coarse 4x pump (130 vs 205 frames) not a presentation audit, outcome-weight enumeration not yet in the ROM layer |
+| Phase 2 | open | C starting on the frozen v8 layout |
 | Phase 3 | open | — |
-| Phase 4 | open | — |
+| Phase 4 | open | fixture matrix defined in `tools/rom_oracle/FIXTURE_MATRIX.md`; release method decided in `RELEASE_HARNESS_PLAN.md` |
+| Worker pin flip (protocol 2) | done | `rom_bridge.WORKER_SHA256` = `9086977A…`, `rom_worker.exe` = v2. Verified: focused set 75 passed/2 skipped; full suite `--ignore=work` 289 passed/7 skipped; `app.py --self-check` OK |
 
 ## Baseline limitations to keep visible (not to be papered over)
 
