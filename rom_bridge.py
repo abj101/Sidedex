@@ -72,6 +72,11 @@ V3_RESULT_HEADER_BYTES = 64
 V3_REQUIRED_RESULT_TAGS = frozenset(range(1, 8))
 V3_RESULT_ERROR_CODES = {(1, 1, 1): "incomplete-state"}
 
+# Optional JSONL transport profiling for the B0 profile. Default off (no
+# behaviour change); tools/rom_oracle/profile_b0.py sets this True and reads
+# RomWorkerClient.transport_samples for the encode/write/decode split.
+PROFILE_TRANSPORT = False
+
 
 def parse_binary_result(data: bytes, *, request_id: int | None = None,
                         mode: int | None = None, critical_policy: int | None = None) -> dict[str, Any]:
@@ -326,6 +331,7 @@ class RomWorkerClient:
         self._lock = threading.Lock()
         self._closed = False
         self._stderr_lines: queue.Queue = queue.Queue(maxsize=16)
+        self._transport_samples: list[dict[str, Any]] = []
 
         if not isinstance(expected_artifact_sha256, str) or len(expected_artifact_sha256) != 64 or any(
             char not in "0123456789abcdefABCDEF" for char in expected_artifact_sha256
@@ -397,6 +403,11 @@ class RomWorkerClient:
                 f"artifact SHA-256 {actual} does not match pinned artifact {expected_sha256}"
             )
         return actual
+
+    @property
+    def transport_samples(self) -> list[dict[str, Any]]:
+        """Per-request JSONL transport timings, populated only when PROFILE_TRANSPORT."""
+        return list(self._transport_samples)
 
     @property
     def worker_id(self) -> str:
@@ -477,17 +488,30 @@ class RomWorkerClient:
             if self._closed or self._process.poll() is not None:
                 raise WorkerExitedError("mGBA worker is not running")
             request = {"protocol": self.wire_protocol, "op": op, **fields}
+            t_encode_start = time.perf_counter()
             wire = json.dumps(request, separators=(",", ":"), allow_nan=False)
             if len(wire.encode("utf-8")) + 1 > MAX_MESSAGE_BYTES:
                 raise ValueError("request exceeds the worker message limit")
+            t_encode_end = time.perf_counter()
             try:
                 request_wire_bytes = len(wire.encode("utf-8")) + 1
                 self._process.stdin.write(wire + "\n")
                 self._process.stdin.flush()
             except (BrokenPipeError, OSError) as exc:
                 raise WorkerExitedError("mGBA worker closed its input pipe") from exc
+            t_write_end = time.perf_counter()
             reply_line = self._read_line(_timeout)
+            t_read_end = time.perf_counter()
             reply = _parse_reply(reply_line, self.wire_protocol)
+            t_decode_end = time.perf_counter()
+            if PROFILE_TRANSPORT:
+                self._transport_samples.append({
+                    "op": op,
+                    "encode_ns": (t_encode_end - t_encode_start) * 1e9,
+                    "write_ns": (t_write_end - t_encode_end) * 1e9,
+                    "read_ns": (t_read_end - t_write_end) * 1e9,
+                    "decode_ns": (t_decode_end - t_read_end) * 1e9,
+                })
             reply["_wire_bytes"] = len(reply_line.encode("utf-8")) + 1
             reply["_request_wire_bytes"] = request_wire_bytes
             if op in {"status", "run_frames", "reset", "load_state", "load_state_blob", "write_memory"}:
