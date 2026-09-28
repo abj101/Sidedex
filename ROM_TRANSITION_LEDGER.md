@@ -28,6 +28,25 @@ normal 205 frames/43.5 ms and logic-only 130 frames/51.3 ms. A fresh
 per-fixture p50/p95 table is required at the final pin; these older single
 transition numbers are comparison context, not acceptance measurements.
 
+Fresh v8c baseline on the pinned worker: five repeated transitions per mode
+from each fixture's fixed root, measured by `DiffSession.transition` with the
+same request and both RNG streams; p95 is the largest of five observations.
+This excludes root construction and savestate restore, which the final
+benchmark must report separately.
+
+| Fixture | Normal p50/p95 ms | Logic-only p50/p95 ms | Normal/logic frames |
+| --- | ---: | ---: | ---: |
+| P1 root move | 44.98 / 45.51 | 53.85 / 60.15 | 205 / 135 |
+| P29 first branch move | 46.31 / 51.35 | 52.39 / 54.27 | 205 / 135 |
+| P26 faint → forced switch | 53.27 / 53.99 | 63.35 / 64.27 | 295 / 170 |
+| P27 terminal win | 70.38 / 72.09 | 80.81 / 81.45 | 325 / 285 |
+| P28 terminal loss | 75.11 / 75.96 | 75.20 / 76.11 | 430 / 325 |
+
+P29's *deeper* transition cannot be timed through the current public API,
+which has no child token. P25 and P19 remain unsupported. This benchmark
+confirms that the current logic-only mode is slower in wall time on four of
+five fixture rows and has no established throughput win.
+
 | Item | Value |
 | --- | --- |
 | Integration branch | `codex/rom-transition-phases-1-4` |
