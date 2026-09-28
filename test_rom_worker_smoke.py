@@ -181,7 +181,11 @@ class RomWorkerProfileFlagTest(unittest.TestCase):
             text=True, encoding="utf-8", bufsize=1,
         )
         try:
-            json.loads(process.stdout.readline())
+            status = json.loads(process.stdout.readline())
+            # The timing flag only exists in the instrumented wire-3 worker; the
+            # pinned release-evidence worker has no profile key at all.
+            if status.get("supported_wire_protocols") != V3_WIRE_PROTOCOLS:
+                self.skipTest("worker at SIDEDEX_ROM_PATH is the pinned wire-2 build")
             process.stdin.write(json.dumps({"protocol": PROTOCOL, "op": "run_frames", "frames": 3}) + "\n")
             process.stdin.flush()
             return json.loads(process.stdout.readline())
