@@ -17,12 +17,12 @@
   "test_headless_elf_sha256": "44bdbe5aa7a071064a1dca20c411b0e3ab56c8e4d8fca00857f3b50d56c5bd93",
   "raw_trace_sha256": "e4051f1eb74a2dc61089c0bf15cf98a5472ad3b985a19f178235dfb98ae38034",
   "dynamic_oracle": {
-    "protocol_version": 7,
-    "test_elf_sha256": "de9041115179f18ae702b4bffff8774ff0c399ddc56c4ef5a8fdfe3bf7dc9aa8",
-    "headless_elf_sha256": "b26561e3f0590de47167730f93ed11427450dbc835a306272c9b898d39b473db",
+    "protocol_version": 8,
+    "test_elf_sha256": "23c34b8357eba2cc6a1b486d444a56fcd50852acb8846a9e585d3fdbce7ae3c1",
+    "headless_elf_sha256": "422ade3e159916f9cc8bc1350ad274201b6af6cb9b9d38c14d073f85e982bc77",
     "recipe": [
       "apply dynamic_request.patch to the pinned source (it already contains the trace hooks; trace_hooks.patch is only for the separate 170-record oracle)",
-      "make -j4 pokeemerald-test.elf TESTS='Sidedex oracle: dynamic AI singles request'",
+      "make -j4 pokeemerald-test.elf TESTS='Sidedex oracle: dynamic AI singles request' (use TEST=1 to select the build/modern-test objdir; the bare recipe reuses build/modern and must not race a rom build in the same tree)",
       "copy pokeemerald-test.elf to pokeemerald-test-headless.elf",
       "tools/patchelf/patchelf pokeemerald-test-headless.elf gTestRunnerHeadless '\\x01' gTestRunnerSkipIsFail \"\\x00\""
     ]

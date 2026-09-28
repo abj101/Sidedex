@@ -23,10 +23,10 @@ the older `handoff.md`, and scratch `work/**`. Bring the portraits over only if 
 | Artifact | SHA-256 |
 | --- | --- |
 | Source `pokeemerald-expansion` | `2576d0f3f4c861c760f0c55198e37e6d7b91683e` |
-| Release ROM `pokeemerald.gba` | `0ccaaad0878a9cbfb36fbefff800e9b6dd66055924b7595038ede1e8771ec5a2` |
-| Test ELF headless `pokeemerald-test-headless.elf` | `b26561e3f0590de47167730f93ed11427450dbc835a306272c9b898d39b473db` |
-| mGBA worker `rom_worker.exe` | `9086977abe27597aa67ed8311c82f1e7f5e66a5f0b2fe4f665b7518a1c82fe86` (wire protocol 2, worker version 0.2.0; previous v1 binary retained as `rom_worker-v1-a3f9fca8.exe`) |
-| Test ELF v8 (STAGED, not yet pinned) | `3b34ac36db5b4139cde8a9308e2dba329fe9e87fecc812c046d0ebe31848d818` at `pokeemerald-test-v8.elf`; **v8b candidate `9ca90e162dff496fd21406ac7915ff6ba57d17a332c54639663e66fe3a84d393`** at `pokeemerald-test-v8b.elf` (ROM hook protocol 8, mailbox 864 B). v8c in flight from package A3 (RNG-seeding fix + release-neutrality guard) will supersede v8b as the pin candidate |
+| Release ROM `pokeemerald.gba` | `0ccaaad0878a9cbfb36fbefff800e9b6dd66055924b7595038ede1e8771ec5a2` — the patch is release-neutral: a `TEST=0` build of the pinned source + patch reproduces this byte-for-byte (H1 now passes) |
+| Test ELF headless `pokeemerald-test-headless.elf` | `422ade3e159916f9cc8bc1350ad274201b6af6cb9b9d38c14d073f85e982bc77` (v8c; ROM hook protocol 8, mailbox 864 B; pre-patchelf `pokeemerald-test.elf` = `23c34b8357eba2cc6a1b486d444a56fcd50852acb8846a9e585d3fdbce7ae3c1`) |
+| mGBA worker `rom_worker.exe` | `0601297e8bed7ca1319dc9be86a547aa01b16624ce0de5431093e6b59d7e5122` (v3; wire protocol 2; canonical `ROMTRACE|legal|` survives the slim filter, `worker_id`, per-batch slot handle) |
+| Superseded (retained for repro) | `rom_worker-v1-a3f9fca8.exe`, `rom_worker-v2-9086977a.exe`, `pokeemerald-test-v7-headless-b26561e3.elf`, `pokeemerald-test-v8.elf` (`3b34ac36…`), `pokeemerald-test-v8b.elf` (`9ca90e16…`) |
 
 The WSL checkout `/home/abj1/rom-oracle-checkout` sits on the pinned source commit and its `git diff HEAD`
 content-matches `tools/rom_oracle/dynamic_request.patch`, which applies cleanly to the pinned tree. The
@@ -81,7 +81,8 @@ The product keeps the `compiled-engine` label until H1/H2 and the scenario gates
 | Phase 2 | done (wave 1) | C committed `fde93f5` + `cc3375c`: `QUERY_DAMAGE`/`QUERY_AI_ACTION`/`SIMULATE_TURN` split, v7/v8 encoders selected by the pin, `normal` + `item-ability-only` policies end to end (labels verified, mislabelled traces fail closed), ROM-enumerated `query|outcomes` consumer (the old Python composition was measurably wrong under normal crits), p50 136.7 ms / p95 144.8 ms query latency. Unsupported mechanics fail closed |
 | Phase 3 | partial | D wave 1 (`3dfec57`): `EnginePool.run_jobs` scheduler (deterministic merge, 3 workers per request, worker-exit survival with retry dedupe, deadline partials, ownership/portable routing, limits), `rom_transition.py` adapter with CRN pairing. Live 3-worker demo: 11.5 verified transitions/s, 3-worker vs 1-worker byte-identical event lists. **Open:** rom_eval/calc_service integration (wave 2), stable `owner_worker` id (B2) |
 | Phase 4 | partial | E wave 1 (`49e4918`): harness + 32-row fixture matrix, 8 rows green on both v8 and v8b with 0 diffs, AI-leakage/restore-determinism/identity-rejection/query-immutability checks pass, H4/H5 pass, H1 FAILED (patch not release-neutral - A3 fixing), H3 release half blocked (needs a battle-entry input script), H2 not run. **Open:** full normal-vs-logic-only matrix, release harness |
-| Worker pin flip (protocol 2) | done | `rom_bridge.WORKER_SHA256` = `9086977A…`, `rom_worker.exe` = v2. Verified: focused set 75 passed/2 skipped; full suite `--ignore=work` 289 passed/7 skipped; `app.py --self-check` OK |
+| Worker pin flip (protocol 2) | superseded | see the coordinated flip below |
+| Coordinated pin flip (ELF v8c + worker v3) | done, 3 known failures | `pinned_source.json` protocol_version 8 + both hashes, `rom_bridge` identity constants, artifacts swapped. Suite: **353 passed, 8 skipped, 3 failed**; the 3 are `test_rom_eval.py::PinnedEngineEvaluation` (`insufficient-samples`, 0 complete samples) because `rom_eval.py` still assumes the v7 after-turn mailbox — package D wave 2 owns it. `app.py --self-check` OK |
 
 ## Open items after wave 2 (owner)
 
