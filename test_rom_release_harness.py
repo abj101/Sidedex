@@ -475,3 +475,120 @@ def test_inject_scenario_round_trips_and_refuses_unrepresentable_fields():
     sparse = {"root": {"player_party": [{"species": 1}], "rng_main": [1, 2, 3]}}
     refused = r.inject_scenario(ProjectionClient(), sparse)["refused"]
     assert "rng_main" in refused and "expected 4 rng words" in refused["rng_main"]
+
+
+# ------------------------------------------------------------ C3: party decrypt + timers
+
+def _hand_party_mon(personality, ot_id, *, species=4, item=13, moves=(10, 45, 206, 0),
+                    pps=(35, 40, 40, 0), evs=(1, 2, 3, 4, 5, 6), ivs=(31, 30, 29, 28, 27, 26),
+                    hidden_nature=0):
+    """Independent encoder: packs the four plaintext substructs, rotates and encrypts them."""
+    sub0 = bytearray(12)
+    sub0[0:2] = species.to_bytes(2, "little")            # species:11, teraType:5
+    sub0[2:4] = item.to_bytes(2, "little")               # heldItem:10
+    sub1 = bytearray(12)
+    for i, move in enumerate(moves):
+        sub1[2 * i:2 * i + 2] = move.to_bytes(2, "little")
+        sub1[8 + i] = pps[i]
+    sub2 = bytearray(12)
+    sub2[0:6] = bytes(evs)
+    sub3 = bytearray(12)
+    packed = sum(iv << (5 * i) for i, iv in enumerate(ivs))
+    sub3[4:8] = packed.to_bytes(4, "little")
+    order = {  # personality % 24 == 7 -> slots (1, 0, 3, 2); == 0 -> (0, 1, 2, 3)
+        0: (0, 1, 2, 3), 7: (1, 0, 3, 2), 23: (3, 2, 1, 0)}[personality % 24]
+    plain = bytearray(48)
+    for kind, sub in enumerate((sub0, sub1, sub2, sub3)):
+        plain[order[kind] * 12:(order[kind] + 1) * 12] = sub
+    checksum = sum(int.from_bytes(plain[i:i + 2], "little") for i in range(0, 48, 2)) & 0xFFFF
+    key = personality ^ ot_id
+    secure = b"".join((int.from_bytes(plain[i:i + 4], "little") ^ key).to_bytes(4, "little")
+                      for i in range(0, 48, 4))
+    raw = bytearray(0x64)
+    raw[0:4] = personality.to_bytes(4, "little")
+    raw[4:8] = ot_id.to_bytes(4, "little")
+    raw[0x12] = hidden_nature << 3
+    raw[0x13] = 0x02                                       # hasSpecies
+    raw[0x1C:0x1E] = checksum.to_bytes(2, "little")
+    raw[0x20:0x50] = secure
+    raw[0x54], raw[0x56], raw[0x58] = 5, 20, 20
+    return bytes(raw)
+
+
+@pytest.mark.parametrize("personality", [0x12345600, 0x12345607 + 24 * 3, 0x1234560B + 12])
+def test_party_decode_matches_hand_encrypted_struct(personality):
+    ot_id = 0xA1B2C3D4
+    assert personality % 24 in (0, 7, 23), personality % 24
+    raw = _hand_party_mon(personality, ot_id, hidden_nature=2)
+    got = r.decode_party_mon(raw)
+    assert got["checksum_ok"] is True
+    assert (got["species"], got["item"]) == (4, 13)
+    assert [got[f"move{i}"] for i in range(1, 5)] == [10, 45, 206, 0]
+    assert [got[f"pp{i}"] for i in range(1, 5)] == [35, 40, 40, 0]
+    assert [got[f"ev_{n}"] for n in r.IV_ORDER] == [1, 2, 3, 4, 5, 6]
+    assert [got[f"iv_{n}"] for n in r.IV_ORDER] == [31, 30, 29, 28, 27, 26]
+    assert got["nature"] == (personality % 25) ^ 2
+
+
+def test_party_decode_negative_controls():
+    personality, ot_id = 0x12345607 + 24 * 3, 0xA1B2C3D4
+    raw = bytearray(_hand_party_mon(personality, ot_id))
+    # wrong key (otId only, the vanilla-checksum style mistake): must not decode
+    wrong = bytearray(raw)
+    wrong[0:4] = (personality ^ 0xFFFF).to_bytes(4, "little")
+    bad = r.decode_party_mon(bytes(wrong))
+    assert bad["checksum_ok"] is False and (bad["species"], bad["move1"]) != (4, 10)
+    # right key but wrong rotation (personality % 24 differs): fields land in the wrong slots
+    rotated = bytearray(raw)
+    key = personality ^ ot_id
+    rotated[0:4] = (personality + 1).to_bytes(4, "little")
+    rotated[0x20:0x50] = b"".join(
+        ((int.from_bytes(raw[0x20 + i:0x24 + i], "little") ^ key ^ (personality + 1) ^ ot_id)
+         ).to_bytes(4, "little") for i in range(0, 48, 4))
+    wrong_order = r.decode_party_mon(bytes(rotated))
+    assert (wrong_order["species"], wrong_order["move1"]) != (4, 10)
+    # a flipped ciphertext bit is caught by the checksum
+    raw[0x22] ^= 0x01
+    assert r.decode_party_mon(bytes(raw))["checksum_ok"] is False
+
+
+def test_projection_reads_party_timers_and_ai_flags():
+    client = ProjectionClient()
+    client.write_memory(r.RELEASE_MAP["gPlayerPartyCount"], b"\x01")
+    client.write_memory(r.RELEASE_MAP["gPlayerParty"], _hand_party_mon(0x12345607, 0x11223344))
+    for off, name in ((0, "reflect_timer"), (2, "light_screen_timer"), (4, "mist_timer"),
+                      (6, "safeguard_timer"), (14, "aurora_veil_timer"), (16, "tailwind_timer"),
+                      (21, "follow_me_timer")):
+        client.write_memory(r.RELEASE_MAP["gSideTimers"] + 32 + off, bytes([off + 1]))
+    client.write_memory(r.RELEASE_MAP["gFieldTimers"] + 4, b"\x03")
+    client.write_memory(r.RELEASE_MAP["gFieldTimers"] + 5, b"\x04")
+    client.write_memory(r.RELEASE_MAP["gWishFutureKnock"] + 28, b"\x05")
+    # gBattleResources -> ai -> aiFlags[1]
+    client.write_memory(r.RELEASE_MAP["gBattleResources"], (0x02010000).to_bytes(4, "little"))
+    client.write_memory(0x02010000 + 0x14, (0x02020000).to_bytes(4, "little"))
+    client.write_memory(0x02020000 + 0x18 + 4, (0x20000000).to_bytes(4, "little"))
+    proj = r.release_projection(client)
+    mon = proj["party"][0]
+    assert (mon["present"], mon["species"], mon["move3"], mon["iv_spd"]) == (1, 4, 206, 26)
+    assert proj["party"][1]["present"] == 0 and proj["party"][1]["slot"] == 1
+    assert {"ability", "form"} == set(proj["excluded"]["party"])
+    assert [proj["field"][0][k] for k in ("weather_timer", "terrain_timer", "trick_room_timer")] == [5, 4, 3]
+    side1 = proj["side"][1]
+    assert [side1[k] for k in ("reflect_timer", "light_screen_timer", "mist_timer", "safeguard_timer",
+                               "aurora_veil_timer", "tailwind_timer", "follow_me_timer")] == [1, 3, 5, 7, 15, 17, 22]
+    assert all(proj["side"][0][k] == 0 for k in r.SIDE_TIMER)
+    assert proj["battle"][0]["ai_flags"] == 0x20000000
+    assert "ai_flags" not in proj["excluded"]["battle"]
+    # negative control: no AI struct allocated -> excluded with a reason, never 0
+    empty = r.release_projection(ProjectionClient())
+    assert "ai_flags" not in empty["battle"][0] and empty["excluded"]["battle"]["ai_flags"]
+
+
+def test_projection_refuses_a_corrupt_party_mon():
+    client = ProjectionClient()
+    raw = bytearray(_hand_party_mon(0x12345607, 0x11223344))
+    raw[0x30] ^= 0xFF
+    client.write_memory(r.RELEASE_MAP["gPlayerPartyCount"], b"\x01")
+    client.write_memory(r.RELEASE_MAP["gPlayerParty"], bytes(raw))
+    with pytest.raises(r.ReleaseHarnessError, match="checksum"):
+        r.release_projection(client)

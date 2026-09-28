@@ -81,6 +81,12 @@ RELEASE_MAP = {
     # release checkout; every IWRAM pin is build-specific and must be re-read
     # from the ELF for a new build.
     "gBattleControllerExecFlags": 0x02000340,
+    # Timers / AI (C3).  Re-checked against pokeemerald.map and `nm -S` of the pinned
+    # release ELF (gSideTimers is 0x40 bytes = 2 x 32).
+    "gSideTimers": 0x02000594,
+    "gWishFutureKnock": 0x02000758,
+    "gBattleResources": 0x0200083C,
+    "gFieldTimers": 0x02000878,
     "gBattlersCount": 0x02000344,
     "gBattlerPartyIndexes": 0x02000348,
     "gCurrentTurnActionNumber": 0x0200035C,
@@ -148,7 +154,7 @@ BATTLEMON.update({
 # struct Pokemon (party mon, stride 0x64): the 0x50-byte BoxPokemon is followed
 # by plaintext battle stats.  The BoxPokemon secures (species/item/moves/pp/
 # IVs/EVs/nature) live in PID-scrambled substructures at +0x20..0x4F; see
-# PARTY_ENCRYPTED_REASON.
+# decode_party_mon.
 POKEMON_SIZE = 0x64
 POKEMON_STATUS1 = 0x50
 POKEMON_LEVEL = 0x54
@@ -156,6 +162,32 @@ POKEMON_HP = 0x56
 POKEMON_MAX_HP = 0x58
 POKEMON_HAS_SPECIES_BIT = 0x02   # BoxPokemon +0x13, hasSpecies:1
 POKEMON_BOX_FLAGS = 0x13
+
+# Decrypt/rotate of the party mon's 48-byte secure region (C3).  Sources in the pinned
+# release checkout: DecryptBoxMon src/pokemon.c:2549 (XOR every u32 with otId then
+# personality, i.e. key = personality ^ otId); GetSubstruct src/pokemon.c:2582
+# (personality % 24 rotation; the table is SUBSTRUCT_CASE(n, v1..v4) = the slot that
+# holds substruct type 0..3); 12-byte substructs, include/pokemon.h:130/147/169/185.
+POKEMON_SECURE = 0x20
+SUBSTRUCT_BYTES = 12
+SUBSTRUCT_SLOTS = (
+    (0, 1, 2, 3), (0, 1, 3, 2), (0, 2, 1, 3), (0, 3, 1, 2), (0, 2, 3, 1), (0, 3, 2, 1),
+    (1, 0, 2, 3), (1, 0, 3, 2), (2, 0, 1, 3), (3, 0, 1, 2), (2, 0, 3, 1), (3, 0, 2, 1),
+    (1, 2, 0, 3), (1, 3, 0, 2), (2, 1, 0, 3), (3, 1, 0, 2), (2, 3, 0, 1), (3, 2, 0, 1),
+    (1, 2, 3, 0), (1, 3, 2, 0), (2, 1, 3, 0), (3, 1, 2, 0), (2, 3, 1, 0), (3, 2, 1, 0),
+)
+POKEMON_NATURE_BYTE = 0x12        # language:3 | hiddenNatureModifier:5 (include/pokemon.h:255)
+POKEMON_CHECKSUM = 0x1C
+NUM_NATURES = 25                  # include/constants/pokemon.h:74
+IV_ORDER = ("hp", "atk", "def", "spe", "spa", "spd")   # hpIV..spDefenseIV, 5 bits each
+BATTLE_RESOURCES_AI = 0x14        # struct BattleResources.ai (include/battle.h:440)
+AI_FLAGS = 0x18                   # struct AI_ThinkingStruct.aiFlags[] (include/battle.h:396)
+B_POSITION_OPPONENT_LEFT = 1
+SIDE_TIMER_SIZE = 32              # nm -S gSideTimers 0x40 / 2; GetSwitchinHazardsDamage lsls #5
+SIDE_TIMER = {"reflect_timer": 0, "light_screen_timer": 2, "mist_timer": 4, "safeguard_timer": 6,
+              "aurora_veil_timer": 14, "tailwind_timer": 16, "follow_me_timer": 21}
+FIELD_TIMER = {"trick_room_timer": 4, "terrain_timer": 5}
+WEATHER_DURATION = 28             # gWishFutureKnock.weatherDuration (battle_util.c:1807)
 
 # struct DisableStruct stride is derived from the release map (gProtectStructs
 # 0x020006A4 - gDisableStructs 0x020005F4 = 0xB0 over 4 battlers).
@@ -942,17 +974,25 @@ TABLES_PATH = SDR2_VECTORS / "tables.json"
 PROJECTION_GROUPS = ("party", "active", "field", "side", "battle", "rng")
 
 PARTY_ENCRYPTED = (
-    "struct Pokemon box substructures (+0x20..0x4F) are PID-scrambled and this build's "
-    "PokemonSubstruct bit layout is bespoke (species:11, teraType:5, heldItem:10, "
-    "nickname11/12, ivsWerePerfected). The release-side box cipher key is not the vanilla "
-    "checksum, so the harness does not decode it and does not invent a value")
+    "party substructures are read (decode_party_mon) but inject_scenario does not re-encrypt "
+    "and write them, so this field is refused rather than half-written")
+PARTY_ABILITY = (
+    "the party ability is a species-table slot picked by substruct3.abilityNum; the species "
+    "ability table is ROM data, not RAM, so the harness does not derive it")
+PARTY_FORM = (
+    "form is derived from species/personality by the A1 exporter; the rule is not in this "
+    "worktree and is not stored in the party mon")
 A1_FLAG_WORD = (
     "composite flag word packed by the A1 exporter; its bit layout is defined by the A1 "
     "README section 'v9 flag words', which is not present in this worktree")
 NOT_ONE_FIELD = "no single release RAM field carries this value (derived or exporter-owned)"
-TIMER_NOT_PINNED = (
-    "the countdown lives in the source's status-timer storage, which is not pinned in "
-    "RELEASE_MAP; adding a guessed offset would invent a value")
+HAZARD_LAYERS = (
+    "hazard_layers packing is defined by the A1 README 'v9 flag words', not present here; the raw "
+    "spikesAmount/toxicSpikesAmount/stealthRockAmount bytes exist in gSideTimers but are not packed")
+BATTLE_ITEMS = (
+    "item_count/item1-4 need A1's definition (trainer bag vs AI heldItems); no single release "
+    "global carries them")
+NO_AI_STRUCT = "gBattleResources->ai is not allocated (pointer outside EWRAM), so aiFlags does not exist"
 
 
 def load_tables(path=TABLES_PATH) -> dict:
@@ -973,6 +1013,42 @@ def _u32(raw: bytes, off: int) -> int:
 
 def _s8(value: int) -> int:
     return value - 256 if value >= 128 else value
+
+
+def _secure_xor(raw: bytes, key: int) -> bytes:
+    """Encrypt == decrypt: XOR each u32 of the 48-byte secure region with the key."""
+    return b"".join((_u32(raw, i) ^ key).to_bytes(4, "little")
+                    for i in range(0, 4 * SUBSTRUCT_BYTES, 4))
+
+
+def decode_party_mon(raw: bytes) -> dict:
+    """Decode the encrypted substructures of a ``struct Pokemon`` byte image (>= 0x50 bytes).
+
+    Key = personality ^ otId (DecryptBoxMon); substruct order from personality % 24.
+    Returns the projection field values plus ``checksum_ok`` (the sum of the 24 decrypted
+    u16 words equals BoxPokemon.checksum, CalculateBoxMonChecksum src/pokemon.c:2027).
+    """
+    personality, ot_id = _u32(raw, 0), _u32(raw, 4)
+    plain = _secure_xor(raw[POKEMON_SECURE:POKEMON_SECURE + 4 * SUBSTRUCT_BYTES],
+                        personality ^ ot_id)
+    slots = SUBSTRUCT_SLOTS[personality % 24]
+    s0, s1, s2, s3 = (plain[slot * SUBSTRUCT_BYTES:(slot + 1) * SUBSTRUCT_BYTES] for slot in slots)
+    ivs = _u32(s3, 4)
+    out = {
+        "species": _u16(s0, 0) & 0x7FF,
+        "item": _u16(s0, 2) & 0x3FF,
+        # effective nature = GetNatureFromPersonality ^ hiddenNatureModifier (pokemon.c:3163)
+        "nature": (personality % NUM_NATURES) ^ (raw[POKEMON_NATURE_BYTE] >> 3),
+    }
+    for i in range(4):
+        out[f"move{i + 1}"] = _u16(s1, 2 * i) & 0x7FF
+        out[f"pp{i + 1}"] = s1[8 + i] & 0x7F
+    for i, name in enumerate(IV_ORDER):
+        out[f"iv_{name}"] = (ivs >> (5 * i)) & 0x1F
+        out[f"ev_{name}"] = s2[i]
+    words = sum(_u16(plain, i) for i in range(0, len(plain), 2)) & 0xFFFF
+    out["checksum_ok"] = words == _u16(raw, POKEMON_CHECKSUM)
+    return out
 
 
 def release_projection(client, *, battlers: int = 2, party_slots: int = 6) -> dict:
@@ -1007,14 +1083,27 @@ def release_projection(client, *, battlers: int = 2, party_slots: int = 6) -> di
 
     # ----- battle
     results = client.read_memory_block(RELEASE_MAP["gBattleResults"], 0x30)
+    # ai_flags: gBattleResources (ptr) -> ai (+0x14, ptr) -> aiFlags[opponent left] (+0x18+4)
+    def ewram_ptr(address):
+        value = client.read_memory(address, 4)
+        return value if EWRAM_BASE <= value < EWRAM_BASE + 0x40000 else 0
+
+    resources = ewram_ptr(RELEASE_MAP["gBattleResources"])
+    ai = ewram_ptr(resources + BATTLE_RESOURCES_AI) if resources else 0
+    ai_flags = None
+    if ai:
+        ai_flags = client.read_memory(ai + AI_FLAGS + 4 * B_POSITION_OPPONENT_LEFT, 4)
+    else:
+        excluded["battle"]["ai_flags"] = NO_AI_STRUCT
     record("battle", {
         "turn": results[0x13],
         "outcome": client.read_memory(RELEASE_MAP["gBattleOutcome"], 2),
         "type_flags": client.read_memory(RELEASE_MAP["gBattleTypeFlags"], 2),
         "battler_count": client.read_memory(RELEASE_MAP["gBattlersCount"], 1),
+        "ai_flags": ai_flags,
     })
-    for name in ("ai_flags", "item_count", "item1", "item2", "item3", "item4"):
-        excluded["battle"][name] = NOT_ONE_FIELD
+    for name in ("item_count", "item1", "item2", "item3", "item4"):
+        excluded["battle"][name] = BATTLE_ITEMS
 
     # ----- field (gBattleWeather raw word; gFieldStatuses flag bits)
     field_statuses = client.read_memory(RELEASE_MAP["gFieldStatuses"], 4)
@@ -1022,9 +1111,11 @@ def release_projection(client, *, battlers: int = 2, party_slots: int = 6) -> di
         "weather": client.read_memory(RELEASE_MAP["gBattleWeather"], 2),
         "terrain": field_statuses & STATUS_FIELD_TERRAIN_MASK,
         "trick_room": (field_statuses & STATUS_FIELD_TRICK_ROOM) and 1 or 0,
+        # weatherDuration lives in gWishFutureKnock, not gFieldTimers (battle_util.c:1807)
+        "weather_timer": client.read_memory(RELEASE_MAP["gWishFutureKnock"] + WEATHER_DURATION, 1),
+        **{name: client.read_memory(RELEASE_MAP["gFieldTimers"] + off, 1)
+           for name, off in FIELD_TIMER.items()},
     })
-    for name in ("weather_timer", "terrain_timer", "trick_room_timer"):
-        excluded["field"][name] = TIMER_NOT_PINNED
 
     # ----- side (gSideStatuses[side] is the source side-status word)
     for side in range(2):
@@ -1034,10 +1125,10 @@ def release_projection(client, *, battlers: int = 2, party_slots: int = 6) -> di
             "screens": status & SIDE_STATUS_SCREEN_ANY,
             "hazards": status & SIDE_STATUS_HAZARDS_ANY,
             "conditions": status & SIDE_STATUS_CONDITIONS_ANY,
+            **{name: client.read_memory(RELEASE_MAP["gSideTimers"] + side * SIDE_TIMER_SIZE + off, 1)
+               for name, off in SIDE_TIMER.items()},
         })
-    for name in ("hazard_layers", "reflect_timer", "light_screen_timer", "aurora_veil_timer",
-                 "mist_timer", "safeguard_timer", "tailwind_timer", "follow_me_timer"):
-        excluded["side"][name] = TIMER_NOT_PINNED if name.endswith("_timer") else NOT_ONE_FIELD
+    excluded["side"]["hazard_layers"] = HAZARD_LAYERS
 
     # ----- active (gBattleMons / gBattlerPartyIndexes / gDisableStructs)
     for b in range(battlers):
@@ -1076,7 +1167,7 @@ def release_projection(client, *, battlers: int = 2, party_slots: int = 6) -> di
     for name in ("form", "status3", "volatile_flags", "protect_flags", "special_status_flags"):
         excluded["active"][name] = A1_FLAG_WORD if name.endswith("_flags") else NOT_ONE_FIELD
 
-    # ----- party (struct Pokemon plaintext tail only)
+    # ----- party (plaintext tail + decrypted substructures)
     for side, (party_sym, count_sym) in enumerate((("gPlayerParty", "gPlayerPartyCount"),
                                                    ("gEnemyParty", "gEnemyPartyCount"))):
         count = client.read_memory(RELEASE_MAP[count_sym], 1)
@@ -1084,18 +1175,20 @@ def release_projection(client, *, battlers: int = 2, party_slots: int = 6) -> di
             raw = client.read_memory_block(RELEASE_MAP[party_sym] + slot * POKEMON_SIZE,
                                            POKEMON_SIZE)
             present = (raw[POKEMON_BOX_FLAGS] & POKEMON_HAS_SPECIES_BIT) and slot < count
-            record("party", {
-                "side": side,
-                "slot": slot,
-                "level": raw[POKEMON_LEVEL] if present else 0,
-                "hp": _u16(raw, POKEMON_HP) if present else 0,
-                "max_hp": _u16(raw, POKEMON_MAX_HP) if present else 0,
-                "status1": _u32(raw, POKEMON_STATUS1) if present else 0,
-                "present": 1 if present else 0,
-            })
-    for name in fields["party"]:
-        if name not in ("side", "slot", "level", "hp", "max_hp", "status1", "present"):
-            excluded["party"][name] = PARTY_ENCRYPTED
+            values = {"side": side, "slot": slot, "present": 1 if present else 0}
+            if present:
+                secure = decode_party_mon(raw)
+                if not secure.pop("checksum_ok"):
+                    raise ReleaseHarnessError(
+                        f"party side {side} slot {slot}: decrypted substructure checksum mismatch")
+                values.update(secure, level=raw[POKEMON_LEVEL], hp=_u16(raw, POKEMON_HP),
+                              max_hp=_u16(raw, POKEMON_MAX_HP), status1=_u32(raw, POKEMON_STATUS1))
+            else:
+                values.update({name: 0 for name in fields["party"]
+                              if name not in ("side", "slot", "ability", "form")})
+            record("party", values)
+    excluded["party"]["ability"] = PARTY_ABILITY
+    excluded["party"]["form"] = PARTY_FORM
 
     return {**out, "excluded": excluded}
 

@@ -260,3 +260,58 @@ def test_release_state_identity_is_rejected_by_test_elf():
     with _client(ELF, r.PINNED_ELF_SHA256) as test_elf:
         with pytest.raises((rb.WorkerProtocolError, rb.WorkerResponseError), match="identity"):
             test_elf.import_state(blob, name="reject-release-identity")
+
+
+def test_release_party_decrypt_and_reencrypt_round_trip(tmp_path):
+    """C3: decode the root's party, write a re-encrypted edit back, re-read, restore."""
+    with _client() as client:
+        try:
+            r.run_route(client, r.load_input_script(), milestones_dir=tmp_path,
+                        script_path=_script_path())
+        except (r.ReleaseRootUnavailable, r.RouteStepError) as exc:
+            pytest.skip(f"release root capture blocked: {exc}")
+        base = r.RELEASE_MAP["gPlayerParty"]
+        original = client.read_memory_block(base, r.POKEMON_SIZE)
+        mon = r.decode_party_mon(original)
+        assert mon["checksum_ok"] is True
+        # starter plausibility, cross-checked against the independent gBattleMons copy
+        battle = client.read_memory_block(r.RELEASE_MAP["gBattleMons"], r.BATTLEMON_SIZE)
+        assert mon["species"] == int.from_bytes(battle[:2], "little") != 0
+        assert [mon[f"move{i}"] for i in range(1, 5)] == [
+            int.from_bytes(battle[r.BATTLEMON["moves"] + 2 * i:][:2], "little") for i in range(4)]
+        assert [mon[f"pp{i}"] for i in range(1, 5)] == list(
+            battle[r.BATTLEMON["pp"]:r.BATTLEMON["pp"] + 4])
+        assert original[r.POKEMON_LEVEL] == int.from_bytes(battle[r.BATTLEMON["level"]:][:1], "little")
+
+        # decrypt -> edit pp1 in the plaintext substruct 1 -> fix checksum -> re-encrypt -> write
+        personality = int.from_bytes(original[:4], "little")
+        key = personality ^ int.from_bytes(original[4:8], "little")
+        plain = bytearray(r._secure_xor(original[0x20:0x50], key))
+        assert bytes(r._secure_xor(bytes(plain), key)) == original[0x20:0x50]   # symmetric cipher
+        pp_at = r.SUBSTRUCT_SLOTS[personality % 24][1] * r.SUBSTRUCT_BYTES + 8
+        assert plain[pp_at] == mon["pp1"]
+        plain[pp_at] = mon["pp1"] - 1
+        edited = bytearray(original)
+        edited[0x20:0x50] = r._secure_xor(bytes(plain), key)
+        edited[r.POKEMON_CHECKSUM:r.POKEMON_CHECKSUM + 2] = (
+            (int.from_bytes(original[r.POKEMON_CHECKSUM:r.POKEMON_CHECKSUM + 2], "little") - 1)
+            & 0xFFFF).to_bytes(2, "little")
+        try:
+            client.write_memory(base, bytes(edited))
+            assert client.read_memory_block(base, r.POKEMON_SIZE) == bytes(edited)
+            after = r.release_projection(client)["party"][0]
+            assert after["pp1"] == mon["pp1"] - 1
+            assert {k: v for k, v in after.items() if k not in ("pp1", "side", "slot", "level", "hp",
+                                                                   "max_hp", "status1", "present")} == {
+                k: v for k, v in mon.items() if k not in ("pp1", "checksum_ok")}
+        finally:
+            client.write_memory(base, original)
+        assert client.read_memory_block(base, r.POKEMON_SIZE) == original
+        assert r.decode_party_mon(client.read_memory_block(base, r.POKEMON_SIZE)) == mon
+
+        proj = r.release_projection(client)
+        assert proj["party"][0]["species"] == mon["species"]
+        assert set(proj["excluded"]["party"]) == {"ability", "form"}
+        # no battle timers are running at the root; all zero by construction of the battle start
+        assert all(proj["side"][s][k] == 0 for s in (0, 1) for k in r.SIDE_TIMER)
+        assert proj["field"][0]["weather_timer"] == 0 and proj["battle"][0]["ai_flags"] == 0
