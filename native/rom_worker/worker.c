@@ -20,7 +20,7 @@
 #endif
 #define ROM_WORKER_NAME "sidedex-mgba-worker/" ROM_WORKER_VERSION
 
-#define PROTOCOL_VERSION 2
+#define PROTOCOL_VERSION 3
 /* A base64 state blob can exceed the ordinary 64 KiB request line, so the
  * request buffer holds one full message plus JSON framing. */
 #define MAX_MESSAGE_BYTES 1048576
@@ -36,6 +36,10 @@
 #define MAX_MEMORY_BLOCK_BYTES 4096
 #define MAX_BATCH_TURNS 8
 #define MAX_BATCH_RESPONSE_BYTES 1048576
+#define MAX_V9_MAILBOX_BYTES 2048
+#define MAX_V9_RESULT_BYTES 8192
+#define MAX_V9_RESULT_BASE64_BYTES 10924
+#define V9_RESULT_HEADER_BYTES 64
 /* Slot count is the binding limit for the ~528 KiB savestates we ship; the
  * byte cap is the hard ceiling the contract requires (64 MiB). */
 #define MAX_STATE_SLOTS 3
@@ -240,6 +244,8 @@ static uint64_t s_state_total_limit = MAX_STATE_TOTAL_BYTES;
 
 static struct mCore *s_core;
 static uint64_t s_artifact_bytes;
+static uint64_t s_save_bytes;
+static char s_save_sha256[65];
 static char s_trace_events[MAX_TRACE_EVENTS][MAX_TRACE_BYTES];
 static size_t s_trace_count;
 static bool s_trace_overflow;
@@ -252,18 +258,32 @@ struct BatchTurn {
     bool complete;
     bool overflow;
     uint64_t frames;
+    double elapsed_ms;
+    double restore_ms;
     size_t count;
     char stop[16];
     char stop_marker[MAX_TRACE_BYTES];
     char events[MAX_TRACE_EVENTS][MAX_TRACE_BYTES];
 };
 static struct BatchTurn s_batch[MAX_BATCH_TURNS];
+struct BinaryBatchTurn {
+    uint64_t frames;
+    double restore_ms;
+    double save_ms;
+    double elapsed_ms;
+    size_t result_length;
+    char result_base64[MAX_V9_RESULT_BASE64_BYTES + 1];
+    bool terminal;
+    int child_slot;
+};
+static struct BinaryBatchTurn s_binary_batch[MAX_BATCH_TURNS];
 
 static void respond_error(const char *reason);
 static bool write_hex(uint64_t address, const char *hex);
 
 static int stop_rank(const char *kind) {
-    if (strcmp(kind, "boundary") == 0 || strcmp(kind, "terminal") == 0) return 2;
+    if (strcmp(kind, "boundary") == 0 || strcmp(kind, "terminal") == 0 ||
+        strcmp(kind, "binary-ready") == 0) return 2;
     if (strcmp(kind, "turn-complete") == 0) return 1;
     return 0;
 }
@@ -287,6 +307,7 @@ static void capture_log(struct mLogger *logger, int category, enum mLogLevel lev
     if (strncmp(message, "ROMTRACE|", 9) != 0) return;
     if (strncmp(message, "ROMTRACE|boundary|", 18) == 0) mark_stop("boundary", message);
     if (strncmp(message, "ROMTRACE|terminal|", 18) == 0) mark_stop("terminal", message);
+    if (strncmp(message, "ROMTRACE|binary-ready|", 22) == 0) mark_stop("binary-ready", message);
     if (strncmp(message, "ROMTRACE|complete|", 18) == 0) mark_stop("turn-complete", message);
     // A first-turn KO restarts the test runner before battleTurnCounter
     // increments, so the hook never emits complete. Stop on the post-turn
@@ -308,6 +329,7 @@ static void capture_log(struct mLogger *logger, int category, enum mLogLevel lev
         strncmp(message, "ROMTRACE|legal|", 15) != 0 &&
         strncmp(message, "ROMTRACE|boundary|", 18) != 0 &&
         strncmp(message, "ROMTRACE|terminal|", 18) != 0 &&
+        strncmp(message, "ROMTRACE|binary-ready|", 22) != 0 &&
         strncmp(message, "ROMTRACE|unrepresentable|", 25) != 0 &&
         strncmp(message, "ROMTRACE|instruction-budget-exceeded|", 37) != 0 &&
         strncmp(message, "ROMTRACE|complete|", 18) != 0 &&
@@ -503,6 +525,39 @@ static bool slot_identity_matches(const struct StateSlot *slot, const char *arti
            strcmp(slot->save_format, SAVE_FORMAT_ID) == 0;
 }
 
+static bool json_base64(const char *line, char *out, size_t out_size) {
+    if (!json_string(line, "mailboxes", out, out_size)) return false;
+    size_t length = strlen(out);
+    if (length == 0 || length % 4 != 0) return false;
+    for (size_t i = 0; i < length; ++i)
+        if (base64_value(out[i]) < 0 && out[i] != '=') return false;
+    return true;
+}
+
+static int save_current_state(const char *name, const char *artifact_sha) {
+    struct VFile *next = VFileMemChunk(NULL, 0);
+    if (!next || !mCoreSaveStateNamed(s_core, next, SAVESTATE_SAVEDATA | SAVESTATE_RTC)) {
+        if (next) next->close(next);
+        return -3;
+    }
+    ssize_t size = next->size(next);
+    uint8_t *payload = size > 0 ? malloc((size_t) size) : NULL;
+    if (size <= 0 || !payload) {
+        free(payload);
+        next->close(next);
+        return -3;
+    }
+    next->seek(next, 0, SEEK_SET);
+    bool read_ok = next->read(next, payload, (size_t) size) == size;
+    next->close(next);
+    if (!read_ok) { free(payload); return -3; }
+    char digest[MAX_SHA_HEX + 1];
+    sha256_hex(payload, (size_t) size, digest);
+    int index = slot_store(payload, (size_t) size, name, digest, artifact_sha);
+    free(payload);
+    return index;
+}
+
 static void print_slot_identity(const struct StateSlot *slot) {
     printf("\"identity\":{\"worker_version\":");
     print_json_string(slot->worker_version);
@@ -541,6 +596,82 @@ static void write_le64(uint8_t *out, uint64_t value) {
 static uint32_t read_le32(const uint8_t *in) {
     return (uint32_t) in[0] | ((uint32_t) in[1] << 8) | ((uint32_t) in[2] << 16) |
            ((uint32_t) in[3] << 24);
+}
+
+static void write_le16(uint8_t *out, uint16_t value) {
+    out[0] = (uint8_t) value; out[1] = (uint8_t) (value >> 8);
+}
+
+static uint16_t read_le16(const uint8_t *in) {
+    return (uint16_t) in[0] | ((uint16_t) in[1] << 8);
+}
+
+static uint32_t crc32_bytes(const uint8_t *data, size_t length) {
+    uint32_t crc = 0xFFFFFFFFu;
+    for (size_t i = 0; i < length; ++i) {
+        crc ^= data[i];
+        for (unsigned bit = 0; bit < 8; ++bit)
+            crc = (crc >> 1) ^ (0xEDB88320u & (uint32_t) -(int32_t) (crc & 1));
+    }
+    return ~crc;
+}
+
+static bool validate_v9_result(uint8_t *result, size_t length, uint16_t request_id,
+                               uint16_t mode, uint16_t policy) {
+    if (length < V9_RESULT_HEADER_BYTES || memcmp(result, "SDR2", 4) != 0 ||
+        read_le16(result + 4) != 1 || read_le16(result + 6) != V9_RESULT_HEADER_BYTES ||
+        read_le32(result + 8) != length || read_le16(result + 16) != request_id ||
+        read_le16(result + 22) != mode || read_le16(result + 24) != policy) return false;
+    uint32_t expected_crc = read_le32(result + 12);
+    uint8_t stored_crc[4]; memcpy(stored_crc, result + 12, 4);
+    memset(result + 12, 0, 4);
+    uint32_t actual_crc = crc32_bytes(result + 12, length - 12);
+    memcpy(result + 12, stored_crc, 4);
+    if (actual_crc != expected_crc) return false;
+    size_t offset = V9_RESULT_HEADER_BYTES;
+    uint16_t records = read_le16(result + 26);
+    uint16_t seen = 0;
+    uint16_t previous_tag = 0;
+    for (uint16_t i = 0; i < records; ++i) {
+        if (offset + 4 > length) return false;
+        uint16_t tag = read_le16(result + offset), bytes = read_le16(result + offset + 2);
+        size_t start = offset + 4, end = start + bytes, padded = (end + 3u) & ~3u;
+        if (tag < 1 || tag > 11 || tag <= previous_tag || (seen & (1u << tag)) || end > length || padded > length) return false;
+        previous_tag = tag;
+        seen |= (uint16_t) (1u << tag);
+        if (tag <= 7) {
+            if (bytes < 4) return false;
+            uint16_t count = read_le16(result + start), words = read_le16(result + start + 2);
+            if ((size_t) bytes != 4u + (size_t) count * words * 4u) return false;
+            static const uint16_t expected_count[] = {0, 12, 2, 1, 2, 1, 1, 0};
+            static const uint16_t expected_words[] = {0, 32, 33, 6, 12, 10, 8, 4};
+            if (words != expected_words[tag] || (tag != 7 && count != expected_count[tag]) ||
+                (tag == 7 && ((read_le16(result + 20) == 3 && count != 0) ||
+                              (read_le16(result + 20) != 3 && count == 0)))) return false;
+            if (tag == 6) {
+                for (unsigned word = 0; word < 8; ++word)
+                    if (read_le32(result + start + 4 + word * 4) != read_le32(result + 32 + word * 4)) return false;
+            }
+        } else if (tag == 8 || tag == 10 || tag == 11) {
+            uint16_t words = tag == 8 ? 3 : 2;
+            if (bytes != 4 + words * 4 || read_le16(result + start) != 1 ||
+                read_le16(result + start + 2) != words) return false;
+        } else if (tag == 9) {
+            size_t event = start;
+            while (event < end) {
+                if (event + 4 > end) return false;
+                uint16_t words = read_le16(result + event + 2);
+                event += 4 + (size_t) words * 4;
+                if (event > end) return false;
+            }
+        }
+        for (size_t pad = end; pad < padded; ++pad) if (result[pad]) return false;
+        offset = padded;
+    }
+    bool groups_ok = read_le16(result + 18) == 0 ? (seen & 0x00FEu) == 0x00FEu : seen == (1u << 11);
+    uint16_t boundary = read_le16(result + 20);
+    return offset == length && groups_ok && boundary <= 3 &&
+           ((boundary == 3) == ((seen & (1u << 10)) != 0));
 }
 
 static uint64_t read_le64(const uint8_t *in) {
@@ -720,10 +851,13 @@ static bool run_batch_turns(const char *line) {
 
     clock_t started = clock();
     for (size_t i = 0; i < item_count; ++i) {
+        clock_t turn_started = clock();
+        clock_t restore_started = clock();
         saved_state->seek(saved_state, 0, SEEK_SET);
         if (!mCoreLoadStateNamed(s_core, saved_state, SAVESTATE_SAVEDATA | SAVESTATE_RTC) || !write_hex(address, items[i])) {
             respond_error("batch-checkpoint-or-write-failed"); return false;
         }
+        s_batch[i].restore_ms = (double) (clock() - restore_started) * 1000.0 / CLOCKS_PER_SEC;
         s_trace_count = 0; s_trace_overflow = false; s_turn_complete = false; s_saw_after_turn = false;
         s_stop_kind[0] = '\0'; s_stop_marker[0] = '\0';
         s_slim_trace = true;
@@ -739,6 +873,7 @@ static bool run_batch_turns(const char *line) {
         s_batch[i].complete = s_turn_complete;
         s_batch[i].overflow = s_trace_overflow;
         s_batch[i].frames = frames;
+        s_batch[i].elapsed_ms = (double) (clock() - turn_started) * 1000.0 / CLOCKS_PER_SEC;
         s_batch[i].count = s_trace_count;
         snprintf(s_batch[i].stop, sizeof(s_batch[i].stop), "%s", s_stop_kind);
         snprintf(s_batch[i].stop_marker, sizeof(s_batch[i].stop_marker), "%s", s_stop_marker);
@@ -760,7 +895,8 @@ static bool run_batch_turns(const char *line) {
     printf(",\"turns\":[");
     for (size_t i = 0; i < item_count; ++i) {
         if (i) putchar(',');
-        printf("{\"complete\":%s,\"stop\":", s_batch[i].complete ? "true" : "false");
+        printf("{\"complete\":%s,\"elapsed_ms\":%.3f,\"restore_ms\":%.3f,\"stop\":",
+               s_batch[i].complete ? "true" : "false", s_batch[i].elapsed_ms, s_batch[i].restore_ms);
         if (s_batch[i].stop[0]) print_json_string(s_batch[i].stop); else printf("null");
         printf(",\"stop_marker\":");
         if (s_batch[i].stop_marker[0]) print_json_string(s_batch[i].stop_marker); else printf("null");
@@ -769,6 +905,161 @@ static bool run_batch_turns(const char *line) {
         printf("],\"trace_overflow\":%s}", s_batch[i].overflow ? "true" : "false");
     }
     printf("]}\n"); fflush(stdout);
+    return true;
+}
+
+static bool run_batch_turns_v3(const char *line) {
+    uint64_t address = 0, result_address = 0, result_capacity = 0, mailbox_bytes = 0;
+    uint64_t mailbox_count = 0, budget_ms = 0, frames_limit = 0, request_token = 0, mode = 0, policy = 0;
+    char request_id[129], source_sha[65], engine_sha[65], worker_sha[65];
+    char encoded[MAX_BATCH_TURNS * MAX_V9_MAILBOX_BYTES * 2];
+    char checkpoint_handle[MAX_HANDLE_HEX + 1] = "";
+    bool has_handle = json_present(line, "handle");
+    if (!json_uint(line, "address", &address) || !json_uint(line, "result_address", &result_address) ||
+        !json_uint(line, "result_capacity", &result_capacity) || !json_uint(line, "mailbox_bytes", &mailbox_bytes) ||
+        !json_uint(line, "mailbox_count", &mailbox_count) || !json_uint(line, "budget_ms", &budget_ms) ||
+        !json_uint(line, "max_frames", &frames_limit) || !json_uint(line, "request_token", &request_token) ||
+        !json_uint(line, "mode", &mode) || !json_uint(line, "critical_policy", &policy) ||
+        !json_string(line, "request_id", request_id, sizeof(request_id)) ||
+        !json_string(line, "source_sha", source_sha, sizeof(source_sha)) ||
+        !json_string(line, "engine_elf_sha256", engine_sha, sizeof(engine_sha)) ||
+        !json_string(line, "worker_sha256", worker_sha, sizeof(worker_sha)) ||
+        !json_base64(line, encoded, sizeof(encoded)) ||
+        (has_handle && !json_string(line, "handle", checkpoint_handle, sizeof(checkpoint_handle))) ||
+        mailbox_count == 0 || mailbox_count > MAX_BATCH_TURNS || mailbox_bytes != 876 ||
+        result_capacity == 0 || result_capacity > MAX_V9_RESULT_BYTES || mode > 1 || policy > 1 ||
+        request_token > UINT16_MAX || frames_limit == 0 || frames_limit > 24000 || budget_ms == 0) {
+        respond_error("invalid-batch-request"); return false;
+    }
+    if (!memory_range_ok(address, mailbox_bytes) || !memory_range_ok(result_address, result_capacity) ||
+        (address < result_address + result_capacity && result_address < address + mailbox_bytes)) {
+        respond_error("invalid-batch-address"); return false;
+    }
+    int checkpoint = has_handle ? find_slot_by_handle(checkpoint_handle) : find_slot_by_name("default");
+    if (checkpoint < 0) { respond_error("stale-handle"); return false; }
+    normalize_hex(engine_sha);
+    if (!slot_identity_matches(&s_slots[checkpoint], engine_sha)) { respond_error("identity-mismatch"); return false; }
+    size_t decoded_capacity = (size_t) mailbox_count * mailbox_bytes;
+    size_t encoded_length = strlen(encoded);
+    uint8_t *mailboxes = malloc(decoded_capacity);
+    ssize_t decoded_length = mailboxes ? base64_decode(encoded, mailboxes, decoded_capacity) : -1;
+    if (decoded_length < 0 || (size_t) decoded_length != decoded_capacity ||
+        encoded_length != base64_encoded_size(decoded_capacity)) {
+        free(mailboxes); respond_error("invalid-batch-payload"); return false;
+    }
+
+    clock_t started = clock();
+    memset(s_binary_batch, 0, sizeof(s_binary_batch));
+    for (size_t i = 0; i < (size_t) mailbox_count; ++i) {
+        clock_t turn_started = clock();
+        clock_t restore_started = clock();
+        struct VFile *parent = s_slots[checkpoint].file;
+        parent->seek(parent, 0, SEEK_SET);
+        if (!mCoreLoadStateNamed(s_core, parent, SAVESTATE_SAVEDATA | SAVESTATE_RTC)) {
+            free(mailboxes); respond_error("batch-checkpoint-or-write-failed"); return false;
+        }
+        s_binary_batch[i].restore_ms = (double) (clock() - restore_started) * 1000.0 / CLOCKS_PER_SEC;
+        uint8_t request[876];
+        memcpy(request, mailboxes + i * mailbox_bytes, sizeof(request));
+        if (read_le32(request) != 0x53445831u || read_le16(request + 4) != 9 ||
+            !memory_range_ok(address, sizeof(request)) || !memory_range_ok(result_address, result_capacity)) {
+            free(mailboxes); respond_error("invalid-batch-payload"); return false;
+        }
+        write_le32(request + 864, (uint32_t) result_address);
+        write_le32(request + 868, (uint32_t) result_capacity);
+        write_le16(request + 872, 1);
+        write_le16(request + 874, 1);
+        write_le16(request + 858, (uint16_t) mode);
+        write_le16(request + 860, (uint16_t) policy);
+        write_le16(request + 862, (uint16_t) request_token);
+        size_t available = 0;
+        uint8_t *request_memory = mCoreGetMemoryBlock(s_core, (uint32_t) address, &available);
+        if (!request_memory || available < sizeof(request)) {
+            free(mailboxes); respond_error("invalid-batch-address"); return false;
+        }
+        memcpy(request_memory, request, sizeof(request));
+        s_trace_count = 0; s_trace_overflow = false; s_turn_complete = false; s_saw_after_turn = false;
+        s_stop_kind[0] = '\0'; s_stop_marker[0] = '\0'; s_slim_trace = true;
+        uint64_t frames = 0;
+        while (frames < frames_limit && !s_turn_complete && !s_trace_overflow) {
+            s_core->runFrame(s_core); ++frames;
+            if ((uint64_t) (clock() - started) * 1000 / CLOCKS_PER_SEC >= budget_ms) {
+                s_slim_trace = false; free(mailboxes); respond_error("deadline-exceeded"); return false;
+            }
+        }
+        s_slim_trace = false;
+        if (strcmp(s_stop_kind, "binary-ready") != 0 || s_trace_overflow) {
+            free(mailboxes); respond_error("incomplete-state"); return false;
+        }
+        unsigned announced_address = 0, announced_length = 0;
+        if (sscanf(s_stop_marker + 22, "%u|%u", &announced_address, &announced_length) != 2 ||
+            announced_address != result_address || announced_length < V9_RESULT_HEADER_BYTES ||
+            announced_length > result_capacity || announced_length > MAX_V9_RESULT_BYTES) {
+            free(mailboxes); respond_error("incomplete-state"); return false;
+        }
+        size_t result_available = 0;
+        const uint8_t *result_memory = mCoreGetMemoryBlock(s_core, (uint32_t) result_address, &result_available);
+        if (!result_memory || result_available < announced_length) {
+            free(mailboxes); respond_error("incomplete-state"); return false;
+        }
+        uint8_t result[MAX_V9_RESULT_BYTES];
+        memcpy(result, result_memory, announced_length);
+        if (!validate_v9_result(result, announced_length, (uint16_t) request_token,
+                                (uint16_t) mode, (uint16_t) policy)) {
+            free(mailboxes); respond_error("incomplete-state"); return false;
+        }
+        if (read_le16(result + 18) != 0) {
+            s_binary_batch[i].terminal = true;
+            s_binary_batch[i].frames = frames;
+            s_binary_batch[i].result_length = announced_length;
+            s_binary_batch[i].elapsed_ms = (double) (clock() - turn_started) * 1000.0 / CLOCKS_PER_SEC;
+            base64_encode(result, announced_length, s_binary_batch[i].result_base64);
+            continue;
+        }
+        uint16_t boundary = read_le16(result + 20);
+        if (boundary == 3) {
+            s_binary_batch[i].terminal = true;
+        } else {
+            char child_name[MAX_STATE_NAME + 1];
+            snprintf(child_name, sizeof(child_name), "child-%04x-%u", (unsigned) request_token, (unsigned) i);
+            if (find_slot_by_name(child_name) >= 0) {
+                free(mailboxes); respond_error("state-limit-exceeded"); return false;
+            }
+            clock_t save_started = clock();
+            int child = save_current_state(child_name, engine_sha);
+            s_binary_batch[i].save_ms = (double) (clock() - save_started) * 1000.0 / CLOCKS_PER_SEC;
+            if (child == -1) { free(mailboxes); respond_error("state-memory-exceeded"); return false; }
+            if (child == -2) { free(mailboxes); respond_error("state-limit-exceeded"); return false; }
+            if (child < 0) { free(mailboxes); respond_error("save-state-failed"); return false; }
+            s_binary_batch[i].child_slot = child + 1;
+        }
+        s_binary_batch[i].frames = frames;
+        s_binary_batch[i].result_length = announced_length;
+        s_binary_batch[i].elapsed_ms = (double) (clock() - turn_started) * 1000.0 / CLOCKS_PER_SEC;
+        base64_encode(result, announced_length, s_binary_batch[i].result_base64);
+    }
+    free(mailboxes);
+    printf("{\"protocol\":%d,\"ok\":true,\"request_id\":", PROTOCOL_VERSION); print_json_string(request_id);
+    printf(",\"source_sha\":"); print_json_string(source_sha);
+    printf(",\"engine_elf_sha256\":"); print_json_string(engine_sha);
+    printf(",\"worker_sha256\":"); print_json_string(worker_sha);
+    printf(",\"turns\":[");
+    for (size_t i = 0; i < (size_t) mailbox_count; ++i) {
+        if (i) putchar(',');
+        struct BinaryBatchTurn *turn = &s_binary_batch[i];
+        printf("{\"frames\":%" PRIu64 ",\"elapsed_ms\":%.3f,\"restore_ms\":%.3f,\"save_ms\":%.3f,\"result\":",
+               turn->frames, turn->elapsed_ms, turn->restore_ms, turn->save_ms);
+        print_json_string(turn->result_base64);
+        if (turn->child_slot) {
+            const struct StateSlot *child = &s_slots[turn->child_slot - 1];
+            printf(",\"child\":{\"handle\":"); print_json_string(child->handle);
+            printf(",\"bytes\":%" PRIu64 ",\"sha256\":", child->bytes); print_json_string(child->sha256);
+            printf(",\"name\":"); print_json_string(child->name); printf(",");
+            print_slot_identity(child); printf("}");
+        } else printf(",\"child\":null");
+        putchar('}');
+    }
+    printf("],\"ipc_request_bytes\":%zu}\n", strlen(line) + 1); fflush(stdout);
     return true;
 }
 
@@ -791,6 +1082,11 @@ static void print_core_status_fields(void) {
     print_json_string(code);
     printf(",\"rom_bytes\":%" PRIu64 ",\"frame_count\":%" PRIu32,
            s_artifact_bytes, s_core->frameCounter(s_core));
+    printf(",\"supported_wire_protocols\":[%d],\"state_schema\":\"sidedex-state-v1\","
+           "\"transition_schema\":\"sidedex-transition-v2\",\"decode_schema\":\"decode-v2\"",
+           PROTOCOL_VERSION);
+    printf(",\"save_bytes\":%" PRIu64 ",\"save_sha256\":", s_save_bytes);
+    if (s_save_sha256[0]) print_json_string(s_save_sha256); else printf("null");
 }
 
 static void respond_status(void) {
@@ -827,6 +1123,18 @@ static bool artifact_size(const char *path, uint64_t *size) {
     fclose(file);
     if (length < 0) return false;
     *size = (uint64_t) length;
+    return true;
+}
+
+static bool file_sha256(const char *path, uint64_t expected_size, char out[65]) {
+    FILE *file = fopen(path, "rb");
+    if (!file) return false;
+    uint8_t *bytes = malloc((size_t) expected_size);
+    bool ok = bytes && fread(bytes, 1, (size_t) expected_size, file) == expected_size && fgetc(file) == EOF;
+    fclose(file);
+    if (!ok) { free(bytes); return false; }
+    sha256_hex(bytes, (size_t) expected_size, out);
+    free(bytes);
     return true;
 }
 
@@ -1163,6 +1471,7 @@ static bool handle_request(const char *line, bool *should_quit) {
         return true;
     }
     if (strcmp(op, "batch_turns") == 0) return run_batch_turns(line);
+    if (strcmp(op, "batch_turns_v3") == 0) return run_batch_turns_v3(line);
     if (strcmp(op, "quit") == 0) {
         printf("{\"protocol\":%d,\"ok\":true}\n", PROTOCOL_VERSION);
         fflush(stdout);
@@ -1183,27 +1492,48 @@ static void load_state_limit_override(void) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 3 || strcmp(argv[1], "--rom") != 0) {
-        fprintf(stderr, "usage: rom_worker --rom PATH\n");
+    const char *rom_path = NULL, *save_path = NULL;
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--rom") == 0 && i + 1 < argc && !rom_path) rom_path = argv[++i];
+        else if (strcmp(argv[i], "--save") == 0 && i + 1 < argc && !save_path) save_path = argv[++i];
+        else {
+            fprintf(stderr, "usage: rom_worker --rom PATH [--save 128-KiB-SAVE]\n");
+            return 2;
+        }
+    }
+    if (!rom_path) {
+        fprintf(stderr, "usage: rom_worker --rom PATH [--save 128-KiB-SAVE]\n");
         return 2;
     }
-    if (!artifact_size(argv[2], &s_artifact_bytes)) {
-        fprintf(stderr, "could not read input artifact size: %s\n", argv[2]);
+    if (!artifact_size(rom_path, &s_artifact_bytes)) {
+        fprintf(stderr, "could not read input artifact size: %s\n", rom_path);
         return 2;
+    }
+    if (save_path) {
+        if (!artifact_size(save_path, &s_save_bytes) || s_save_bytes != 128u * 1024u ||
+            !file_sha256(save_path, s_save_bytes, s_save_sha256)) {
+            fprintf(stderr, "save image must be an existing readable 131072-byte file: %s\n", save_path);
+            return 2;
+        }
     }
     load_state_limit_override();
     struct mLogger logger = {.log = capture_log};
     mLogSetDefaultLogger(&logger);
 
-    s_core = mCoreFind(argv[2]);
-    if (!s_core || !s_core->init(s_core) || !mCoreLoadFile(s_core, argv[2])) {
-        fprintf(stderr, "mGBA could not initialize or load ROM: %s\n", argv[2]);
+    s_core = mCoreFind(rom_path);
+    if (!s_core || !s_core->init(s_core) || !mCoreLoadFile(s_core, rom_path)) {
+        fprintf(stderr, "mGBA could not initialize or load ROM: %s\n", rom_path);
         if (s_core) s_core->deinit(s_core);
         return 3;
     }
     mCoreInitConfig(s_core, "sidedex-rom-worker");
     mCoreLoadConfig(s_core);
     s_core->reset(s_core);
+    if (save_path && !mCoreLoadSaveFile(s_core, save_path, true)) {
+        fprintf(stderr, "mGBA could not load save image: %s\n", save_path);
+        s_core->deinit(s_core);
+        return 5;
+    }
     if (s_core->platform(s_core) != mPLATFORM_GBA) {
         fprintf(stderr, "loaded core is not a Game Boy Advance core\n");
         s_core->deinit(s_core);

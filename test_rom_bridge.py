@@ -6,6 +6,7 @@ import sys
 import tempfile
 import time
 import unittest
+import zlib
 from pathlib import Path
 from unittest.mock import patch
 
@@ -52,6 +53,134 @@ class IdentityTests(unittest.TestCase):
 
 
 class ProtocolTests(unittest.TestCase):
+
+    @staticmethod
+    def _binary_result(request_id, boundary=1, status=0):
+        header = bytearray(64)
+        header[:4] = b"SDR2"
+        header[4:6] = (1).to_bytes(2, "little")
+        header[6:8] = (64).to_bytes(2, "little")
+        header[16:18] = request_id.to_bytes(2, "little")
+        header[18:20] = status.to_bytes(2, "little")
+        header[20:22] = boundary.to_bytes(2, "little")
+        records = bytearray()
+        if status:
+            groups = [(11, 1, 2)]
+        else:
+            groups = [(tag, *shape) for tag, shape in {
+                1: (12, 32), 2: (2, 33), 3: (1, 6), 4: (2, 12), 5: (1, 10), 6: (1, 8),
+                7: (0, 4) if boundary == 3 else (1, 4),
+            }.items()]
+            if boundary == 3:
+                groups.append((10, 1, 2))
+        for tag, count, words in groups:
+            payload = count.to_bytes(2, "little") + words.to_bytes(2, "little") + bytes(count * words * 4)
+            records += tag.to_bytes(2, "little") + len(payload).to_bytes(2, "little") + payload
+        record_count = 7
+        if status:
+            # The current ROM hook emits reason code 1: incomplete-state.
+            records[-8:] = (1).to_bytes(4, "little") + (1).to_bytes(4, "little")
+            record_count = 1
+        elif boundary == 3:
+            record_count += 1
+        data = header + records
+        data[8:12] = len(data).to_bytes(4, "little")
+        data[26:28] = record_count.to_bytes(2, "little")
+        crc_data = bytearray(data[12:])
+        crc_data[:4] = b"\0" * 4
+        data[12:16] = (zlib.crc32(crc_data) & 0xFFFFFFFF).to_bytes(4, "little")
+        return bytes(data)
+    def test_binary_result_parser_checks_crc_records_and_identity(self):
+        header = bytearray(64)
+        header[:4] = b"SDR2"
+        header[4:6] = (1).to_bytes(2, "little")
+        header[6:8] = (64).to_bytes(2, "little")
+        header[16:18] = (7).to_bytes(2, "little")
+        header[20:22] = (1).to_bytes(2, "little")
+        header[22:24] = (0).to_bytes(2, "little")
+        header[24:26] = (0).to_bytes(2, "little")
+        records = bytearray()
+        for tag in range(1, 8):
+            count, words = {1: (12, 32), 2: (2, 33), 3: (1, 6), 4: (2, 12),
+                            5: (1, 10), 6: (1, 8), 7: (1, 4)}[tag]
+            payload = count.to_bytes(2, "little") + words.to_bytes(2, "little") + bytes(count * words * 4)
+            records.extend(tag.to_bytes(2, "little") + len(payload).to_bytes(2, "little") + payload)
+        result = header + records
+        result[8:12] = len(result).to_bytes(4, "little")
+        result[26:28] = (7).to_bytes(2, "little")
+        checksum_data = bytearray(result[12:])
+        checksum_data[:4] = b"\0" * 4
+        result[12:16] = (zlib.crc32(checksum_data) & 0xFFFFFFFF).to_bytes(4, "little")
+        parsed = rom_bridge.parse_binary_result(bytes(result), request_id=7, mode=0, critical_policy=0)
+        self.assertEqual(parsed["boundary"], 1)
+        self.assertEqual(len(parsed["records"][1]["entries"]), 12)
+        corrupted = bytearray(result)
+        corrupted[-1] ^= 1
+        with self.assertRaisesRegex(rom_bridge.WorkerProtocolError, "CRC"):
+            rom_bridge.parse_binary_result(bytes(corrupted))
+
+    def test_v9_ready_parser_uses_announced_buffers(self):
+        ready = rom_bridge.parse_v9_ready([
+            "ROMTRACE|ready|33554560|876|9|3|33556000|8192",
+        ])
+        self.assertEqual(ready["address"], 0x02000080)
+        self.assertEqual(ready["result_address"], 0x02000620)
+        self.assertEqual(ready["result_capacity"], 8192)
+        with self.assertRaises(rom_bridge.WorkerProtocolError):
+            rom_bridge.parse_v9_ready(["ROMTRACE|ready|33554560|876|9|3|33554500|8192"])
+        with self.assertRaises(rom_bridge.WorkerProtocolError):
+            rom_bridge.parse_v9_ready(["ROMTRACE|ready|33554560|876|9|3|33556000|8191"])
+
+    def test_v3_batch_returns_verified_children_and_ipc_metrics(self):
+        client = object.__new__(rom_bridge.RomWorkerClient)
+        client.rom_sha256 = rom_bridge.ROM_SHA256
+        client.worker_sha256 = rom_bridge.WORKER_SHA256
+        client.wire_protocol = rom_bridge.V3_PROTOCOL_VERSION
+        client.worker_version = rom_bridge.WORKER_V3_VERSION
+        client._worker_id = "worker-v3|pid=1|start=1|artifact=" + rom_bridge.ROM_SHA256.lower()
+        client._timeout = 5.0
+        client._has_checkpoint = True
+        token = int.from_bytes(__import__("hashlib").sha256(b"v3-case").digest()[:2], "little")
+        result = __import__("base64").b64encode(self._binary_result(token)).decode("ascii")
+        child = {"handle": "a" * 32, "bytes": 512, "sha256": "b" * 64,
+                 "identity": {"worker_version": rom_bridge.WORKER_V3_VERSION,
+                              "mgba_version": rom_bridge.MGBA_VERSION,
+                              "artifact_sha256": rom_bridge.ROM_SHA256,
+                              "wire_protocol": rom_bridge.V3_PROTOCOL_VERSION, "save_format": rom_bridge.SAVE_FORMAT_ID}}
+        sent = {}
+
+        def fake_request(op, _timeout=None, **fields):
+            sent.update(fields)
+            return {"request_id": fields["request_id"], "source_sha": fields["source_sha"],
+                    "engine_elf_sha256": fields["engine_elf_sha256"],
+                    "worker_sha256": fields["worker_sha256"], "_wire_bytes": 256,
+                    "turns": [{"frames": 50, "elapsed_ms": 12.5, "save_ms": 1.0,
+                               "restore_ms": 0.2, "result": result, "child": child}]}
+
+        client._request = fake_request
+        response = client.batch_turns_v3(
+            0x02000100, 0x02001000, 8192, [b"x" * 876], mailbox_bytes=876,
+            engine_elf_sha256=rom_bridge.ROM_SHA256,
+            deadline_ms=int(time.monotonic() * 1000) + 5000, request_id="v3-case",
+        )
+        self.assertEqual(sent["mailbox_count"], 1)
+        self.assertEqual(response["turns"][0]["child"]["owner_worker"], client._worker_id)
+        self.assertTrue(response["turns"][0]["child"]["portable"])
+        self.assertEqual(response["ipc_response_bytes"], 256)
+        self.assertEqual(response["turn_p95_ms"], 12.5)
+
+    def test_binary_terminal_result_has_no_child(self):
+        request_id = 17
+        parsed = rom_bridge.parse_binary_result(self._binary_result(request_id, boundary=3), request_id=request_id)
+        self.assertEqual(parsed["boundary"], 3)
+        self.assertIn(10, parsed["records"])
+
+    def test_binary_status_error_maps_to_contract_failure(self):
+        parsed = rom_bridge.parse_binary_result(self._binary_result(17, status=1), request_id=17)
+        self.assertEqual(parsed["records"][11]["entries"], [[1, 1]])
+        self.assertEqual(rom_bridge.V3_RESULT_ERROR_CODES[(parsed["status"], *parsed["records"][11]["entries"][0])],
+                         "incomplete-state")
+        self.assertNotIn((1, 1, 9), rom_bridge.V3_RESULT_ERROR_CODES)
     def test_reply_parser_rejects_duplicate_keys_and_wrong_types(self):
         with self.assertRaises(rom_bridge.WorkerProtocolError):
             rom_bridge._parse_reply('{"protocol":2,"protocol":2,"ok":true}')
@@ -429,6 +558,7 @@ for line in sys.stdin:
             sent.update(fields)
             return {"ok": True, "request_id": fields["request_id"], "source_sha": fields["source_sha"],
                     "engine_elf_sha256": fields["engine_elf_sha256"], "worker_sha256": fields["worker_sha256"],
+                    "_wire_bytes": 100, "_request_wire_bytes": 100,
                     "turns": [{"complete": True, "stop": "turn-complete", "stop_marker": "ROMTRACE|ready|1",
                                "frames": 5, "events": [], "trace_overflow": False}]}
 

@@ -16,6 +16,7 @@ import re
 import subprocess
 import threading
 import time
+import zlib
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -33,6 +34,16 @@ from rom_identity import (
     ENGINE_ELF_SHA256,
     WORKER_SHA256,
 )  # noqa: F401  (re-exported)
+
+# Contract Appendix B (v2 execution amendment). The pinned v8 / wire-2 path keeps
+# the rom_identity values above; the v9 ROM hook and the wire-3 compact turn are
+# named here explicitly so neither side ever guesses a layout from a reply.
+ROM_HOOK_V9 = 9
+LEGACY_PROTOCOL_VERSION = PROTOCOL_VERSION              # 2, pinned wire protocol
+LEGACY_WORKER_VERSION = WORKER_VERSION                 # sidedex-mgba-worker/0.2.0
+WORKER_V3_VERSION = "sidedex-mgba-worker/0.3.0"
+TRANSITION_SCHEMA_V2 = "sidedex-transition-v2"
+DECODE_SCHEMA = "decode-v2"
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_SOURCE_LOCK = ROOT / "data" / "source_lock.json"
@@ -55,6 +66,141 @@ MAX_BLOB_BASE64_BYTES = 900_000
 STOP_KINDS = ("boundary", "terminal", "turn-complete")
 # 256 bounded trace events (up to 510 bytes each, JSON escaped) fit below 1 MiB.
 MAX_MESSAGE_BYTES = 1_048_576
+V3_PROTOCOL_VERSION = 3
+V3_RESULT_MAGIC = b"SDR2"
+V3_RESULT_HEADER_BYTES = 64
+V3_REQUIRED_RESULT_TAGS = frozenset(range(1, 8))
+V3_RESULT_ERROR_CODES = {(1, 1, 1): "incomplete-state"}
+
+
+def parse_binary_result(data: bytes, *, request_id: int | None = None,
+                        mode: int | None = None, critical_policy: int | None = None) -> dict[str, Any]:
+    """Validate and decode the bounded SDR2 result envelope."""
+    if type(data) is not bytes or len(data) < V3_RESULT_HEADER_BYTES:
+        raise WorkerProtocolError("binary result is shorter than its header")
+    if data[:4] != V3_RESULT_MAGIC:
+        raise WorkerProtocolError("binary result magic mismatch")
+    version, header_bytes = int.from_bytes(data[4:6], "little"), int.from_bytes(data[6:8], "little")
+    total_bytes = int.from_bytes(data[8:12], "little")
+    if version != 1 or header_bytes != V3_RESULT_HEADER_BYTES or total_bytes != len(data) or total_bytes > MAX_MESSAGE_BYTES:
+        raise WorkerProtocolError("binary result version or length mismatch")
+    expected_crc = int.from_bytes(data[12:16], "little")
+    crc_input = bytearray(data[12:])
+    crc_input[:4] = b"\0" * 4
+    if zlib.crc32(crc_input) & 0xFFFFFFFF != expected_crc:
+        raise WorkerProtocolError("binary result CRC mismatch")
+    rid, status, boundary, actual_mode, actual_policy, record_count = (
+        int.from_bytes(data[offset:offset + 2], "little") for offset in (16, 18, 20, 22, 24, 26)
+    )
+    if request_id is not None and rid != request_id:
+        raise WorkerProtocolError("binary result request id mismatch")
+    if mode is not None and actual_mode != mode:
+        raise WorkerProtocolError("binary result mode mismatch")
+    if critical_policy is not None and actual_policy != critical_policy:
+        raise WorkerProtocolError("binary result critical policy mismatch")
+    if boundary not in (0, 1, 2, 3):
+        raise WorkerProtocolError("binary result has an invalid boundary kind")
+    rng = [int.from_bytes(data[offset:offset + 4], "little") for offset in range(32, 64, 4)]
+    records: dict[int, Any] = {}
+    offset = V3_RESULT_HEADER_BYTES
+    previous_tag = 0
+    for _ in range(record_count):
+        if offset + 4 > total_bytes:
+            raise WorkerProtocolError("binary result record header is truncated")
+        tag = int.from_bytes(data[offset:offset + 2], "little")
+        length = int.from_bytes(data[offset + 2:offset + 4], "little")
+        start, end = offset + 4, offset + 4 + length
+        padded_end = (end + 3) & ~3
+        if tag not in range(1, 12) or tag <= previous_tag or tag in records or padded_end > total_bytes:
+            raise WorkerProtocolError("binary result has an unknown, duplicate, or truncated record")
+        previous_tag = tag
+        payload = data[start:end]
+        if any(data[end:padded_end]):
+            raise WorkerProtocolError("binary result record padding is nonzero")
+        if tag <= 7:
+            if len(payload) < 4:
+                raise WorkerProtocolError("binary result projection group is truncated")
+            count = int.from_bytes(payload[:2], "little")
+            words = int.from_bytes(payload[2:4], "little")
+            if len(payload) != 4 + count * words * 4:
+                raise WorkerProtocolError("binary result projection count mismatch")
+            values = [int.from_bytes(payload[i:i + 4], "little") for i in range(4, len(payload), 4)]
+            records[tag] = {"entry_count": count, "words_per_entry": words,
+                            "entries": [values[i:i + words] for i in range(0, len(values), words)] if words else []}
+            if words == 0 and values:
+                raise WorkerProtocolError("binary result has values with zero-width entries")
+            expected = {1: (12, 32), 2: (2, 33), 3: (1, 6), 4: (2, 12), 5: (1, 10), 6: (1, 8)}
+            if tag in expected and (count, words) != expected[tag]:
+                raise WorkerProtocolError(f"binary result tag {tag} count or width mismatch")
+            if tag == 7 and (words != 4 or (boundary == 3 and count != 0) or
+                             (boundary != 3 and count == 0)):
+                raise WorkerProtocolError("binary result legal action count or width mismatch")
+        elif tag in (8, 10, 11):
+            if len(payload) < 4:
+                raise WorkerProtocolError("binary result fixed record is truncated")
+            count = int.from_bytes(payload[:2], "little")
+            words = int.from_bytes(payload[2:4], "little")
+            expected_words = {8: 3, 10: 2, 11: 2}[tag]
+            if count != 1 or words != expected_words or len(payload) != 4 + count * words * 4:
+                raise WorkerProtocolError("binary result fixed record has an invalid count or width")
+            values = [int.from_bytes(payload[i:i + 4], "little") for i in range(4, len(payload), 4)]
+            records[tag] = {"entry_count": count, "words_per_entry": words, "entries": [values]}
+        else:
+            events = []
+            pos = 0
+            while pos < len(payload):
+                if pos + 4 > len(payload):
+                    raise WorkerProtocolError("binary result event subrecord is truncated")
+                kind = int.from_bytes(payload[pos:pos + 2], "little")
+                words = int.from_bytes(payload[pos + 2:pos + 4], "little")
+                pos += 4
+                finish = pos + words * 4
+                if finish > len(payload):
+                    raise WorkerProtocolError("binary result event payload is truncated")
+                events.append({"kind": kind, "payload": [int.from_bytes(payload[i:i + 4], "little")
+                                                           for i in range(pos, finish, 4)]})
+                pos = finish
+            records[tag] = events
+        offset = padded_end
+    status = int.from_bytes(data[18:20], "little")
+    if offset != total_bytes or (not V3_REQUIRED_RESULT_TAGS.issubset(records) and
+                                 not (status and 11 in records and set(records) == {11})):
+        raise WorkerProtocolError("binary result has trailing bytes or missing required records")
+    if status and (10 in records or boundary == 3):
+        raise WorkerProtocolError("binary error result cannot also contain terminal state")
+    if (boundary == 3) != (10 in records):
+        raise WorkerProtocolError("binary terminal marker and terminal record disagree")
+    if 6 in records:
+        rng_words = records[6]["entries"][0]
+        if rng_words != rng:
+            raise WorkerProtocolError("binary result RNG record disagrees with its header")
+    return {"version": version, "request_id": rid, "status": status, "boundary": boundary,
+            "mode": actual_mode, "critical_policy": actual_policy,
+            "turn": int.from_bytes(data[28:32], "little"), "rng": [rng[:4], rng[4:]],
+            "records": records, "raw": data}
+
+
+def _percentile(values: Sequence[float], percentile: float) -> float:
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, max(0, int(len(ordered) * percentile + 0.999999) - 1))
+    return ordered[index]
+
+
+def parse_v9_ready(events: Sequence[str]) -> dict[str, int]:
+    """Select the announced v9/v3 request and result buffers from ROMTRACE."""
+    for event in reversed(events):
+        match = re.fullmatch(r"ROMTRACE\|ready\|(\d+)\|876\|9\|3\|(\d+)\|(\d+)", event)
+        if match:
+            address, result_address, capacity = map(int, match.groups())
+            if (not EWRAM_START <= address <= EWRAM_END - 876 or
+                    not EWRAM_START <= result_address < EWRAM_END or
+                    capacity != 8192 or capacity > EWRAM_END - result_address or
+                    address < result_address + capacity and result_address < address + 876):
+                raise WorkerProtocolError("ROM announced overlapping or out-of-range v9 buffers")
+            return {"address": address, "mailbox_bytes": 876,
+                    "result_address": result_address, "result_capacity": capacity,
+                    "rom_hook_protocol": 9, "wire_protocol": 3}
+    raise WorkerProtocolError("ROM did not announce a v9/v3 mailbox")
 
 
 class RomBridgeError(RuntimeError):
@@ -110,7 +256,7 @@ def _reject_constant(value):
     raise ValueError(f"invalid JSON constant: {value}")
 
 
-def _parse_reply(line: str) -> dict[str, Any]:
+def _parse_reply(line: str, expected_protocol: int = PROTOCOL_VERSION) -> dict[str, Any]:
     if len(line.encode("utf-8")) > MAX_MESSAGE_BYTES:
         raise WorkerProtocolError("worker response exceeded the message limit")
     try:
@@ -119,7 +265,7 @@ def _parse_reply(line: str) -> dict[str, Any]:
         raise WorkerProtocolError(f"worker returned invalid JSON: {exc}") from exc
     if not isinstance(value, dict):
         raise WorkerProtocolError("worker response must be a JSON object")
-    if type(value.get("protocol")) is not int or value["protocol"] != PROTOCOL_VERSION:
+    if type(value.get("protocol")) is not int or value["protocol"] != expected_protocol:
         raise WorkerProtocolError("worker protocol version mismatch")
     if type(value.get("ok")) is not bool:
         raise WorkerProtocolError("worker response is missing a boolean ok field")
@@ -151,6 +297,11 @@ def worker_identity(worker_version: str, pid: int, started_at: float, artifact_s
 class RomWorkerClient:
     """One serialized request stream connected to a persistent mGBA process."""
 
+    # Defaults for the pinned v8 / wire-2 path, so a partially built client
+    # (object.__new__ in the tests) still validates identity predictably.
+    wire_protocol = PROTOCOL_VERSION
+    worker_version = WORKER_VERSION
+
     def __init__(
         self,
         worker_path: str | os.PathLike[str] = DEFAULT_WORKER,
@@ -161,12 +312,17 @@ class RomWorkerClient:
         expected_artifact_sha256: str = ROM_SHA256,
         expected_worker_sha256: str = WORKER_SHA256,
         worker_args: Sequence[str] = (),
+        wire_protocol: int = PROTOCOL_VERSION,
     ):
         if type(timeout) not in (int, float) or timeout <= 0:
             raise ValueError("timeout must be a positive number")
         worker = Path(worker_path).expanduser().resolve()
         rom = Path(rom_path).expanduser().resolve()
         self._timeout = float(timeout)
+        if type(wire_protocol) is not int or wire_protocol not in (LEGACY_PROTOCOL_VERSION, V3_PROTOCOL_VERSION):
+            raise ValueError("wire_protocol must be 2 or 3")
+        self.wire_protocol = wire_protocol
+        self.worker_version = WORKER_V3_VERSION if wire_protocol == V3_PROTOCOL_VERSION else WORKER_VERSION
         self._lock = threading.Lock()
         self._closed = False
         self._stderr_lines: queue.Queue = queue.Queue(maxsize=16)
@@ -289,15 +445,22 @@ class RomWorkerClient:
         return " ".join(piece for piece in pieces if piece)[:500]
 
     def _read_status(self) -> dict[str, Any]:
-        reply = _parse_reply(self._read_line())
+        reply = _parse_reply(self._read_line(), self.wire_protocol)
         required = {
-            "worker": WORKER_VERSION,
+            "worker": self.worker_version,
             "mgba": MGBA_VERSION,
             "platform": "gba",
         }
         for key, expected in required.items():
             if reply.get(key) != expected:
                 raise WorkerProtocolError(f"worker {key} does not match the pinned build")
+        if self.wire_protocol == V3_PROTOCOL_VERSION:
+            if reply.get("supported_wire_protocols") != [V3_PROTOCOL_VERSION]:
+                raise WorkerProtocolError("worker does not advertise wire protocol 3")
+            for key, expected in (("state_schema", STATE_SCHEMA), ("transition_schema", TRANSITION_SCHEMA_V2),
+                                  ("decode_schema", DECODE_SCHEMA)):
+                if reply.get(key) != expected:
+                    raise WorkerProtocolError(f"worker {key} does not match the transition contract")
         if type(reply.get("rom_bytes")) is not int or reply["rom_bytes"] <= 0:
             raise WorkerProtocolError("worker status has an invalid ROM size")
         if reply["rom_bytes"] != self._rom_size:
@@ -313,22 +476,26 @@ class RomWorkerClient:
         with self._lock:
             if self._closed or self._process.poll() is not None:
                 raise WorkerExitedError("mGBA worker is not running")
-            request = {"protocol": PROTOCOL_VERSION, "op": op, **fields}
+            request = {"protocol": self.wire_protocol, "op": op, **fields}
             wire = json.dumps(request, separators=(",", ":"), allow_nan=False)
             if len(wire.encode("utf-8")) + 1 > MAX_MESSAGE_BYTES:
                 raise ValueError("request exceeds the worker message limit")
             try:
+                request_wire_bytes = len(wire.encode("utf-8")) + 1
                 self._process.stdin.write(wire + "\n")
                 self._process.stdin.flush()
             except (BrokenPipeError, OSError) as exc:
                 raise WorkerExitedError("mGBA worker closed its input pipe") from exc
-            reply = _parse_reply(self._read_line(_timeout))
+            reply_line = self._read_line(_timeout)
+            reply = _parse_reply(reply_line, self.wire_protocol)
+            reply["_wire_bytes"] = len(reply_line.encode("utf-8")) + 1
+            reply["_request_wire_bytes"] = request_wire_bytes
             if op in {"status", "run_frames", "reset", "load_state", "load_state_blob", "write_memory"}:
                 self._status = self._validate_status_reply(reply)
             return reply
 
     def _validate_status_reply(self, reply: dict[str, Any]) -> dict[str, Any]:
-        if reply.get("worker") != WORKER_VERSION or reply.get("mgba") != MGBA_VERSION:
+        if reply.get("worker") != self.worker_version or reply.get("mgba") != MGBA_VERSION:
             raise WorkerProtocolError("worker identity changed during the session")
         if reply.get("platform") != "gba":
             raise WorkerProtocolError("worker returned a non-GBA core")
@@ -395,9 +562,9 @@ class RomWorkerClient:
         if not isinstance(identity, dict):
             raise WorkerProtocolError("worker state slot is missing its identity")
         for key, expected in (
-            ("worker_version", WORKER_VERSION),
+            ("worker_version", self.worker_version),
             ("mgba_version", MGBA_VERSION),
-            ("wire_protocol", PROTOCOL_VERSION),
+            ("wire_protocol", self.wire_protocol),
             ("save_format", SAVE_FORMAT_ID),
         ):
             if identity.get(key) != expected:
@@ -516,6 +683,8 @@ class RomWorkerClient:
             events = turn.get("events")
             if (type(turn.get("complete")) is not bool or type(turn.get("frames")) is not int or
                     not 0 <= turn["frames"] <= max_frames or type(turn.get("trace_overflow")) is not bool or
+                    ("elapsed_ms" in turn and (type(turn["elapsed_ms"]) not in (int, float) or turn["elapsed_ms"] < 0)) or
+                    ("restore_ms" in turn and (type(turn["restore_ms"]) not in (int, float) or turn["restore_ms"] < 0)) or
                     not isinstance(events, list) or len(events) > 256 or
                     any(not isinstance(event, str) or len(event.encode("utf-8")) >= 512 for event in events) or
                     turn["trace_overflow"]):
@@ -611,8 +780,143 @@ class RomWorkerClient:
                 raise WorkerProtocolError(f"batch response {key} mismatch")
         turns = self._validate_batch_reply(reply, len(payloads), max_frames)
         elapsed_ms = (time.monotonic() - started) * 1000
-        return {"protocol_version": 3, **expected, "turns": turns,
-                "elapsed_ms": elapsed_ms, "mean_turn_ms": elapsed_ms / len(turns)}
+        timed_turns = [turn for turn in turns if "elapsed_ms" in turn and "restore_ms" in turn]
+        # Kept at the v3 literal: this was integration's pinned value for the
+        # batch envelope before the v9/wire-3 work and the current suite pins it.
+        return {"protocol_version": V3_PROTOCOL_VERSION, **expected, "turns": turns,
+                "elapsed_ms": elapsed_ms, "mean_turn_ms": elapsed_ms / len(turns),
+                "ipc_request_bytes": reply["_request_wire_bytes"],
+                "ipc_response_bytes": reply["_wire_bytes"],
+                "transition_per_second": len(turns) / (elapsed_ms / 1000) if elapsed_ms else 0.0,
+                "turn_p50_ms": _percentile([turn["elapsed_ms"] for turn in timed_turns], 0.50) if timed_turns else None,
+                "turn_p95_ms": _percentile([turn["elapsed_ms"] for turn in timed_turns], 0.95) if timed_turns else None,
+                "restore_p50_ms": _percentile([turn["restore_ms"] for turn in timed_turns], 0.50) if timed_turns else None,
+                "restore_p95_ms": _percentile([turn["restore_ms"] for turn in timed_turns], 0.95) if timed_turns else None}
+
+    def batch_turns_v3(
+        self, address: int, result_address: int, result_capacity: int,
+        payloads: Sequence[bytes], *, mailbox_bytes: int, engine_elf_sha256: str,
+        deadline_ms: int, request_id: str, max_frames: int = 24_000,
+        handle: str | None = None, mode: int = 0, critical_policy: int = 0,
+    ) -> dict[str, Any]:
+        """Run v9 mailboxes and return verified SDR2 results plus immutable children."""
+        if self.wire_protocol != V3_PROTOCOL_VERSION:
+            raise WorkerProtocolError("batch_turns_v3 requires a protocol-3 worker")
+        if handle is not None:
+            handle = self._validate_handle(handle)
+        elif not self._has_checkpoint:
+            raise ValueError("save a pre-choice checkpoint before batch_turns_v3")
+        if type(address) is not int or not EWRAM_START <= address < EWRAM_END:
+            raise ValueError("mailbox address must be within EWRAM")
+        if type(result_address) is not int or not EWRAM_START <= result_address < EWRAM_END:
+            raise ValueError("result address must be within EWRAM")
+        if type(result_capacity) is not int or not 64 <= result_capacity <= EWRAM_END - result_address:
+            raise ValueError("result capacity must fit the announced EWRAM buffer")
+        if type(mailbox_bytes) is not int or not 1 <= mailbox_bytes <= MAX_MEMORY_WRITE_BYTES:
+            raise ValueError("mailbox_bytes is outside the bounded mailbox limit")
+        if address < result_address + result_capacity and result_address < address + mailbox_bytes:
+            raise ValueError("result and mailbox ranges must not overlap")
+        if not isinstance(payloads, Sequence) or isinstance(payloads, (str, bytes)) or not 1 <= len(payloads) <= MAX_BATCH_TURNS:
+            raise ValueError(f"payloads must contain 1 to {MAX_BATCH_TURNS} byte strings")
+        if any(type(payload) is not bytes or len(payload) != mailbox_bytes for payload in payloads):
+            raise ValueError("each payload must match the announced v9 mailbox length")
+        if type(mode) is not int or mode not in (0, 1) or type(critical_policy) is not int or critical_policy not in (0, 1):
+            raise ValueError("mode and critical_policy must be 0 or 1")
+        if type(max_frames) is not int or not 1 <= max_frames <= 24_000:
+            raise ValueError("max_frames must be from 1 to 24000")
+        if type(deadline_ms) is not int or deadline_ms <= int(time.monotonic() * 1000):
+            raise WorkerTimeoutError("batch deadline has expired")
+        if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", request_id):
+            raise ValueError("request_id must be 1 to 128 safe ASCII characters")
+        if not isinstance(engine_elf_sha256, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", engine_elf_sha256):
+            raise ValueError("engine_elf_sha256 must be a 64-character SHA-256 hex digest")
+        if engine_elf_sha256.upper() != self.rom_sha256:
+            raise RomIdentityError("batch engine ELF identity differs from the artifact loaded by this worker")
+        remaining = (deadline_ms - int(time.monotonic() * 1000)) / 1000
+        started = time.monotonic()
+        fields: dict[str, Any] = {
+            "address": address, "result_address": result_address,
+            "result_capacity": result_capacity, "mailbox_bytes": mailbox_bytes,
+            "mailbox_count": len(payloads), "mailboxes": base64.b64encode(b"".join(payloads)).decode("ascii"),
+            "budget_ms": max(1, int(remaining * 1000)), "max_frames": max_frames,
+            "request_id": request_id,
+            "request_token": int.from_bytes(hashlib.sha256(request_id.encode("ascii")).digest()[:2], "little"),
+            "source_sha": SOURCE_SHA, "engine_elf_sha256": engine_elf_sha256.upper(),
+            "worker_sha256": self.worker_sha256, "mode": mode, "critical_policy": critical_policy,
+        }
+        if handle is not None:
+            fields["handle"] = handle
+        reply = self._request("batch_turns_v3", _timeout=min(self._timeout, remaining), **fields)
+        expected = {"request_id": request_id, "source_sha": SOURCE_SHA,
+                    "engine_elf_sha256": engine_elf_sha256.upper(), "worker_sha256": self.worker_sha256}
+        for key, value in expected.items():
+            if reply.get(key) != value:
+                raise WorkerProtocolError(f"v3 batch response {key} mismatch")
+        turns = reply.get("turns")
+        if not isinstance(turns, list) or len(turns) != len(payloads):
+            raise WorkerProtocolError("v3 batch response has a mismatched turn count")
+        parsed = []
+        turn_times = []
+        save_times = []
+        restore_times = []
+        for turn in turns:
+            if not isinstance(turn, dict) or type(turn.get("frames")) is not int or not 0 <= turn["frames"] <= max_frames:
+                raise WorkerProtocolError("v3 batch contains an invalid frame count")
+            result_text = turn.get("result")
+            if not isinstance(result_text, str):
+                raise WorkerProtocolError("v3 batch result is missing compact bytes")
+            try:
+                result_bytes = base64.b64decode(result_text, validate=True)
+            except (ValueError, binascii.Error) as exc:
+                raise WorkerProtocolError("v3 batch result is not valid base64") from exc
+            if len(result_bytes) > result_capacity:
+                raise WorkerProtocolError("v3 batch result exceeds the announced result capacity")
+            binary = parse_binary_result(result_bytes, request_id=fields["request_token"], mode=mode,
+                                         critical_policy=critical_policy)
+            for key in ("elapsed_ms", "save_ms", "restore_ms"):
+                if type(turn.get(key)) not in (int, float) or turn[key] < 0:
+                    raise WorkerProtocolError(f"v3 batch turn has invalid {key}")
+            turn_times.append(float(turn["elapsed_ms"]))
+            save_times.append(float(turn["save_ms"]))
+            restore_times.append(float(turn["restore_ms"]))
+            if binary["status"] != 0:
+                error = binary["records"].get(11, {}).get("entries", [[0, 0]])[0]
+                reason = error[0] if error else 0
+                source = error[1] if len(error) > 1 else 0
+                code = V3_RESULT_ERROR_CODES.get((binary["status"], reason, source))
+                if code is None:
+                    code = "binary-result-status-%d-reason-%d-source-%d" % (
+                        binary["status"], reason, source)
+                raise WorkerResponseError(code)
+            child = turn.get("child")
+            if binary["boundary"] == 3:
+                if child is not None:
+                    raise WorkerProtocolError("terminal result must not have a child state")
+            else:
+                if not isinstance(child, dict):
+                    raise WorkerProtocolError("nonterminal result has no saved child state")
+                if (not isinstance(child.get("handle"), str) or
+                        not re.fullmatch(r"[0-9a-f]{32}", child["handle"]) or
+                        type(child.get("bytes")) is not int or child["bytes"] <= 0 or
+                        not isinstance(child.get("sha256"), str) or
+                        not re.fullmatch(r"[0-9a-f]{64}", child["sha256"])):
+                    raise WorkerProtocolError("child state summary is malformed")
+                self._validate_state_identity(child.get("identity"))
+                child = {**child, "owner_worker": self.worker_id, "portable": True}
+            parsed.append({**turn, "binary": binary, "child": child})
+        elapsed_ms = (time.monotonic() - started) * 1000
+        return {"protocol_version": V3_PROTOCOL_VERSION, **expected, "turns": parsed,
+                "ipc_request_bytes": len(json.dumps({"protocol": 3, "op": "batch_turns_v3", **fields},
+                                                     separators=(",", ":")).encode("utf-8")) + 1,
+                "ipc_response_bytes": reply["_wire_bytes"], "elapsed_ms": elapsed_ms,
+                "mean_turn_ms": elapsed_ms / len(parsed),
+                "transition_per_second": len(parsed) / (elapsed_ms / 1000) if elapsed_ms else 0.0,
+                "turn_p50_ms": _percentile(turn_times, 0.50),
+                "turn_p95_ms": _percentile(turn_times, 0.95),
+                "save_p50_ms": _percentile(save_times, 0.50),
+                "save_p95_ms": _percentile(save_times, 0.95),
+                "restore_p50_ms": _percentile(restore_times, 0.50),
+                "restore_p95_ms": _percentile(restore_times, 0.95)}
 
     def read_memory(self, address: int, width: int = 4) -> int:
         if type(address) is not int or not 0 <= address <= 0xFFFFFFFF:
@@ -676,10 +980,10 @@ class RomWorkerClient:
             if self._process.poll() is None:
                 try:
                     self._process.stdin.write(
-                        json.dumps({"protocol": PROTOCOL_VERSION, "op": "quit"}) + "\n"
+                        json.dumps({"protocol": self.wire_protocol, "op": "quit"}) + "\n"
                     )
                     self._process.stdin.flush()
-                    _parse_reply(self._read_line())
+                    _parse_reply(self._read_line(), self.wire_protocol)
                     self._process.wait(timeout=self._timeout)
                 except (OSError, RomBridgeError, subprocess.TimeoutExpired):
                     self._terminate()
