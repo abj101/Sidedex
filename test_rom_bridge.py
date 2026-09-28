@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import time
+import zlib
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -52,19 +53,148 @@ class IdentityTests(unittest.TestCase):
 
 
 class ProtocolTests(unittest.TestCase):
+    @staticmethod
+    def _binary_result(request_id, boundary=1, status=0):
+        header = bytearray(64)
+        header[:4] = b"SDR2"
+        header[4:6] = (1).to_bytes(2, "little")
+        header[6:8] = (64).to_bytes(2, "little")
+        header[16:18] = request_id.to_bytes(2, "little")
+        header[18:20] = status.to_bytes(2, "little")
+        header[20:22] = boundary.to_bytes(2, "little")
+        records = bytearray()
+        if status:
+            groups = [(11, 1, 2)]
+        else:
+            groups = [(tag, *shape) for tag, shape in {
+                1: (12, 32), 2: (2, 33), 3: (1, 6), 4: (2, 12), 5: (1, 10), 6: (1, 8),
+                7: (0, 4) if boundary == 3 else (1, 4),
+            }.items()]
+            if boundary == 3:
+                groups.append((10, 1, 2))
+        for tag, count, words in groups:
+            payload = count.to_bytes(2, "little") + words.to_bytes(2, "little") + bytes(count * words * 4)
+            records += tag.to_bytes(2, "little") + len(payload).to_bytes(2, "little") + payload
+        record_count = 7
+        if status:
+            # The current ROM hook emits reason code 1: incomplete-state.
+            records[-8:] = (1).to_bytes(4, "little") + (1).to_bytes(4, "little")
+            record_count = 1
+        elif boundary == 3:
+            record_count += 1
+        data = header + records
+        data[8:12] = len(data).to_bytes(4, "little")
+        data[26:28] = record_count.to_bytes(2, "little")
+        crc_data = bytearray(data[12:])
+        crc_data[:4] = b"\0" * 4
+        data[12:16] = (zlib.crc32(crc_data) & 0xFFFFFFFF).to_bytes(4, "little")
+        return bytes(data)
+
     def test_reply_parser_rejects_duplicate_keys_and_wrong_types(self):
         with self.assertRaises(rom_bridge.WorkerProtocolError):
-            rom_bridge._parse_reply('{"protocol":2,"protocol":2,"ok":true}')
+            rom_bridge._parse_reply('{"protocol":3,"protocol":3,"ok":true}')
         with self.assertRaises(rom_bridge.WorkerProtocolError):
-            rom_bridge._parse_reply('{"protocol":2,"ok":1}')
+            rom_bridge._parse_reply('{"protocol":3,"ok":1}')
         with self.assertRaises(rom_bridge.WorkerProtocolError):
             rom_bridge._parse_reply('[]')
         with self.assertRaises(rom_bridge.WorkerProtocolError):
             rom_bridge._parse_reply('{"protocol":1,"ok":true}')
 
-    def test_protocol_version_is_two(self):
-        self.assertEqual(rom_bridge.PROTOCOL_VERSION, 2)
-        self.assertEqual(rom_bridge.WORKER_VERSION, "sidedex-mgba-worker/0.2.0")
+    def test_protocol_version_is_three(self):
+        self.assertEqual(rom_bridge.PROTOCOL_VERSION, 3)
+        self.assertEqual(rom_bridge.WORKER_VERSION, "sidedex-mgba-worker/0.3.0")
+
+    def test_binary_result_parser_checks_crc_records_and_identity(self):
+        header = bytearray(64)
+        header[:4] = b"SDR2"
+        header[4:6] = (1).to_bytes(2, "little")
+        header[6:8] = (64).to_bytes(2, "little")
+        header[16:18] = (7).to_bytes(2, "little")
+        header[20:22] = (1).to_bytes(2, "little")
+        header[22:24] = (0).to_bytes(2, "little")
+        header[24:26] = (0).to_bytes(2, "little")
+        records = bytearray()
+        for tag in range(1, 8):
+            count, words = {1: (12, 32), 2: (2, 33), 3: (1, 6), 4: (2, 12),
+                            5: (1, 10), 6: (1, 8), 7: (1, 4)}[tag]
+            payload = count.to_bytes(2, "little") + words.to_bytes(2, "little") + bytes(count * words * 4)
+            records.extend(tag.to_bytes(2, "little") + len(payload).to_bytes(2, "little") + payload)
+        result = header + records
+        result[8:12] = len(result).to_bytes(4, "little")
+        result[26:28] = (7).to_bytes(2, "little")
+        checksum_data = bytearray(result[12:])
+        checksum_data[:4] = b"\0" * 4
+        result[12:16] = (zlib.crc32(checksum_data) & 0xFFFFFFFF).to_bytes(4, "little")
+        parsed = rom_bridge.parse_binary_result(bytes(result), request_id=7, mode=0, critical_policy=0)
+        self.assertEqual(parsed["boundary"], 1)
+        self.assertEqual(len(parsed["records"][1]["entries"]), 12)
+        corrupted = bytearray(result)
+        corrupted[-1] ^= 1
+        with self.assertRaisesRegex(rom_bridge.WorkerProtocolError, "CRC"):
+            rom_bridge.parse_binary_result(bytes(corrupted))
+
+    def test_v9_ready_parser_uses_announced_buffers(self):
+        ready = rom_bridge.parse_v9_ready([
+            "ROMTRACE|ready|33554560|876|9|3|33556000|8192",
+        ])
+        self.assertEqual(ready["address"], 0x02000080)
+        self.assertEqual(ready["result_address"], 0x02000620)
+        self.assertEqual(ready["result_capacity"], 8192)
+        with self.assertRaises(rom_bridge.WorkerProtocolError):
+            rom_bridge.parse_v9_ready(["ROMTRACE|ready|33554560|876|9|3|33554500|8192"])
+        with self.assertRaises(rom_bridge.WorkerProtocolError):
+            rom_bridge.parse_v9_ready(["ROMTRACE|ready|33554560|876|9|3|33556000|8191"])
+
+    def test_v3_batch_returns_verified_children_and_ipc_metrics(self):
+        client = object.__new__(rom_bridge.RomWorkerClient)
+        client.rom_sha256 = rom_bridge.ROM_SHA256
+        client.worker_sha256 = rom_bridge.WORKER_SHA256
+        client.wire_protocol = 3
+        client.worker_version = rom_bridge.WORKER_VERSION
+        client._worker_id = "worker-v3|pid=1|start=1|artifact=" + rom_bridge.ROM_SHA256.lower()
+        client._timeout = 5.0
+        client._has_checkpoint = True
+        token = int.from_bytes(__import__("hashlib").sha256(b"v3-case").digest()[:2], "little")
+        result = __import__("base64").b64encode(self._binary_result(token)).decode("ascii")
+        child = {"handle": "a" * 32, "bytes": 512, "sha256": "b" * 64,
+                 "identity": {"worker_version": rom_bridge.WORKER_VERSION,
+                              "mgba_version": rom_bridge.MGBA_VERSION,
+                              "artifact_sha256": rom_bridge.ROM_SHA256,
+                              "wire_protocol": 3, "save_format": rom_bridge.SAVE_FORMAT_ID}}
+        sent = {}
+
+        def fake_request(op, _timeout=None, **fields):
+            sent.update(fields)
+            return {"request_id": fields["request_id"], "source_sha": fields["source_sha"],
+                    "engine_elf_sha256": fields["engine_elf_sha256"],
+                    "worker_sha256": fields["worker_sha256"], "_wire_bytes": 256,
+                    "turns": [{"frames": 50, "elapsed_ms": 12.5, "save_ms": 1.0,
+                               "restore_ms": 0.2, "result": result, "child": child}]}
+
+        client._request = fake_request
+        response = client.batch_turns_v3(
+            0x02000100, 0x02001000, 8192, [b"x" * 876], mailbox_bytes=876,
+            engine_elf_sha256=rom_bridge.ROM_SHA256,
+            deadline_ms=int(time.monotonic() * 1000) + 5000, request_id="v3-case",
+        )
+        self.assertEqual(sent["mailbox_count"], 1)
+        self.assertEqual(response["turns"][0]["child"]["owner_worker"], client._worker_id)
+        self.assertTrue(response["turns"][0]["child"]["portable"])
+        self.assertEqual(response["ipc_response_bytes"], 256)
+        self.assertEqual(response["turn_p95_ms"], 12.5)
+
+    def test_binary_terminal_result_has_no_child(self):
+        request_id = 17
+        parsed = rom_bridge.parse_binary_result(self._binary_result(request_id, boundary=3), request_id=request_id)
+        self.assertEqual(parsed["boundary"], 3)
+        self.assertIn(10, parsed["records"])
+
+    def test_binary_status_error_maps_to_contract_failure(self):
+        parsed = rom_bridge.parse_binary_result(self._binary_result(17, status=1), request_id=17)
+        self.assertEqual(parsed["records"][11]["entries"], [[1, 1]])
+        self.assertEqual(rom_bridge.V3_RESULT_ERROR_CODES[(parsed["status"], *parsed["records"][11]["entries"][0])],
+                         "incomplete-state")
+        self.assertNotIn((1, 1, 9), rom_bridge.V3_RESULT_ERROR_CODES)
 
     def test_reply_parser_accepts_bounded_large_trace_response(self):
         reply = {
@@ -79,11 +209,11 @@ class ProtocolTests(unittest.TestCase):
 
     def test_worker_error_is_a_typed_error(self):
         with self.assertRaises(rom_bridge.WorkerResponseError) as raised:
-            rom_bridge._parse_reply('{"protocol":2,"ok":false,"error":"invalid-request"}')
+            rom_bridge._parse_reply('{"protocol":3,"ok":false,"error":"invalid-request"}')
         self.assertEqual(raised.exception.code, "invalid-request")
         for code in ("stale-handle", "identity-mismatch", "deadline-exceeded", "worker-failed"):
             with self.assertRaises(rom_bridge.WorkerResponseError) as raised:
-                rom_bridge._parse_reply(json.dumps({"protocol": 2, "ok": False, "error": code}))
+                rom_bridge._parse_reply(json.dumps({"protocol": 3, "ok": False, "error": code}))
             self.assertEqual(raised.exception.code, code)
 
     def test_memory_and_frame_arguments_are_validated_before_write(self):
@@ -185,7 +315,8 @@ class ProtocolTests(unittest.TestCase):
     def test_batch_reply_parses_boundary_and_terminal_stops(self):
         def turn(stop, marker):
             return {"complete": True, "stop": stop, "stop_marker": marker,
-                    "frames": 12, "events": [], "trace_overflow": False}
+                    "frames": 12, "elapsed_ms": 4.0, "restore_ms": 0.2,
+                    "events": [], "trace_overflow": False}
 
         reply = {"turns": [
             turn("boundary", "ROMTRACE|boundary|player-choice|3|4"),
@@ -200,13 +331,16 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(rom_bridge.WorkerProtocolError):
             rom_bridge.RomWorkerClient._validate_batch_reply(bad, 1, 24_000)
         orphan = {"turns": [{"complete": True, "stop": None, "stop_marker": "ROMTRACE|x",
-                             "frames": 1, "events": [], "trace_overflow": False}]}
+                             "frames": 1, "elapsed_ms": 1.0, "restore_ms": 0.1,
+                             "events": [], "trace_overflow": False}]}
         with self.assertRaises(rom_bridge.WorkerProtocolError):
             rom_bridge.RomWorkerClient._validate_batch_reply(orphan, 1, 24_000)
 
     def test_slot_reply_identity_covers_the_new_identity_fields(self):
         client = object.__new__(rom_bridge.RomWorkerClient)
         client.rom_sha256 = rom_bridge.ROM_SHA256
+        client.wire_protocol = 3
+        client.worker_version = rom_bridge.WORKER_VERSION
         base = {
             "handle": "a" * 32, "name": "alpha", "bytes": 528448, "sha256": "b" * 64,
             "identity": {"worker_version": rom_bridge.WORKER_VERSION, "mgba_version": rom_bridge.MGBA_VERSION,
@@ -225,6 +359,8 @@ class ProtocolTests(unittest.TestCase):
     def test_slot_lifecycle_round_trips_through_the_client(self):
         client = object.__new__(rom_bridge.RomWorkerClient)
         client.rom_sha256 = rom_bridge.ROM_SHA256
+        client.wire_protocol = 3
+        client.worker_version = rom_bridge.WORKER_VERSION
         calls = []
 
         def fake_request(op, **kwargs):
@@ -272,16 +408,18 @@ class ProtocolTests(unittest.TestCase):
 import json, os, sys
 rom = sys.argv[-1]
 status = {
-    "protocol": 2, "ok": True,
-    "worker": "sidedex-mgba-worker/0.2.0", "mgba": "0.10.5+26b7884",
+    "protocol": 3, "ok": True,
+    "worker": "sidedex-mgba-worker/0.3.0", "mgba": "0.10.5+26b7884",
     "platform": "gba", "rom_title": "TEST", "rom_code": "TEST",
     "rom_bytes": os.path.getsize(rom), "frame_count": 7,
+    "supported_wire_protocols": [3], "state_schema": "sidedex-state-v1",
+    "transition_schema": "sidedex-transition-v2", "decode_schema": "decode-v2",
 }
 print(json.dumps(status), flush=True)
 request = json.loads(sys.stdin.readline())
 print(json.dumps({**status, "op": request["op"], "address": request["address"], "data": request["data"]}), flush=True)
 sys.stdin.readline()
-print(json.dumps({"protocol": 2, "ok": True}), flush=True)
+print(json.dumps({"protocol": 3, "ok": True}), flush=True)
 """
             with patch.object(rom_bridge, "ROM_SHA256", digest):
                 with rom_bridge.RomWorkerClient(
@@ -310,11 +448,13 @@ print(json.dumps({"protocol": 2, "ok": True}), flush=True)
 import json, sys, time
 rom = sys.argv[-1]
 print(json.dumps({
-    "protocol": 2, "ok": True,
-    "worker": "sidedex-mgba-worker/0.2.0",
+    "protocol": 3, "ok": True,
+    "worker": "sidedex-mgba-worker/0.3.0",
     "mgba": "0.10.5+26b7884", "platform": "gba",
     "rom_title": "TEST", "rom_code": "TEST",
-    "rom_bytes": __import__("os").path.getsize(rom), "frame_count": 0
+    "rom_bytes": __import__("os").path.getsize(rom), "frame_count": 0,
+    "supported_wire_protocols": [3], "state_schema": "sidedex-state-v1",
+    "transition_schema": "sidedex-transition-v2", "decode_schema": "decode-v2"
 }), flush=True)
 sys.stdin.readline()
 time.sleep(3)
@@ -344,20 +484,20 @@ time.sleep(3)
             fake_worker = r"""
 import json, os, sys
 rom = sys.argv[-1]
-status = {"protocol":2,"ok":True,"worker":"sidedex-mgba-worker/0.2.0","mgba":"0.10.5+26b7884","platform":"gba","rom_title":"TEST","rom_code":"TEST","rom_bytes":os.path.getsize(rom),"frame_count":0}
+status = {"protocol":3,"ok":True,"worker":"sidedex-mgba-worker/0.3.0","mgba":"0.10.5+26b7884","platform":"gba","rom_title":"TEST","rom_code":"TEST","rom_bytes":os.path.getsize(rom),"frame_count":0,"supported_wire_protocols":[3],"state_schema":"sidedex-state-v1","transition_schema":"sidedex-transition-v2","decode_schema":"decode-v2"}
 print(json.dumps(status), flush=True)
 for line in sys.stdin:
     req = json.loads(line)
     if req["op"] == "save_state":
         slot = {"handle":"a"*32,"name":req.get("name","default"),"bytes":123,"sha256":"b"*64,
-                "identity":{"worker_version":"sidedex-mgba-worker/0.2.0","mgba_version":"0.10.5+26b7884",
-                            "artifact_sha256":req["artifact_sha256"],"wire_protocol":2,
+                "identity":{"worker_version":"sidedex-mgba-worker/0.3.0","mgba_version":"0.10.5+26b7884",
+                            "artifact_sha256":req["artifact_sha256"],"wire_protocol":3,
                             "save_format":"mgba-savestate-savedata-rtc-v1"}}
-        out = {"protocol":2,"ok":True,"slot":slot}
+        out = {"protocol":3,"ok":True,"slot":slot}
     elif req["op"] == "batch_turns":
-        out = {"protocol":2,"ok":True,"request_id":req["request_id"],"source_sha":req["source_sha"],"engine_elf_sha256":req["engine_elf_sha256"],"worker_sha256":req["worker_sha256"],"turns":[{"complete":True,"stop":"boundary","stop_marker":"ROMTRACE|boundary|player-choice|1|4","frames":17,"events":["ROMTRACE|boundary|player-choice|1|4"],"trace_overflow":False} for _ in req["payloads"].split("|")]}
+        out = {"protocol":3,"ok":True,"request_id":req["request_id"],"source_sha":req["source_sha"],"engine_elf_sha256":req["engine_elf_sha256"],"worker_sha256":req["worker_sha256"],"turns":[{"complete":True,"stop":"boundary","stop_marker":"ROMTRACE|boundary|player-choice|1|4","frames":17,"elapsed_ms":1.0,"restore_ms":0.2,"events":["ROMTRACE|boundary|player-choice|1|4"],"trace_overflow":False} for _ in req["payloads"].split("|")]}
     else:
-        out = {"protocol":2,"ok":True}
+        out = {"protocol":3,"ok":True}
     print(json.dumps(out), flush=True)
     if req["op"] == "quit": break
 """
@@ -398,10 +538,10 @@ for line in sys.stdin:
             fake_worker = r"""
 import json, os, sys
 rom = sys.argv[-1]
-print(json.dumps({"protocol":2,"ok":True,"worker":"sidedex-mgba-worker/0.2.0","mgba":"0.10.5+26b7884","platform":"gba","rom_title":"TEST","rom_code":"TEST","rom_bytes":os.path.getsize(rom),"frame_count":0}), flush=True)
+print(json.dumps({"protocol":3,"ok":True,"worker":"sidedex-mgba-worker/0.3.0","mgba":"0.10.5+26b7884","platform":"gba","rom_title":"TEST","rom_code":"TEST","rom_bytes":os.path.getsize(rom),"frame_count":0,"supported_wire_protocols":[3],"state_schema":"sidedex-state-v1","transition_schema":"sidedex-transition-v2","decode_schema":"decode-v2"}), flush=True)
 for line in sys.stdin:
     req = json.loads(line)
-    print(json.dumps({"protocol":2,"ok":True,"op":req["op"]}), flush=True)
+    print(json.dumps({"protocol":3,"ok":True,"op":req["op"]}), flush=True)
 """
             kwargs = dict(source_lock_path=lock, expected_artifact_sha256=digest,
                           expected_worker_sha256=rom_bridge.sha256_file(sys.executable),
@@ -420,6 +560,8 @@ for line in sys.stdin:
         client = object.__new__(rom_bridge.RomWorkerClient)
         client.rom_sha256 = rom_bridge.ROM_SHA256
         client.worker_sha256 = rom_bridge.WORKER_SHA256
+        client.wire_protocol = 3
+        client.worker_version = rom_bridge.WORKER_VERSION
         client._has_checkpoint = False
         client._timeout = 5.0
         sent = {}
@@ -429,8 +571,10 @@ for line in sys.stdin:
             sent.update(fields)
             return {"ok": True, "request_id": fields["request_id"], "source_sha": fields["source_sha"],
                     "engine_elf_sha256": fields["engine_elf_sha256"], "worker_sha256": fields["worker_sha256"],
+                    "_wire_bytes": 100, "_request_wire_bytes": 100,
                     "turns": [{"complete": True, "stop": "turn-complete", "stop_marker": "ROMTRACE|ready|1",
-                               "frames": 5, "events": [], "trace_overflow": False}]}
+                               "frames": 5, "elapsed_ms": 2.0, "restore_ms": 0.1,
+                               "events": [], "trace_overflow": False}]}
 
         client._request = fake_request
         args = dict(mailbox_bytes=4, engine_elf_sha256=rom_bridge.ROM_SHA256,
@@ -502,6 +646,7 @@ class Protocol2LiveTests(unittest.TestCase):
             cls.WORKER, cls.ARTIFACT, timeout=30,
             expected_artifact_sha256=rom_bridge.sha256_file(cls.ARTIFACT),
             expected_worker_sha256=rom_bridge.sha256_file(cls.WORKER),
+            wire_protocol=2,
         )
 
     def setUp(self):

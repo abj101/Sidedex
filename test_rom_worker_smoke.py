@@ -1,6 +1,6 @@
 """Smoke test the real mGBA worker when a built worker and ROM are available.
 
-This verifies emulator lifecycle primitives and the protocol-2 state/transport
+This verifies emulator lifecycle primitives and the protocol-3 state/transport
 ops. It intentionally does not assert or synthesize battle outcomes.
 """
 
@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -18,8 +19,8 @@ WORKER = Path(os.environ.get(
     ROOT / "native" / "rom_worker" / "build" / "mingw" / "rom_worker.exe",
 ))
 ROM = Path(os.environ.get("SIDEDEX_ROM_PATH", "")) if os.environ.get("SIDEDEX_ROM_PATH") else None
-PROTOCOL = 2
-WORKER_NAME = "sidedex-mgba-worker/0.2.0"
+PROTOCOL = 3
+WORKER_NAME = "sidedex-mgba-worker/0.3.0"
 MGBA = "0.10.5+26b7884"
 
 
@@ -61,12 +62,14 @@ class RomWorkerSmokeTest(unittest.TestCase):
         self.assertTrue(reply.get("ok"), reply)
         return reply
 
-    def test_protocol2_state_ops_and_memory(self):
+    def test_protocol3_state_ops_and_memory(self):
         status = self.initial
         self.assertTrue(status["ok"])
         self.assertEqual(status["worker"], WORKER_NAME)
         self.assertEqual(status["mgba"], MGBA)
         self.assertEqual(status["platform"], "gba")
+        self.assertEqual(status["supported_wire_protocols"], [3])
+        self.assertEqual(status["transition_schema"], "sidedex-transition-v2")
         self.assertGreater(status["rom_bytes"], 0)
         base_frame = status["frame_count"]
 
@@ -118,7 +121,6 @@ class RomWorkerSmokeTest(unittest.TestCase):
         self.assertEqual(self.request("read_memory_block", address=0x0203FFF0, length=32)["error"], "unmapped-memory")
         self.assertEqual(self.request("read_memory_block", address=0x02000000, length=4097)["error"], "invalid-memory-block")
         self.assertEqual(len(self.ok("read_memory_block", address=0x03000000, length=4)["data"]), 8)
-
         self.assertEqual(self.ok("set_keys", keys=0x10)["keys"], 0x10)
         self.assertEqual(self.ok("run_frames", frames=5, keys=0x8)["frame_count"], base_frame + 8)
 
@@ -133,6 +135,28 @@ class RomWorkerSmokeTest(unittest.TestCase):
         self.process.wait(timeout=10)
         self.assertEqual(self.process.returncode, 0, self.process.stderr.read())
 
+    def test_optional_external_save_loads_before_status(self):
+        with tempfile.TemporaryDirectory() as temp:
+            save = Path(temp) / "fixture.sav"
+            save.write_bytes(bytes([0xFF]) * (128 * 1024))
+            process = subprocess.Popen(
+                [str(WORKER), "--rom", str(ROM), "--save", str(save)],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, encoding="utf-8", bufsize=1,
+            )
+            try:
+                status = json.loads(process.stdout.readline())
+                self.assertTrue(status["ok"], status)
+                self.assertEqual(status["save_bytes"], 128 * 1024)
+                self.assertEqual(status["save_sha256"], hashlib.sha256(save.read_bytes()).hexdigest())
+                process.stdin.write(json.dumps({"protocol": PROTOCOL, "op": "quit"}) + "\n")
+                process.stdin.flush()
+                self.assertTrue(json.loads(process.stdout.readline())["ok"])
+                process.wait(timeout=10)
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    process.wait(timeout=10)
 
 if __name__ == "__main__":
     unittest.main()
