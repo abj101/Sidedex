@@ -111,12 +111,16 @@ this ledger, the plan, `rom_identity.py`, `pinned_source.json`, `sdr2_vectors/`,
 | B codec / rebase / perf follow-up | done, needs V0/V1 fixes | `codex/rom-worker-b` `968d677`, worker `1529b4de`; merged on integration `f3e37dc`; wire 2 is retired by this worker (wire 3 only) |
 | C1 closed-loop release root | done | `codex/rom-release-c` `e78c6c9`; root sha is bound to worker 0601297e, must be regenerated after the worker flip |
 | C2 H3 + comparison plumbing | in progress | agent `pkg-c` |
-| Gate V0: v9a registered as CANDIDATE pin (no flip) | done | this commit; active pins stay v8c `422ade3e` + worker `0601297e`; `dynamic_request_v9.patch`, `rom_identity.CANDIDATE_*`, `pinned_source.json dynamic_oracle_v9` |
-| Gate V1: worker flip (wire 3, `rom-v5`) on v8c ELF | not started | branch `codex/gate-v1`; needs test_rom_bridge/harness/release identity ported to `rom_identity` |
-| Gate V2: live v9a x worker-1529 evidence (committed, non-skipped, sdr2.py decoder, negative controls) | not started | see plan section 9 |
-| A2 mechanics | PAUSED for corrections | A2 evidence defects found by audit (logic-only no-op, P19 blanket refusal, P9 attribution, staging hygiene) |
-| D (fresh agent) | not started | starts after V1, against the candidate pin |
-| Gate F (single ELF flip: v9b + D), E, final | not started | |
+| Gate V0: v9a registered as CANDIDATE pin (no flip) | done | `80af947`; contract C.6 `39498fa`/`22d4f26` |
+| Gate V1: worker flip (wire 3, `rom-v5`, worker `f7b1c1e3`) on the v8c ELF | done | integration `e7a83c7`, +C3 `a6efcbf`; suite 442 passed / 12 skipped, `app.py --self-check` ok |
+| C1/C2/C3 release root, H3, comparison plumbing | done | `codex/rom-release-c` `329d92f`; readable release fields: party 30/32, active 32/37, battle 5/10, field 6/6, side 11/12, rng 8/8 |
+| B, B2, B3 | done | `codex/rom-worker-b` `67c7351`, worker f7b1c1e3 reproducible |
+| Gate V2 verifier (`codex/rom-gate-v2` `513f4aa`, 44 tests) | FAILING: 21 pass / 23 fail | findings R1 terminal tag rule (worker), R2 chaining from a child (ROM hook), R3 v9a differs from v8c on 19 green rows (ROM hook), R4 P11 encoder, O1 boundary enum. Not merged to integration (would turn the suite red) |
+| R1+R4+O1 fixes | dispatched (Sonnet, `codex/rom-worker-b`) | new candidate worker to be re-pinned |
+| R2 chaining fix | dispatched (Sonnet, WSL `sidedex/a1-fix-r2`) | |
+| R3 divergence fix | dispatched (Sonnet, WSL `sidedex/a1-fix-r3`) | |
+| A2 mechanics | in progress, must rebase onto the R2/R3 hook fixes | `pkg-a1` |
+| D (Sonnet Agent), Gate F (single ELF flip: v9b + D), E, final | not started | D starts once V2 is green |
 
 Superseded by the finish plan and removed from this table: the "3 known
 failures" pin-flip row, the v8-only phase gates, and the logic-only frame
