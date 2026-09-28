@@ -4,6 +4,30 @@ Orchestrator-owned. One place for the baseline, pins, ownership, and gate state.
 
 ## Baseline
 
+### 2026-09-28 execution restart at `d043609d84219fc9cac4ed1060e4ed817ce24f49`
+
+The active integration worktree is `C:\Users\Abj1\.codex\worktrees\rom-transition-orchestrator\Sidedex`
+on `codex/rom-transition-execution`. The original dirty `feat/rom-backed-calc`
+checkout and its untracked `work/` remain untouched. Pinned release ROM,
+headless ELF, and worker SHA-256 are respectively `0ccaaad0878a9cbfb36fbefff800e9b6dd66055924b7595038ede1e8771ec5a2`,
+`422ade3e159916f9cc8bc1350ad274201b6af6cb9b9d38c14d073f85e982bc77`,
+and `0601297e8bed7ca1319dc9be86a547aa01b16624ce0de5431093e6b59d7e5122`.
+All match both pin locations. `python -m pytest --ignore=work -q`:
+377 passed, 9 skipped, 33 subtests passed (43.20 s).
+`python app.py --self-check`: passed.
+
+Contract Appendix B freezes the v2 child/binary integration interface before
+implementation. Benchmark fixture IDs are P1 (root move), P29 (deeper move
+and branch), P25 (voluntary switch), P26 (faint/forced replacement), P19
+(trainer item), and P27/P28 (terminal win/loss), using the existing
+`tools/rom_oracle/fixtures/` JSON files and their fixed dual RNG seeds in
+both normal and logic-only modes. P19/P25 are unsupported at baseline, so
+their baseline latency/throughput is undefined, not zero. The prior measured
+root query is p50 136.7 ms/p95 144.8 ms; one same-input transition measured
+normal 205 frames/43.5 ms and logic-only 130 frames/51.3 ms. A fresh
+per-fixture p50/p95 table is required at the final pin; these older single
+transition numbers are comparison context, not acceptance measurements.
+
 | Item | Value |
 | --- | --- |
 | Integration branch | `codex/rom-transition-phases-1-4` |

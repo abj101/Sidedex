@@ -1,4 +1,4 @@
-# ROM transition contract v1 (frozen)
+# ROM transition contract v1 (frozen); v2 execution amendment below
 
 Frozen by the orchestrator before any phase-1 work is assigned. This file is the interface every work
 package codes against. Changes require a contract version bump and an orchestrator merge; downstream
@@ -332,3 +332,103 @@ A2 also fixes a base-code bug in `src/recorded_battle.c`:
 so a battler with no recorded actions (the live AI of a non-link recorded battle)
 underflowed to 65535 and wrote `sBattleRecords[battler][65535]`, ~64 KiB out of
 bounds. The guard now runs before the decrement.
+
+## Appendix B: v2 execution amendment (2026-09-28; orchestrator frozen)
+
+This amendment supersedes v1 only where specified here. The pinned v8/worker-v2
+path stays readable for diagnostics. Implementation targets
+`transition_contract=2`, `rom_hook_protocol=9`, `wire_protocol=3`,
+`transition_schema=sidedex-transition-v2`, and `decode_schema=decode-v2`.
+`state_schema` and `save_format` retain their v1 names because the underlying
+mGBA savestate format is unchanged. The worker advertises supported versions in
+`status`; the client selects v9/v3 explicitly for compact turns and rejects a
+missing version. It never guesses a layout from a reply. The coordinated artifact
+flip changes the ELF, worker, both pin locations, and cache identity together.
+
+### Child capture and boundary
+
+The v1 section 3 definition is normative. The hook completes its state, legal,
+RNG, trainer-action and mechanical-event records, commits the binary result,
+then emits the final `ROMTRACE|binary-ready|<address>|<length>` marker. The
+worker reads and verifies the committed result, **saves the live emulator at
+that boundary**, and only then restores the parent for the next batch entry.
+Saving after a parent restore, at a trace marker emitted before export, or after
+another emulated frame is invalid. A nonterminal turn lacking a saved child is
+an error and cannot count as a verified transition. Terminal turns have no child.
+
+Each successful nonterminal worker result contains `child` with a newly minted
+immutable handle, savestate byte count and SHA-256, plus an exportable portable
+blob (base64 in the bounded JSONL envelope, or a separately retrievable blob
+whose handle is retained until export). The public `DecisionState.token`
+contains that blob/digest and the full `TransitionIdentity`; the handle is an
+optimization. The source parent slot is never replaced. Importing the blob on
+an identical worker permits A→B→restore A→C and B→D. Terminal results contain
+`child=null`. Exceeding the three-slot/64-MiB limits must fail explicitly;
+the scheduler may export and drop an older handle before a batch.
+
+### Complete projection and ROM legality
+
+`decoded` is a named, typed object assembled solely from the v9 ROM export.
+Required groups are: `party[2][1..6]` (species, level, current/max HP, all
+four move IDs/PP, status1, held item, ability, form, nature, six IVs and six
+EVs); `active[2]` (party index, species, HP, status1/status2/status3, mutable
+ability/form, types, seven stat stages, moves/PP, volatile flags, disable,
+protect, special status, substitute HP, encore/taunt timers);
+`field` (weather and timer, terrain and timer, trick room and timer);
+`side[2]` (screens, hazards and layers, side conditions and all side timers);
+`battle` (turn, type flags, outcome, AI flags and trainer item inventory);
+and `rng` (both four-word streams). Existing v8 party/active/field/side-timer/
+battle/ai-flags/trainer-item records provide a subset; the v9 exporter must
+add every missing value from its named C source. All array lengths and
+presence bits are explicit. A missing required group/value, contradictory
+active index, invalid count, or exporter `unrepresentable` record rejects
+the result as `incomplete-state` or `unrepresentable-state`. Unreadable
+mechanics are reported as unsupported with their source reason; zero is never
+invented. The decoded projection is never used to rebuild a child savestate.
+
+`legal_player_actions` is built from the ROM's v9 legal records at the
+*resulting* boundary: move = kind/move_id/PP/target, switch = kind/slot/species,
+item only if the ROM actually offers it. The announced action count must equal
+the parsed count, actions must be unique and consistent with the decoded state,
+and a nonterminal boundary needs at least one. The snapshot's candidate list
+may filter card presentation but is not the node's legality source. At a
+forced-switch boundary only switches are legal; at terminal there are none.
+
+### v9 mailbox and compact result
+
+The v8 request's first 864 bytes keep their offsets. v9 appends little-endian
+`resultAddress:u32` at 864, `resultCapacity:u32` at 868,
+`resultVersion:u16=1` at 872, and `flags:u16` at 874 (bit 0 requests compact
+result; remaining bits zero); total **876 bytes**. The ROM validates the
+address/capacity as an EWRAM range disjoint from the request and its own active
+battle state. Its compile-time reserved result array is authoritative; the
+worker supplies that exact address/capacity obtained from a versioned ready
+announcement, not an arbitrary caller address. A v8 request uses the old trace
+path only.
+
+Result bytes are little-endian. Header (64 bytes): magic `SDR2` (4), format
+version `u16=1`, header bytes `u16=64`, total bytes `u32`, CRC32 of bytes
+12..end with the CRC field zeroed `u32`, requestId `u16`, status `u16`,
+boundary kind `u16` (0 none, 1 choice, 2 forced switch, 3 terminal),
+mode `u16`, critical policy `u16`, record count `u16`, turn `u32`,
+main RNG after `4×u32`, secondary RNG after `4×u32`.
+Records follow as `tag:u16, payload_bytes:u16, payload`, padded to four
+bytes. Total bytes cannot exceed the announced capacity or 1 MiB. The
+worker rejects CRC, length, version, requestId, mode/policy, record-count or
+identity mismatch before returning any child. A nonzero status carries a
+versioned error record and no child.
+
+Tags 1..7 are the required typed projection groups in the order listed above
+(party, active, field, side, battle, RNG, legal). Tags 8 and 9 are trainer
+action and ordered mechanical events; tag 10 is terminal result; tag 11 is
+unsupported reason. Each projection payload begins with `entry_count:u16,
+words_per_entry:u16`, then fixed-width `u32` words in the documented
+`decode-v2` field order above. Variable events use
+`event_kind:u16, payload_words:u16, payload:u32[]` subrecords. Unknown
+required tags, duplicate singleton tags, bad counts, or absent legal/RNG
+data fail closed. The hook keeps `ROMTRACE` for diagnostic and differential
+runs; production `batch_turns_v3` sends base64-encoded contiguous binary
+mailboxes in one JSONL control request and returns compact base64 result bytes,
+child summaries/blobs, frames and IPC byte counts without parsing textual
+state records. Query operations may retain trace transport until independently
+ported, but must honor the same token identity and immutability rules.
