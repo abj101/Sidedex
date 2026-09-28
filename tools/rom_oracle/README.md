@@ -59,14 +59,154 @@ At switch settlement and after the next turn, the trace records all six party sl
 
 The trace does not snapshot every global byte or prove that the release ROM follows the same path. It is a deterministic, broad state capture for this bounded test scenario, not a full RAM snapshot, universal replay format, or the complete calculation contract.
 
-## Dynamic battle request v7
+## Dynamic battle request v8
 
 `dynamic_request.patch` applies to the pinned source on its own; it already
 contains the trace hooks, so `trace_hooks.patch` is only used for the separate
-170-record oracle. It adds a test-only, versioned 856-byte EWRAM mailbox.
-Build the pinned test ELF with the recipe in `pinned_source.json`; do not
-commit either generated ELF. The host runner checks the pinned headless ELF
-hash and source-derived IDs before writing any request.
+170-record oracle. It adds a test-only, versioned **864-byte** EWRAM mailbox.
+The exact byte-offset table is frozen in `ROM_TRANSITION_CONTRACT.md`
+Appendix A. Build the pinned test ELF with the recipe in `pinned_source.json`;
+do not commit either generated ELF. The host runner checks the pinned headless
+ELF hash and source-derived IDs before writing any request.
+
+**v8 is a protocol bump.** The v7 host path (`tools/rom_oracle/run_dynamic.py`,
+`rom_bridge.RomWorkerClient.batch_turns`, `send_rom_request`) writes a 7-version
+document and 856 bytes and is rejected by the v8 ELF (`ROMTRACE|invalid|1`).
+The worker/transport package must update those writers; package A only owns the
+ROM side. The v7 fields keep their v7 offsets; the v8 extension appends
+`op` (856), `mode` (858), `criticalPolicy` (860), `requestId` (862).
+
+### Operations, modes, and critical policy
+
+- `op` (u16, offset 856): `0` `SIMULATE_TURN`, `1` `QUERY_DAMAGE`,
+  `2` `QUERY_AI_ACTION`. A legacy request that leaves `op` at 0 and sets the v7
+  `secondPresent` byte to `2` still reaches the query path.
+- `mode` (u16, 858): `0` `normal`, `1` `logic-only`.
+- `criticalPolicy` (u16, 860): `0` `normal` (real engine crit rolls, the parity
+  mode), `1` `item-ability-only` (the previous default; ordinary crits are
+  filtered and the engine-derived record is labelled
+  `ROMTRACE|critical-policy|item-ability-only|battle-script-filtered`). The
+  query damage path applies the same policy to its crit weights.
+- `requestId` (u16, 862): caller-chosen monotonic token. The boundary hold
+  releases only when a submitted request carries a different `requestId`.
+
+### Choice-point boundary (v8 SIMULATE_TURN)
+
+The ROM stops at the decision boundary defined by contract section 3: after
+entry/end-of-turn effects and compulsory faint replacement have settled, at the
+start of the next turn's action selection and **before the AI chooses**. At that
+point it emits
+
+```
+ROMTRACE|boundary|player-choice|<turn>|<legal-action-count>
+ROMTRACE|phase|<turn>|boundary|player-choice|<count>   (legacy slim filter)
+```
+
+The machine then holds: `HandleTurnActionSelectionState` returns without
+advancing until a submitted request with a different `requestId` arrives. The
+hold is what makes the node snapshot-able — the mGBA worker saves the savestate
+while the machine is stopped, so the boundary is exact. A forced switch after a
+faint emits `boundary|forced-switch-player|...` and holds the pokémon-choice
+controller the same way (switches only, `legal-action-count` counts switchable
+party slots). If the battle has ended, the ROM emits
+`ROMTRACE|terminal|<win|loss|draw>|<reason>` plus `ROMTRACE|complete|<turn>` and
+never a boundary; a terminal/faint path finishes without the 24,000-frame
+fallback (measured: 325 frames).
+
+### Decoded state export at the boundary
+
+Every boundary emits the complete contract 2.2 field set. Records are prefixed
+`ROMTRACE|phase|<turn>|state|` so the pinned worker's slim filter keeps them
+(the canonical markers `boundary|`, `terminal|`, `unrepresentable|`,
+`instruction-budget-exceeded|` are kept by the updated worker filter; the
+`phase|<turn>|...` mirror is what the pinned v1 worker can carry):
+
+| Record | Fields after the prefix | C source |
+| --- | --- | --- |
+| `state|party` | side, slot, species, level, HP, maxHP, status1, item, abilityNum, speciesOrEgg, nature, move1-4, pp1-4, ivHp/Atk/Def/Spd (23) | `struct Pokemon` via `GetMonData`, `gPlayerParty`/`gEnemyParty` |
+| `state|active` | battler, partySlot, species, HP, maxHP, status1, status2, `gStatuses3`, ability, item, types 0-2, 7 stat stages, moves 0-3, pp 0-3 (28) | `struct BattlePokemon gBattleMons[]`, `gStatuses3[]` |
+| `state|field` | weather, field statuses, trick room, screens p/e, hazards p/e, side statuses p/e (9) | `gBattleWeather`, `gFieldStatuses`, `gSideStatuses[]` |
+| `state|side-timer` | side, reflect, light screen, aurora veil, mist, safeguard, tailwind, follow-me (8) | `struct SideTimer gSideTimers[]` |
+| `state|battle` | turn counter, outcome, `itemsNo`, battle type flags, battler count, `requestId` (6) | `gBattleResults`, `gBattleOutcome`, `gBattleResources->battleHistory` |
+| `state|ai-flags` | battler, flags (2) | `AI_THINKING_STRUCT->aiFlags[]` |
+| `state|trainer-item` | index, item id, `itemsNo` (3) | `gBattleResources->battleHistory->trainerItems[]` |
+
+The both-RNG-stream pair is emitted at each boundary as
+`ROMTRACE|rng|<turn>|a|b|c|ctr|a2|b2|c2|ctr2`, so consecutive boundaries give
+the before/after pair for the transition. `state|restore-source` records that
+the stable-restore bytes are the mGBA savestate taken at the held boundary
+(measured 528,448 bytes for this test ELF), not the decoded projection.
+
+Fields the exporter cannot read through an accessor are reported, never
+defaulted:
+
+```
+ROMTRACE|unrepresentable|recorded-battle-cursor
+ROMTRACE|unrepresentable|controller-exec-flags
+ROMTRACE|unrepresentable|ai-scoring-scratch
+```
+
+(each also mirrored under `phase|<turn>|unrepresentable|`).
+
+### Transition from a saved decision state (what a caller must supply)
+
+Root creation still uses the mailbox party builder plus at most one replayed
+turn. A **deeper** transition does not replay: the caller must
+
+1. restore the saved decision state (the mGBA savestate taken while the ROM was
+   held at that boundary) with the worker's named state slot,
+2. write a fresh mailbox document with `op=SIMULATE_TURN`, a new `requestId`,
+   the injected RNG pair (`mainRng`/`secondaryRng`), and the validated player
+   action (`candidateKind`/`playerMove`/`playerSlot`),
+3. let the machine run: the hold releases, the player action is injected into
+   the recorded-player controller (the recorded bytes are still consumed so the
+   playback cursor stays aligned), the real trainer AI chooses, the turn runs
+   with switch-in and faint follow-ups, and the ROM holds at the next boundary
+   with a fresh state export.
+
+`replayCount > 1` is still rejected; >1 replay remains an unrepresentable
+history. The one-replay dependency is no longer on the transition path.
+
+Verified: one root boundary, then Tackle and Growl injected from the **same**
+saved node. Both branches restore byte-for-byte the same state and RNG
+(`rng|0|1764359885|589825119|1761919851|3|1|2|3|29`), the trainer AI chooses the
+same `move|33` in both (no player-action leakage), and the next boundary differs
+as the rules require (opponent HP 143 vs 155 and Attack stage 5 vs 6). Replaying
+the same branch twice reproduces the identical boundary and RNG.
+
+### Logic-only mode
+
+`mode=logic-only` selects the bounded pump in `BattleMainCB1`: up to four
+synchronous `gBattleMainFunc` + controller advances per emulated frame, stopping
+at a boundary, a terminal, an unmechanical dependency, or the 2,000,000
+instruction budget (`ROMTRACE|instruction-budget-exceeded|<n>`). Normal mode is
+exactly one advance per frame, so it stays the differential baseline. Measured
+on the same scenario: normal 205 frames to the next boundary, logic-only 130
+frames, no error. Deviation from contract 5: the runtime mode switch is present
+but there is no separate `SIDEDEX_LOGIC_ONLY` compile-time define — the whole
+hook only exists in the test build, so the test ELF is already the gate. A
+finer presentation/controller audit (which individual waits are pure
+presentation) is not yet done; the pump is the coarse, safe version.
+
+### Trainer items in a resolved turn (blocked, documented)
+
+Enabling the request's `trainer_items` for a resolved `SIMULATE_TURN` was tried
+in v8 and is **not safe in this harness**: the battle completes action selection
+(both `ROMTRACE|action|` records are emitted) and then makes no further progress
+for at least 1500 frames, with no hp/faint/boundary record. It reproduces for
+any item list, including one the AI would not use (opponent at 80/155 HP with an
+unused Potion), so the presence of a resolved-turn trainer bag itself breaks the
+turn, not the heal decision. The hook therefore keeps the v7 behaviour: items
+are copied into the battle history for the pre-choice **query** turn only, the
+query returns the exact item prediction, and the resolved-turn recommendation
+fails closed (`unsupported-mechanic`) when the predicted action is an item. The
+`SetUpBattleVarsAndBirchZigzagoon` hook cannot currently be made safe; the exact
+blocker is the interaction between a populated `battleHistory->trainerItems` and
+the resolved turn's controller/action-selection loop, not `ShouldUseItem`'s
+item consumption. The v8 restore path does undo the `ShouldUseItem` mutation
+across branches, so that part of the old concern is resolved.
+
+### Bounded fixtures and unsupported boundaries
 
 The bounded fixtures are `dynamic_sample.json` (opening),
 `dynamic_switch.json` (candidate switch), and `dynamic_replay.json` (one
@@ -75,36 +215,29 @@ party slots per side carry species, level, natural ability, item and an
 authoritative `held_item_enabled` switch, nature, HP, status, moves/PP, IVs,
 EVs, and seven active stat stages (Attack, Defense, Speed, Special Attack,
 Special Defense, accuracy, evasion; each ranges from 0 through 12, neutral 6).
-Requests carry both RNG states, source-mapped
-AI flags, and a verified clear battle-start field. Calc sends no
-`second_action`; the mailbox field may remain in the hook for compatibility.
-The compiled hook
-validates party state and the second action, and emits bounded ROMTRACE
-records; the host checks for a completed turn and required action, party,
-active, and RNG records. A first-turn KO finishes `AfterLastTurn` while
-`battleTurnCounter` is still 0 and used to skip `ROMTRACE|complete`; the hook
-now emits complete for that case, and the worker also stops on the following
-`ROMTRACE|ready` so an older ELF does not spin to `max_frames`. Focused host tests cover encoding, switch/replay
-shape, second-turn encoding, and invalid IDs/state.
+Requests carry both RNG states, source-mapped AI flags, and a verified clear
+battle-start field. The initial active slot is fixed at party index 0 on both
+sides; explicit nonzero active indices are rejected. Only clear
+weather/terrain, no trick room, no screens/hazards, and at most one replayed
+turn are supported as root construction. When a replayed player switch changes
+the active monster, a candidate move is validated against that slot's moves.
+Set `post_switch_query: true` with a replayed player switch and the opponent's
+response to query the next turn after entry effects. Query active records
+include current party slot, species, HP, Max HP, and moves. The result exposes
+the bounded raw ROMTRACE event list; the Python transition/query adapter is
+package B/C work. These boundaries are explicit and must not be treated as
+trainer-battle parity or full state coverage.
 
-The initial active slot is fixed at party index 0 on both sides. Any explicit nonzero
-`player_active_index` or `opponent_active_index` is rejected. Trainer identity
-is not applied by the hook; a trainer's item list (`trainer_items`, expanded to
-at most four slots with the counts carried in the request tail) is copied into
-the battle history for the pre-choice query turn only. The resolved-turn
-sampling path deliberately leaves items unapplied, because this harness cannot
-safely re-run the AI item decision inside a resolved turn; the query therefore
-carries the item prediction and the sampling-derived recommendation fails closed
-(`unsupported-mechanic`) whenever the predicted action is an item.
-Only clear weather/terrain, no trick room, no screens/hazards,
-and at most one replayed turn are supported. When a replayed player switch
-changes the active monster, a candidate move is validated against that slot's
-moves. Set `post_switch_query: true` with a replayed player switch and the
-opponent's response to query the next turn after entry effects. Query active
-records include current party slot, species, HP, Max HP, and moves.
-The result currently exposes the bounded raw ROMTRACE event list rather than a
-normalized full-contract outcome. These boundaries are explicit and must not be
-treated as trainer-battle parity or full state coverage.
+### Reproducing the v8 evidence
+
+The verification harness used by package A lives outside the repository
+(`work/v8_verify.py`, not committed). It drives the v8 ELF through the worker's
+`run_frames`/`write_memory`/`save_checkpoint`/`restore_state` operations and is
+reproducible with the pinned worker and the v8 ELF; the raw report is
+`work/v8_report.json` in the handoff. The build recipe is unchanged:
+`make -j4 pokeemerald-test.elf TESTS='Sidedex oracle: dynamic AI singles request'`,
+copy to the new artifact name, then
+`tools/patchelf/patchelf <elf> gTestRunnerHeadless '\x01' gTestRunnerSkipIsFail "\x00"`.
 
 ## Query mode
 

@@ -207,3 +207,89 @@ new failures extend, never relabel.
 - Phase 4: zero unexplained normal-vs-logic-only differences across the fixture matrix; AI leakage test
   passes; restore determinism and identity rejection pass; release-ROM comparison evidence, or an explicit
   `compiled-engine` label with phase 4 left open.
+
+## Appendix A: mailbox v8 layout (package A)
+
+Appended by package A. The canonical `SidedexDynamicRequest` lives in
+`include/test/sidedex_dynamic.h`. `SIDEDEX_DYNAMIC_MAGIC` is unchanged
+(`0x53445831`); `SIDEDEX_DYNAMIC_VERSION` is **8**; the struct is **864** bytes.
+All multi-byte fields are little-endian ARM. v7 byte offsets are preserved; the
+v8 fields are appended at 856.
+
+### Request header and fixed fields
+
+| Offset | Size | Type | Field | Notes |
+| --- | --- | --- | --- | --- |
+| 0 | 4 | u32 | `magic` | `0x53445831` |
+| 4 | 2 | u16 | `version` | must be 8 |
+| 6 | 2 | u16 | `status` | 0 WAITING, 1 SUBMITTED, 2 RUNNING, 3 COMPLETE, 4 INVALID |
+| 8 | 4 | u32 | `aiFlags` | source-mapped trainer AI flags |
+| 12 | 2 | u16 | `candidateKind` | 0 MOVE, 1 SWITCH |
+| 14 | 2 | u16 | `playerMove` | move id for a MOVE candidate |
+| 16 | 2 | u16 | `playerSlot` | party slot for a SWITCH candidate |
+| 18 | 2 | u16 | `replayCount` | 0 or 1 (root construction only) |
+| 20 | 16 | 4x u32 | `mainRng` | injected main RNG (a, b, c, ctr) |
+| 36 | 16 | 4x u32 | `secondaryRng` | injected secondary RNG (a, b, c, ctr) |
+| 52 | 2 | u16 | `playerCount` | 1..6 |
+| 54 | 2 | u16 | `opponentCount` | 1..6 |
+| 56 | 384 | 6x 64 | `player[6]` | see `SidedexDynamicMon` |
+| 440 | 384 | 6x 64 | `opponent[6]` | see `SidedexDynamicMon` |
+| 824 | 12 | 6x u16 | `replay` | see `SidedexDynamicTurn` |
+| 836 | 2 | u16 | `secondKind` | v7 compat |
+| 838 | 2 | u16 | `secondMove` | v7 compat |
+| 840 | 2 | u16 | `secondSlot` | v7 compat |
+| 842 | 2 | u16 | `secondPresent` | 2 still selects the v7 query path |
+| 844 | 8 | 4x u16 | `trainerItems` | item ids, query turn only |
+| 852 | 2 | u16 | `trainerItemCount` | 0..4 |
+| 854 | 2 | u16 | `trainerReserved` | 0 |
+| 856 | 2 | u16 | `op` | 0 SIMULATE_TURN, 1 QUERY_DAMAGE, 2 QUERY_AI_ACTION |
+| 858 | 2 | u16 | `mode` | 0 normal, 1 logic-only |
+| 860 | 2 | u16 | `criticalPolicy` | 0 normal (real crits), 1 item-ability-only |
+| 862 | 2 | u16 | `requestId` | boundary-hold release token |
+
+### `SidedexDynamicMon` (64 bytes, at offsets 56 and 440, stride 64)
+
+| Offset | Size | Type | Field |
+| --- | --- | --- | --- |
+| 0 | 2 | u16 | `species` |
+| 2 | 2 | u16 | `level` |
+| 4 | 2 | u16 | `ability` |
+| 6 | 2 | u16 | `item` |
+| 8 | 2 | u16 | `nature` |
+| 10 | 2 | u16 | `hp` |
+| 12 | 2 | u16 | `maxHp` |
+| 14 | 2 | u16 | `reserved` |
+| 16 | 4 | u32 | `status1` |
+| 20 | 8 | 4x u16 | `moves[4]` |
+| 28 | 4 | 4x u8 | `pp[4]` |
+| 32 | 12 | 6x u16 | `ivs[6]` |
+| 44 | 12 | 6x u16 | `evs[6]` |
+| 56 | 1 | u8 | `heldItemEnabled` |
+| 57 | 7 | 7x u8 | `statStages[7]` |
+
+`statStages` order: Attack, Defense, Speed, Special Attack, Special Defense,
+accuracy, evasion; each 0..12, neutral 6.
+
+### `SidedexDynamicTurn` (12 bytes, at offset 824)
+
+`playerKind` (0), `playerMove` (2), `playerSlot` (4), `opponentKind` (6),
+`opponentMove` (8), `opponentSlot` (10).
+
+### Mailbox size and validation
+
+`SIDEDEX_DYNAMIC_REQUEST_BYTES` is 864 and is what `ROMTRACE|ready|<addr>|<size>`
+announces. `SidedexDynamicRequestValid` rejects a version other than 8, an
+out-of-range `op`/`mode`/`criticalPolicy`, and the existing v7 field checks, and
+prints `ROMTRACE|invalid|1`.
+
+### v8 trace markers
+
+| Marker | Meaning |
+| --- | --- |
+| `ROMTRACE|boundary|<kind>|<turn>|<legal-action-count>` | decision boundary; `kind` is `player-choice` or `forced-switch-player` |
+| `ROMTRACE|terminal|<win\|loss\|draw>|<reason>` | battle ended; no boundary follows |
+| `ROMTRACE|unrepresentable|<field>` | a contract 2.2 field the exporter cannot read |
+| `ROMTRACE|instruction-budget-exceeded|<instructions>` | logic-only pump budget exhausted |
+| `ROMTRACE|phase|<turn>|boundary\|terminal\|unrepresentable\|...` | compatibility mirror kept by the legacy slim trace filter |
+| `ROMTRACE|phase|<turn>|state|<group>|...` | decoded state export (groups and field counts in `tools/rom_oracle/README.md`) |
+| `ROMTRACE|rng|<turn>|a|b|c|ctr|a2|b2|c2|ctr2` | both RNG streams at the boundary (unchanged v7 marker) |
