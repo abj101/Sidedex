@@ -153,6 +153,7 @@ export default function (component) {
     tile.type = "button";
     tile.className = `sd-pc-tile${row ? ` sd-pc-tile-${row.id}` : ""}`;
     tile.dataset.slot = slot;
+    tile.dataset.box = String(data.box_no);
     tile.style.padding = "0";
     tile.setAttribute("aria-label", row ? `Select ${row.name || "Pokémon"}` : `Empty slot ${slot + 1}`);
     if (row) {
@@ -179,12 +180,19 @@ export default function (component) {
       const clearTargets = () => {
         grid.querySelectorAll(".sd-pc-drop-target").forEach(node => node.classList.remove("sd-pc-drop-target"));
       };
+      const dropAt = (x, y) => {
+        const node = document.elementFromPoint(x, y);
+        const hitTile = node?.closest(".sd-pc-tile");
+        if (hitTile) return {el: hitTile, kind: "box"};
+        const hitCard = node?.closest(".st-key-calc-own-roster .sd-calc-slot-card");
+        return hitCard ? {el: hitCard, kind: "party"} : null;
+      };
       const finishDrag = (destination, movedToTarget) => {
         const current = drag;
         if (!current) return;
         clearTargets();
         if (!current.started) { drag = null; return; }
-        const rect = destination.getBoundingClientRect();
+        const rect = destination.el.getBoundingClientRect();
         icon.style.transition = "left 140ms cubic-bezier(.2,.8,.2,1), top 140ms cubic-bezier(.2,.8,.2,1)";
         requestAnimationFrame(() => {
           icon.style.left = `${rect.left + (rect.width - current.size) / 2}px`;
@@ -194,11 +202,16 @@ export default function (component) {
         const complete = () => {
           if (completed) return;
           completed = true;
-          if (movedToTarget) {
+          if (movedToTarget && destination.kind === "party") {
+            icon.remove();
+            setTriggerValue("move", {id: row.id, to: "party", slot: Number(destination.el.dataset.slot),
+                                     token: `${Date.now()}-${Math.random()}`});
+          } else if (movedToTarget) {
             pendingMoves.set(parentElement, {
-              id: row.id, slot: Number(destination.dataset.slot), box_no: data.box_no, icon,
+              id: row.id, slot: Number(destination.el.dataset.slot), box_no: data.box_no, icon,
             });
-            setTriggerValue("move", {id: row.id, slot: Number(destination.dataset.slot), box_no: data.box_no, token: `${Date.now()}-${Math.random()}`});
+            setTriggerValue("move", {id: row.id, to: "box", slot: Number(destination.el.dataset.slot),
+                                     box_no: data.box_no, token: `${Date.now()}-${Math.random()}`});
           } else {
             icon.className = "sd-pc-mini";
             icon.removeAttribute("style");
@@ -230,23 +243,25 @@ export default function (component) {
         icon.style.left = `${event.clientX - drag.size / 2}px`;
         icon.style.top = `${event.clientY - drag.size / 2}px`;
         clearTargets();
-        document.elementFromPoint(event.clientX, event.clientY)?.closest(".sd-pc-tile")?.classList.add("sd-pc-drop-target");
+        const hover = dropAt(event.clientX, event.clientY);
+        if (hover?.kind === "box") hover.el.classList.add("sd-pc-drop-target");
       });
       tile.addEventListener("pointerup", event => {
         if (!drag) return;
         const moved = drag.started;
-        const target = document.elementFromPoint(event.clientX, event.clientY)?.closest(".sd-pc-tile");
+        const target = dropAt(event.clientX, event.clientY);
         if (moved) {
           suppressClick = true;
           setTimeout(() => { suppressClick = false; }, 0);
-          const validTarget = target && Number(target.dataset.slot) !== slot;
-          finishDrag(validTarget ? target : tile, Boolean(validTarget));
+          const sameTile = target?.kind === "box" && Number(target.el.dataset.slot) === slot;
+          const validTarget = target && !sameTile;
+          finishDrag(validTarget ? target : {el: tile, kind: "box"}, Boolean(validTarget));
         } else {
           clearTargets();
           drag = null;
         }
       });
-      tile.addEventListener("pointercancel", () => drag && finishDrag(tile, false));
+      tile.addEventListener("pointercancel", () => drag && finishDrag({el: tile, kind: "box"}, false));
     }
     grid.append(tile);
   }

@@ -40,14 +40,12 @@ def species_icon(species_id):
 
 
 def species_portrait(species_id):
-    """Return a detailed local portrait, falling back to the compact species icon."""
+    """Return the exact portrait, or the best species icon without borrowing base art."""
     slug = _slug(species_id, "species_")
     if slug:
-        parts = slug.split("_")
-        for end in range(len(parts), 0, -1):
-            portrait = _data_url("pokemon", "_".join(parts[:end]) + "_portrait")
-            if portrait:
-                return portrait
+        portrait = _data_url("pokemon", f"{slug}_portrait")
+        if portrait:
+            return portrait
     return species_icon(species_id)
 
 
@@ -60,6 +58,13 @@ def item_icon(item_id):
 def party_indicator_icon(filled=True):
     """Return the game's filled or empty party Poké Ball icon as a data URL."""
     return _data_url("party", "pokeball_filled" if filled else "pokeball_empty")
+
+
+def status_icon(status):
+    """Return a local game status label sprite as a data URL."""
+    slug = str(status or "").removeprefix("STATUS1_").lower()
+    slug = {"toxic_poison": "poison"}.get(slug, slug)
+    return _data_url("status", slug) if slug else None
 
 
 def nature_arrow_icon(increase=True):
@@ -127,6 +132,17 @@ if __name__ == "__main__":
     assert dimensions == (32, 32)
     assert species_icon("SPECIES_CHARJABUG").startswith("data:image/png;base64,")
     assert species_portrait("SPECIES_POOCHYENA").startswith("data:image/png;base64,")
+    assert species_portrait("SPECIES_GROWLITHE_HISUI") == _data_url("pokemon", "growlithe_hisui_portrait")
+    assert species_portrait("SPECIES_ROTOM_WASH") == _data_url("pokemon", "rotom_wash_portrait")
+    assert species_portrait("SPECIES_ARCEUS_FIRE") == _data_url("pokemon", "arceus_fire_portrait")
+    assert species_portrait("SPECIES_ARCEUS_FIRE") != species_portrait("SPECIES_ARCEUS_NORMAL")
+    assert species_portrait("SPECIES_ZACIAN_CROWNED") == _data_url("pokemon", "zacian_crowned_portrait")
+    assert species_portrait("SPECIES_MINIOR_RED") == species_portrait("SPECIES_MINIOR_METEOR_RED")
+    for base, variant in (("PICHU", "PICHU_SPIKY_EARED"), ("ROTOM", "ROTOM_WASH"),
+                          ("PALKIA", "PALKIA_PRIMAL"), ("KYUREM", "KYUREM_BLACK"),
+                          ("GRENINJA", "GRENINJA_ASH")):
+        assert species_portrait(f"SPECIES_{base}") != species_portrait(f"SPECIES_{variant}")
+    assert species_portrait("SPECIES_GROWLITHE") == _data_url("pokemon", "growlithe_portrait")
     assert item_icon("ITEM_FOCUS_SASH").startswith("data:image/png;base64,")
     assert party_indicator_icon().startswith("data:image/png;base64,")
     assert party_indicator_icon(False).startswith("data:image/png;base64,")

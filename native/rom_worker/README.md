@@ -27,12 +27,15 @@ status record. The worker does not interpret game memory as a battle state and r
 probability, or recommendation results.
 
 `batch_turns` is the bounded oracle transport. After `save_state` captures the
-pre-choice checkpoint, it restores that checkpoint for each of up to eight
+ready checkpoint before a battle request, it restores that checkpoint for each of up to eight
 opaque, equal-length mailbox payloads, writes each into EWRAM, and runs until
 `ROMTRACE|complete|`, the frame cap, or the supplied time budget. The reply
 contains ordered trace events for each run and echoes the request and artifact
 identities for bridge validation. Mailboxes are capped at 2048 bytes; request,
 trace, batch, and deadline limits are checked before the bridge accepts results.
+Version 0.1.4 keeps only query, action, party, active, RNG, phase, status,
+faint, completion, and ready records in batch replies. Direct `run_frames`
+still returns the full trace for diagnostics.
 Its Python surface is:
 
     RomWorkerClient.batch_turns(address, payloads, *, mailbox_bytes,

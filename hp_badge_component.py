@@ -8,6 +8,7 @@ _HP_BADGE = st.components.v2.component(
     html="""<span class="sd-hp-badge"><input type="number" min="0" step="1" aria-label="Current HP"><span class="sd-hp-maximum"></span></span>""",
     css="""
 .sd-hp-badge { display:inline-flex; align-items:center; box-sizing:border-box; min-height:23px; padding:3px 6px; color:#17303a; background:#e9eedb; border:1px solid #9bb0a4; font:700 11px/1.2 monospace; white-space:nowrap; cursor:text; }
+.sd-hp-badge { position:relative; left:-2px; }
 .sd-hp-badge:focus-within,.sd-hp-badge:hover { outline:1px solid #17303a; outline-offset:1px; }
 .sd-hp-badge input { box-sizing:content-box; min-width:1ch; height:100%; padding:0; margin:0; color:inherit; background:transparent; border:0; border-radius:0; outline:none; font:inherit; text-align:left; appearance:textfield; -moz-appearance:textfield; }
 .sd-hp-badge input::-webkit-inner-spin-button,.sd-hp-badge input::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }

@@ -19,14 +19,14 @@ from typing import Any, Sequence
 
 
 PROTOCOL_VERSION = 1
-WORKER_VERSION = "sidedex-mgba-worker/0.1.2"
+WORKER_VERSION = "sidedex-mgba-worker/0.1.4"
 MGBA_VERSION = "0.10.5+26b7884"
-SAMPLER_VERSION = None
+SAMPLER_VERSION = "paired-sfc32-v7-risk-first-crit-policy"
 SOURCE_SHA = "2576d0f3f4c861c760f0c55198e37e6d7b91683e"
 # Gate 0 artifact: default source pin and build configuration, SHA-256.
 ROM_SHA256 = "0CCAAAD0878A9CBFB36FBEFFF800E9B6DD66055924B7595038EDE1E8771EC5A2"
-ENGINE_ELF_SHA256 = "639059D550AB0FE3FC616F9277F7B170053D685CBD9FA11D692C6A8FAA77A6F7"
-WORKER_SHA256 = "B49A8DE1BECACCC6B0CB5B670D25105BA5769EA4FE0BDF9F0A29F1D1B52978C9"
+ENGINE_ELF_SHA256 = "B26561E3F0590DE47167730F93ED11427450DBC835A306272C9B898D39B473DB"
+WORKER_SHA256 = "A3F9FCA863136B9F1CB66C0493C692FC6A63D6E6B0C7FAE178FB6089203F3CF2"
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_SOURCE_LOCK = ROOT / "data" / "source_lock.json"
@@ -344,7 +344,7 @@ class RomWorkerClient:
         request_id: str,
         max_frames: int = 24_000,
     ) -> dict[str, Any]:
-        """Run bounded mailbox turns from one saved pre-choice checkpoint."""
+        """Run bounded mailbox turns from one saved ready checkpoint."""
         if not self._has_checkpoint:
             raise ValueError("save a pre-choice checkpoint before batch_turns")
         if type(address) is not int or not EWRAM_START <= address < EWRAM_END:

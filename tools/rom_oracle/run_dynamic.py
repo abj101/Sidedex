@@ -17,14 +17,19 @@ from rom_bridge import RomWorkerClient  # noqa: E402
 
 
 MAGIC = 0x53445831  # SDX1
-VERSION = 5
+VERSION = 7
 SUBMITTED = 1
-MAILBOX_BYTES = 748
+MAILBOX_BYTES = 856
+SECOND_ACTION_OFFSET = 836
+SECOND_PRESENT_OFFSET = 842
 MAX_TRACE_RECORDS = 256
 ID_MAP = json.loads((Path(__file__).with_name("numeric_id_map.json")).read_text(encoding="utf-8"))
 PIN = json.loads((Path(__file__).with_name("pinned_source.json")).read_text(encoding="utf-8"))
 if ID_MAP.get("source_sha") != PIN["source_commit"]:
     raise RuntimeError("artifact-mismatch: numeric ID map is for a different source commit")
+
+# TOXIC_COUNTER is a mask inside status1, not a selectable standalone status.
+_STATUS1_VALUES = {0, *range(1, 8), 8, 16, 32, 64, 128, 4096}
 
 
 def numeric_id(kind: str, source_id: str | int) -> int:
@@ -50,15 +55,14 @@ def _ints(values, count: int, maximum: int) -> list[int]:
 
 
 def encode_request(request: dict) -> bytes:
-    """Encode a six-slot trainer-single state, an optional replay, and an
-    optional second candidate turn (two-turn lookahead).
+    """Encode a six-slot trainer-single state and optional query controls.
     """
     for side in ("player", "opponent"):
         active_index = request.get(f"{side}_active_index", 0)
         if type(active_index) is not int or active_index != 0:
             raise ValueError(f"incomplete-state: {side} active index must be slot 0")
-    if request.get("trainer_items"):
-        raise ValueError("incomplete-state: trainer item usage is not represented by the test hook")
+    if request.get("critical_policy", "item-ability-only") != "item-ability-only":
+        raise ValueError("unsupported-policy: only item-ability-only critical policy is supported")
     ai_flags = request["ai_flags"]
     if isinstance(ai_flags, list):
         ai_flags = _ai_flags(ai_flags)
@@ -74,6 +78,8 @@ def encode_request(request: dict) -> bytes:
         raise ValueError("incomplete-state: replay requires both recorded actions")
     player_replay = _action(replay_action.get("player_action")) if replay else (0, 0, 0)
     opponent_replay = _action(replay_action.get("enemy_action")) if replay else (0, 0, 0)
+    if request.get("post_switch_query") and (not replay or player_replay[0] != 1):
+        raise ValueError("invalid-state: post_switch_query requires a replayed player switch")
     rng = _ints(request["rng_main"], 4, 0xFFFFFFFF) + _ints(
         request["rng_secondary"], 4, 0xFFFFFFFF
     )
@@ -85,10 +91,12 @@ def encode_request(request: dict) -> bytes:
             raise ValueError("incomplete-state: oracle supports one to six Pokémon per side")
         counts.append(len(party))
         sides.append(b"".join(_encode_mon(mon) for mon in party)
-                     + b"\0" * ((6 - len(party)) * 56))
+                     + b"\0" * ((6 - len(party)) * 64))
     if kind == 1 and slot >= counts[0]:
         raise ValueError("no-legal-actions: candidate switch slot is outside the player party")
-    if kind == 0 and move not in [numeric_id("moves", value) for value in request["player_party"][0]["moves"]]:
+    active_player_slot = player_replay[2] if replay and player_replay[0] == 1 else 0
+    if kind == 0 and move not in [numeric_id("moves", value)
+                                  for value in request["player_party"][active_player_slot]["moves"]]:
         raise ValueError("no-legal-actions: candidate move is not in the active player moves")
     if player_replay[0] == 1 and player_replay[2] >= counts[0]:
         raise ValueError("invalid-state: replay player switch slot is outside the party")
@@ -116,7 +124,17 @@ def encode_request(request: dict) -> bytes:
     payload = header + b"".join(sides)
     payload += struct.pack("<6H", *player_replay, *opponent_replay)
     payload += struct.pack("<4H", second_kind, second_move, second_slot,
-                           0 if second is None else 1)
+                           2 if request.get("query") or request.get("post_switch_query")
+                           else (0 if second is None else 1))
+    item_ids = []
+    for item_id, count in (request.get("trainer_items") or {}).items():
+        if type(count) is not int or count < 0:
+            raise ValueError("incomplete-state: trainer item counts must be non-negative integers")
+        item_ids.extend([numeric_id("items", item_id)] * count)
+    if len(item_ids) > 4:
+        raise ValueError("incomplete-state: a trainer can use at most four item slots")
+    item_ids += [0] * (4 - len(item_ids))
+    payload += struct.pack("<6H", *item_ids, sum(1 for value in item_ids if value), 0)
     assert len(payload) == MAILBOX_BYTES
     return payload
 
@@ -128,13 +146,20 @@ def _encode_mon(mon: dict) -> bytes:
     if type(mon["hp"]) is not int or type(mon["max_hp"]) is not int or not 0 < mon["hp"] <= mon["max_hp"] <= 0xFFFF:
         raise ValueError("incomplete-state: HP and MaxHP must be valid positive values")
     status = numeric_id("statuses", mon["status1"])
+    if status not in _STATUS1_VALUES:
+        raise ValueError("invalid-id: status1 must be a selectable battle status")
     moves = _ints([numeric_id("moves", move_id) for move_id in mon["moves"]], 4, 0xFFFF)
     pp = _ints(mon["pp"], 4, 255)
     ivs = _ints(mon["ivs"], 6, 31)
     evs = _ints(mon["evs"], 6, 252)
     if sum(evs) > 510:
         raise ValueError("invalid-state: EV total exceeds 510")
-    return struct.pack("<8HI4H4B12H", *core, status, *moves, *pp, *ivs, *evs)
+    held_item_enabled = mon.get("held_item_enabled", True)
+    if type(held_item_enabled) is not bool:
+        raise ValueError("invalid-state: held_item_enabled must be a boolean")
+    stages = _ints(mon.get("stat_stages", [6] * 7), 7, 12)
+    return struct.pack("<8HI4H4B12HB7B", *core, status, *moves, *pp, *ivs, *evs,
+                       int(held_item_enabled), *stages)
 
 
 def _validate_clear_field(field: dict | None) -> None:
@@ -179,6 +204,9 @@ def _trace(reply: dict) -> list[str]:
 
 
 def run_turn(elf: Path, sha256: str, request: dict) -> list[str]:
+    expected_elf = PIN["dynamic_oracle"]["headless_elf_sha256"]
+    if sha256.upper() != expected_elf.upper():
+        raise RuntimeError(f"artifact-mismatch: expected test ELF {expected_elf}, got {sha256.upper()}")
     payload = encode_request(request)
     with RomWorkerClient(rom_path=elf, expected_artifact_sha256=sha256,
                          timeout=15.0) as worker:
@@ -202,6 +230,8 @@ def run_turn(elf: Path, sha256: str, request: dict) -> list[str]:
             request_id="dynamic-oracle", max_frames=24_000,
         )
         turn = result["turns"][0]["events"]
+        if "ROMTRACE|critical-policy|item-ability-only|battle-script-filtered" not in turn:
+            raise RuntimeError("engine-error: pinned engine trace did not confirm the critical-hit policy")
         complete = [line for line in turn if line.startswith("ROMTRACE|complete|")]
         if len(complete) != 1:
             raise RuntimeError("incomplete-state: expected exactly one completed turn marker")
@@ -209,6 +239,18 @@ def run_turn(elf: Path, sha256: str, request: dict) -> list[str]:
         if len(fields) != 3:
             raise RuntimeError("invalid completion marker")
         turn_number = int(fields[2])
+        if request.get("query") or request.get("post_switch_query"):
+            if turn_number != 0 or "ROMTRACE|query|complete" not in turn:
+                raise RuntimeError("incomplete-state: dynamic query did not complete at its choice checkpoint")
+            required_query = ("ROMTRACE|query|context|",
+                             "ROMTRACE|query|active|")
+            if not all(any(record.startswith(prefix) for record in turn) for prefix in required_query):
+                raise RuntimeError("incomplete-state: query lacks active-state records")
+            if request.get("post_switch_query") and not any(
+                record == "ROMTRACE|query|context|post-switch" for record in turn
+            ):
+                raise RuntimeError("incomplete-state: post-switch query did not reach the switched state")
+            return turn
         required = (f"ROMTRACE|phase|{turn_number}|after-turn",
                     f"ROMTRACE|party|{turn_number}|",
                     f"ROMTRACE|active|{turn_number}|",
