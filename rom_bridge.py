@@ -745,6 +745,10 @@ class RomWorkerClient:
             raise ValueError("engine_elf_sha256 must be a 64-character SHA-256 hex digest")
         if engine_elf_sha256.upper() != self.rom_sha256:
             raise RomIdentityError("batch engine ELF identity differs from the artifact loaded by this worker")
+        # The worker normalises the digest it echoes, so agree on the case here
+        # once instead of comparing its lowercase reply with an uppercase request
+        # field and failing every compact turn as an identity mismatch.
+        engine_sha = engine_elf_sha256.lower()
         remaining = (deadline_ms - int(time.monotonic() * 1000)) / 1000
         started = time.monotonic()
         fields: dict[str, Any] = {
@@ -754,14 +758,14 @@ class RomWorkerClient:
             "budget_ms": max(1, int(remaining * 1000)), "max_frames": max_frames,
             "request_id": request_id,
             "request_token": int.from_bytes(hashlib.sha256(request_id.encode("ascii")).digest()[:2], "little"),
-            "source_sha": SOURCE_SHA, "engine_elf_sha256": engine_elf_sha256.upper(),
+            "source_sha": SOURCE_SHA, "engine_elf_sha256": engine_sha,
             "worker_sha256": self.worker_sha256, "mode": mode, "critical_policy": critical_policy,
         }
         if handle is not None:
             fields["handle"] = handle
         reply = self._request("batch_turns_v3", _timeout=min(self._timeout, remaining), **fields)
         expected = {"request_id": request_id, "source_sha": SOURCE_SHA,
-                    "engine_elf_sha256": engine_elf_sha256.upper(), "worker_sha256": self.worker_sha256}
+                    "engine_elf_sha256": engine_sha, "worker_sha256": self.worker_sha256}
         for key, value in expected.items():
             if reply.get(key) != value:
                 raise WorkerProtocolError(f"v3 batch response {key} mismatch")
