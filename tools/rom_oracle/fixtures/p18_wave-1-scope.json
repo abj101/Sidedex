@@ -1,8 +1,0 @@
-{
-  "id": "P18",
-  "row": "P18",
-  "status": "unsupported",
-  "reason": "wave-1-scope",
-  "detail": "Sturdy is representable via the mailbox ability field but no fixture landed in wave 1",
-  "rom_record": null
-}

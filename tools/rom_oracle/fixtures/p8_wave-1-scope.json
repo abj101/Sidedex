@@ -1,8 +1,0 @@
-{
-  "id": "P8",
-  "row": "P8",
-  "status": "unsupported",
-  "reason": "wave-1-scope",
-  "detail": "move priority is representable (mailbox move id) but no fixture landed in wave 1",
-  "rom_record": null
-}

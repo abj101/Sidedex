@@ -1,8 +1,0 @@
-{
-  "id": "P24",
-  "row": "P24",
-  "status": "unsupported",
-  "reason": "wave-1-scope",
-  "detail": "switch-in effects are representable (candidate switch + ability field) but no fixture landed in wave 1",
-  "rom_record": null
-}

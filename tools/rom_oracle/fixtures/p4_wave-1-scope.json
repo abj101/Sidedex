@@ -1,8 +1,0 @@
-{
-  "id": "P4",
-  "row": "P4",
-  "status": "unsupported",
-  "reason": "wave-1-scope",
-  "detail": "special super-effective damage is representable but no fixture landed in wave 1",
-  "rom_record": null
-}

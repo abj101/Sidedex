@@ -32,10 +32,25 @@ FIXTURES_DIR = TOOLS / "fixtures"
 ID_MAP_PATH = TOOLS / "numeric_id_map.json"
 
 MINGW = ROOT / "native" / "rom_worker" / "build" / "mingw"
-DEFAULT_V8_ELF = MINGW / "pokeemerald-test-v8.elf"
-V8B_ELF = MINGW / "pokeemerald-test-v8b.elf"
+# Pinned wave-2 artifact (protocol 8, v8c). Older ELFs stay on disk as history and are
+# exercised only when SIDEDEX_DIFF_HISTORICAL=1 selects them.
 HEADLESS_ELF = MINGW / "pokeemerald-test-headless.elf"
+DEFAULT_V8_ELF = HEADLESS_ELF
+HISTORICAL_V8_ELF = MINGW / "pokeemerald-test-v8.elf"
+HISTORICAL_V8B_ELF = MINGW / "pokeemerald-test-v8b.elf"
+# Back-compat aliases used by tests/evidence helpers.
+V8_ELF = HISTORICAL_V8_ELF
+V8B_ELF = HISTORICAL_V8B_ELF
 DEFAULT_WORKER = MINGW / "rom_worker.exe"
+
+# Pinned wave-2 gate identity (contract section 1): the fixture ``gate`` blocks and the
+# release harness refuse to run when the on-disk artifacts do not match these.
+PINNED_SOURCE_SHA = "2576d0f3f4c861c760f0c55198e37e6d7b91683e"
+ELF_SHA256 = "422ade3e159916f9cc8bc1350ad274201b6af6cb9b9d38c14d073f85e982bc77"
+WORKER_SHA256 = "0601297e8bed7ca1319dc9be86a547aa01b16624ce0de5431093e6b59d7e5122"
+WIRE_PROTOCOL = 2
+ROM_HOOK_PROTOCOL = 8
+STATE_SCHEMA = "sidedex-state-v1"
 
 MAGIC = 0x53445831  # SDX1
 VERSION_V8 = 8
@@ -176,7 +191,12 @@ def _encode_mon(mon):
     core = [numeric_id("species", mon["species"]), mon["level"],
             numeric_id("abilities", mon["ability"]), numeric_id("items", mon["item"]),
             numeric_id("natures", mon["nature"]), hp, max_hp, 0]
-    status = numeric_id("statuses", mon["status1"])
+    # status1 is a raw 32-bit mailbox field (contract Appendix A).  Named values come
+    # from the numeric map; a bare integer is accepted so counter-carrying states
+    # (e.g. a sleep counter of 1 to exercise the wake turn) can be represented.
+    status = mon["status1"]
+    if type(status) is not int or not 0 <= status <= 0xFFFFFFFF:
+        status = numeric_id("statuses", status)
     moves = _ints([numeric_id("moves", m) for m in mon["moves"]], 4, 0xFFFF)
     pp = _ints(mon["pp"], 4, 255)
     ivs = _ints(mon["ivs"], 6, 31)
@@ -397,13 +417,13 @@ class DiffSession:
             raise HarnessError("build_root must run before transition")
         self.client.restore_state(self.root_slot["handle"])
         if inject_rng is not None:
-            if not getattr(self, "rng_address", None):
-                raise HarnessError("RNG addresses were not located (build_root first)")
-            # The v8 hold-release path does not re-seed from the mailbox (verified), so
-            # the contract section 6 RNG injection is performed through the worker's
-            # IWRAM write op, exactly as a real token restore + inject would.
-            self.client.write_memory(self.rng_address, struct.pack("<4I", *inject_rng[0]))
-            self.client.write_memory(self.rng2_address, struct.pack("<4I", *inject_rng[1]))
+            # Wave-2 v8c: the hold-release path re-seeds BOTH gRngValue and gRng2Value
+            # from the mailbox, so the mailbox request fields are authoritative.  The
+            # worker IWRAM write op is clobbered by that re-seed (verified: the same
+            # IWRAM pair gives the pre-injection result while the mailbox pair takes
+            # effect); the contract section 6 injection therefore rides the mailbox.
+            request = {**request, "rng_main": list(inject_rng[0]),
+                       "rng_secondary": list(inject_rng[1])}
         stop = want or ["ROMTRACE|boundary|", "ROMTRACE|terminal|"]
         fin = final or ("|state|restore-source|", "ROMTRACE|complete|")
         records, frames, ms = self._submit(request, operation="simulate-turn", mode=mode,
@@ -490,6 +510,35 @@ def _decoded_species(records, battler):
 
 def event_list(records):
     return [r for r in records if any(r.startswith(m) for m in EVENT_MARKERS)]
+
+
+def parse_outcomes(records):
+    """Parse ROMTRACE|query|outcomes cards into a per-(owner,move) dict.
+
+    Card spelling (contract Appendix A / README):
+      ROMTRACE|query|outcomes|<owner>|<move>|<flags>|<chunk>|<chunks>|<denom>
+             |<branches>|<hitsMode>|<minHits>|<maxHits>|<accuracy>
+             |<hp>|<weight>|...            (<= 8 pairs per record)
+    Returns {(owner, move): {"flags", "denom", "branches", "hits_mode", "min_hits",
+    "max_hits", "accuracy", "hp": {finalHp: weight}}}
+    """
+    cards = {}
+    for record in records:
+        if not record.startswith("ROMTRACE|query|outcomes|"):
+            continue
+        f = record.split("|")
+        owner, move = int(f[3]), int(f[4])
+        card = cards.setdefault((owner, move), {
+            "flags": int(f[5]), "denom": int(f[8]), "branches": int(f[9]),
+            "hits_mode": int(f[10]), "min_hits": int(f[11]), "max_hits": int(f[12]),
+            "accuracy": int(f[13]), "hp": {}})
+        for i in range(14, len(f) - 1, 2):
+            if not f[i]:
+                continue
+            hp, weight = int(f[i]), int(f[i + 1])
+            if weight:
+                card["hp"][hp] = card["hp"].get(hp, 0) + weight
+    return cards
 
 
 def projection(records):

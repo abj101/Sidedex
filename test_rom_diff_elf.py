@@ -4,9 +4,11 @@ Runs every green fixture from ``tools/rom_oracle/fixtures/`` under
 ``mode=normal`` and ``mode=logic-only`` from the same saved decision node and
 requires the contract section 2.2 projection, mechanical event list,
 boundary/terminal record, both RNG streams and the raw game-state RAM to be
-identical.  The non-fixture checks (AI leakage, restore determinism,
-state-token identity rejection, query immutability) run against the pinned v8
-ELF, and the whole row matrix re-runs against v8b when that artifact is present.
+identical.  The matrix is pinned to the wave-2 v8c ELF
+(``pokeemerald-test-headless.elf``); the older v8 / v8b ELFs are historical and
+are only exercised with ``SIDEDEX_DIFF_HISTORICAL=1``.  The non-fixture checks
+(AI leakage, restore determinism, state-token identity rejection, query
+immutability, multi-hit enumeration) run against the pinned ELF.
 
 Generated binaries and savestate blobs never enter Git.
 """
@@ -16,6 +18,7 @@ from __future__ import annotations
 import base64
 import copy
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -30,12 +33,12 @@ from tools.rom_oracle.rom_diff_harness import DiffSession, HarnessError  # noqa:
 
 
 def _iter_elfs():
-    elf = h.DEFAULT_V8_ELF
-    elfs = [elf] if elf.is_file() else []
-    if h.V8B_ELF.is_file():
-        elfs.append(h.V8B_ELF)
+    """The pinned v8c ELF (wave-2). v8/v8b are historical and opt-in only."""
+    elfs = [h.DEFAULT_V8_ELF] if h.DEFAULT_V8_ELF.is_file() else []
+    if os.environ.get("SIDEDEX_DIFF_HISTORICAL") == "1":
+        elfs.extend(p for p in (h.HISTORICAL_V8_ELF, h.HISTORICAL_V8B_ELF) if p.is_file())
     if not elfs:
-        pytest.skip("no differential ELF artifact present (v8 / v8b)", allow_module_level=True)
+        pytest.skip("pinned differential ELF artifact is missing", allow_module_level=True)
     if not h.DEFAULT_WORKER.is_file():
         pytest.skip("rom_worker.exe is missing", allow_module_level=True)
     return elfs
@@ -89,6 +92,30 @@ def _check_expect(fixture, result):
         assert damage and damage[0] >= 17, (fixture["id"], damage)
     if expect.get("faint"):
         assert any(e.startswith("ROMTRACE|faint|") for e in result["normal"]["records"])
+    if expect.get("no_faint"):
+        assert not any(e.startswith("ROMTRACE|faint|") for e in result["normal"]["records"])
+    if expect.get("target_damage_min") is not None:
+        damage = _hp_delta(result["normal"]["records"], "1")
+        assert sum(damage) >= expect["target_damage_min"], (fixture["id"], damage)
+    if expect.get("target_damage_max") is not None:
+        damage = _hp_delta(result["normal"]["records"], "1")
+        assert damage and sum(damage) <= expect["target_damage_max"], (fixture["id"], damage)
+    if expect.get("target_final_hp") is not None:
+        finals = [int(e.split("|")[5]) for e in result["normal"]["records"]
+                  if e.startswith("ROMTRACE|hp|0|1|")]
+        assert finals and finals[-1] == expect["target_final_hp"], (fixture["id"], finals)
+    if expect.get("status_record"):
+        assert expect["status_record"] in result["normal"]["records"], result["normal"]["records"]
+    if expect.get("ability_record") is not None:
+        want = f"ROMTRACE|ability|0|1|{expect['ability_record']}"
+        assert want in result["normal"]["records"], (fixture["id"], result["normal"]["records"])
+    if expect.get("unrepresentable"):
+        want = f"ROMTRACE|unrepresentable|{expect['unrepresentable']}"
+        assert want in result["normal"]["records"], (fixture["id"], result["normal"]["records"])
+    if expect.get("hits_between"):
+        hits = len([e for e in result["normal"]["records"] if e.startswith("ROMTRACE|hp|0|1|")])
+        lo, hi = expect["hits_between"]
+        assert lo <= hits <= hi, (fixture["id"], hits)
 
 
 @pytest.mark.parametrize("elf", ELFS, ids=ELF_IDS)
@@ -254,3 +281,65 @@ def test_mode_and_policy_identity_rejection():
         h.check_token_identity(identity, critical_policy="item-ability-only")
     with pytest.raises(h.IdentityMismatch):
         h.check_token_identity(identity, artifact_sha256="f" * 64)
+
+
+def _p32_fixture():
+    return next(data for _, data in ALL_FIXTURES if data["id"] == "P32")
+
+
+@pytest.mark.parametrize("elf", ELFS, ids=ELF_IDS)
+def test_multihit_enumeration_matches_normal_engine(elf):
+    """P32: the QUERY_DAMAGE multi-hit card enumerates the engine outcome, and every
+    normal-mode seed's observed hit count and final HP land inside that enumeration."""
+    fixture = _p32_fixture()
+    root = copy.deepcopy(fixture["root"])
+    move_id = h.numeric_id("moves", "MOVE_BULLET_SEED")
+    session = DiffSession(elf=elf)
+    try:
+        session.build_root(copy.deepcopy(root))
+        card_records, _, _ = session._submit(
+            {**root, "candidate_action": {"kind": "move", "move_id": "MOVE_BULLET_SEED"}},
+            operation="query-damage", mode="normal", policy="normal",
+            want=["ROMTRACE|query|complete"], final="ROMTRACE|complete|0")
+        cards = h.parse_outcomes(card_records)
+        assert (0, move_id) in cards, card_records
+        card = cards[(0, move_id)]
+        assert card["flags"] & 1, card  # multi-hit flag
+        assert (card["min_hits"], card["max_hits"]) == (2, 5), card
+        assert card["hp"], card
+        assert sum(card["hp"].values()) == card["denom"], card
+        for seed in range(1, 7):
+            branch = {**root, "candidate_action":
+                      {"kind": "move", "move_id": "MOVE_BULLET_SEED"}}
+            main, secondary = _seed_pair(seed)
+            branch["rng_main"] = list(main)
+            branch["rng_secondary"] = list(secondary)
+            result = session.transition(branch, mode="normal", policy="normal")
+            hits = [e for e in result["records"] if e.startswith("ROMTRACE|hp|0|1|")]
+            assert card["min_hits"] <= len(hits) <= card["max_hits"], (seed, hits)
+            final_hp = int(hits[-1].split("|")[5])
+            assert final_hp in card["hp"], (seed, final_hp, sorted(card["hp"]))
+    finally:
+        session.close()
+
+
+def test_fixture_gate_identity_is_pinned():
+    """Every fixture carries the wave-2 pinned gate identity (source/ELF/worker/protocol)."""
+    for _, data in ALL_FIXTURES:
+        gate = data.get("gate")
+        assert gate, f"{data['id']} is missing its gate block"
+        assert gate["source_sha"] == h.ID_MAP["source_sha"], data["id"]
+        assert gate["elf_sha256"] == h.ELF_SHA256, data["id"]
+        assert gate["worker_sha256"] == h.WORKER_SHA256, data["id"]
+        assert gate["wire_protocol"] == 2 and gate["rom_hook_protocol"] == 8, data["id"]
+        assert gate["state_schema"] == "sidedex-state-v1", data["id"]
+        assert gate["mode"] == "normal|logic-only", data["id"]
+        assert gate["critical_policy"] == "normal", data["id"]
+
+
+def test_pinned_artifact_hashes():
+    """Fail closed if the on-disk pinned artifacts drift from the recorded gate."""
+    elf = h.DEFAULT_V8_ELF
+    worker = h.DEFAULT_WORKER
+    assert h.sha256_bytes(elf.read_bytes()) == h.ELF_SHA256, elf
+    assert h.sha256_bytes(worker.read_bytes()).lower() == h.WORKER_SHA256.lower(), worker

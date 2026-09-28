@@ -1,8 +1,0 @@
-{
-  "id": "P11",
-  "row": "P11",
-  "status": "unsupported",
-  "reason": "wave-1-scope",
-  "detail": "STATUS1_SLEEP is a mailbox field but no fixture landed in wave 1",
-  "rom_record": null
-}

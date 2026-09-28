@@ -203,6 +203,17 @@
     }
   ],
   "evidence": {
-    "mechanics": "physical formula, contact; baseline row"
+    "mechanics": "physical formula, contact; baseline row",
+    "gate_note": "wave-2: re-verified against the pinned v8c ELF under mailbox RNG injection"
+  },
+  "gate": {
+    "source_sha": "2576d0f3f4c861c760f0c55198e37e6d7b91683e",
+    "elf_sha256": "422ade3e159916f9cc8bc1350ad274201b6af6cb9b9d38c14d073f85e982bc77",
+    "worker_sha256": "0601297e8bed7ca1319dc9be86a547aa01b16624ce0de5431093e6b59d7e5122",
+    "wire_protocol": 2,
+    "rom_hook_protocol": 8,
+    "state_schema": "sidedex-state-v1",
+    "mode": "normal|logic-only",
+    "critical_policy": "normal"
   }
 }

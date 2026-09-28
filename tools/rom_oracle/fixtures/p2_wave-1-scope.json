@@ -1,8 +1,0 @@
-{
-  "id": "P2",
-  "row": "P2",
-  "status": "unsupported",
-  "reason": "wave-1-scope",
-  "detail": "special damage is representable (mailbox move list, contract Appendix A SidedexDynamicMon.moves) but no fixture landed in wave 1",
-  "rom_record": null
-}

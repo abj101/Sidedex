@@ -1,8 +1,0 @@
-{
-  "id": "P16",
-  "row": "P16",
-  "status": "unsupported",
-  "reason": "wave-1-scope",
-  "detail": "held item is a mailbox field (SidedexDynamicMon.item) but no fixture landed in wave 1",
-  "rom_record": null
-}

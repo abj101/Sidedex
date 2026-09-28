@@ -1,0 +1,30 @@
+{
+  "name": "release-root-capture",
+  "version": 1,
+  "rom_sha256": "0CCAAAD0878A9CBFB36FBEFFF800E9B6DD66055924B7595038EDE1E8771EC5A2",
+  "worker_sha256": "0601297E8BED7CA1319DC9BE86A547AA01B16624CE0DE5431093E6B59D7E5122",
+  "purpose": "Drive the pinned release ROM from cold boot to its first real battle via set_keys, then save_state the battle root and pin its sha256 (the 528448-byte blob is never committed).",
+  "key_bits": {"A": 1, "B": 2, "SELECT": 4, "START": 8, "RIGHT": 16, "LEFT": 32, "UP": 64, "DOWN": 128},
+  "detect": {
+    "gBattleTypeFlags": "0x020002C0",
+    "gBattleCommunication": "0x02000698",
+    "rule": "battle entered when gBattleTypeFlags != 0"
+  },
+  "steps": [
+    {"frames": 700, "keys": 0, "note": "cold boot through the intro movie to the title screen (cb2 0x08155bdd)"},
+    {"frames": 8, "keys": 8, "note": "START: title screen -> main menu (cb2 0x0821b6c5 -> 0x0821b9c1)"},
+    {"frames": 64, "keys": 0, "note": "main menu settles on NEW GAME"},
+    {"frames": 8, "keys": 1, "note": "A: NEW GAME -> Birch speech (cb2 0x0821bd49 -> 0x0816ead9)"},
+    {"frames": 1800, "keys": 0, "note": "speech plays; cb2 0x081855a5 seen at forward frame 2692"},
+    {"frames": 8, "keys": 1, "note": "A: advance"},
+    {"frames": 780, "keys": 0, "note": "cb2 settles on 0x08188e15 at forward frame 4036"},
+    {"repeat": 190, "steps": [{"frames": 8, "keys": 1}, {"frames": 56, "keys": 0}],
+     "note": "mash A through the remaining text/gender/naming flow; ends in the 0x08188e15 <-> 0x0815b181 callback loop with no battle"}
+  ],
+  "resume_hint": {
+    "note": "The script above is what was actually verified through wave 2; it reaches the gender/naming callback loop (0x08188e15 <-> 0x0815b181) and does not enter a battle. The remaining steps (name entry confirm, starter choice, Route 101 walk, wild encounter) are NOT yet scripted.",
+    "observed_callback_loop": ["0x08188e15", "0x0815b181"],
+    "observed_probe": "work/w2_rel_drive.log (200k frames of scripted input, gBattleTypeFlags stayed 0)"
+  },  "status": "incomplete",
+  "blocker": "root-capture-unavailable"
+}
