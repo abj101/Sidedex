@@ -165,5 +165,42 @@ class RomWorkerSmokeTest(unittest.TestCase):
                     process.terminate()
                     process.wait(timeout=10)
 
+@unittest.skipUnless(WORKER.is_file(), f"mGBA worker executable is missing: {WORKER}")
+@unittest.skipUnless(ROM is not None and ROM.is_file(), "set SIDEDEX_ROM_PATH to a ROM artifact")
+class RomWorkerProfileFlagTest(unittest.TestCase):
+    """The B0 timer flag is opt-in: off must change nothing, on only adds a profile."""
+
+    def _run_frames(self, profile_on):
+        env = dict(os.environ)
+        env.pop("SIDEDEX_WORKER_PROFILE", None)
+        if profile_on:
+            env["SIDEDEX_WORKER_PROFILE"] = "1"
+        process = subprocess.Popen(
+            [str(WORKER), "--rom", str(ROM)], env=env,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", bufsize=1,
+        )
+        try:
+            json.loads(process.stdout.readline())
+            process.stdin.write(json.dumps({"protocol": PROTOCOL, "op": "run_frames", "frames": 3}) + "\n")
+            process.stdin.flush()
+            return json.loads(process.stdout.readline())
+        finally:
+            process.terminate()
+            process.wait(timeout=10)
+
+    def test_profile_flag_defaults_off_and_is_additive(self):
+        off = self._run_frames(False)
+        on = self._run_frames(True)
+        self.assertNotIn("profile", off)
+        self.assertEqual(off["frame_count"], 3)
+        # With the flag on the reply is byte-for-byte the same apart from the
+        # additive profile object: no other observable behaviour changes.
+        self.assertEqual({key: value for key, value in on.items() if key != "profile"}, off)
+        self.assertEqual(set(on["profile"]), {"emulation_ns", "log_ns", "cycles"})
+        self.assertGreater(on["profile"]["emulation_ns"], 0)
+        self.assertEqual(on["profile"]["cycles"], 3 * 280896)
+
+
 if __name__ == "__main__":
     unittest.main()
