@@ -1,0 +1,10 @@
+{
+ "bytes": 67780,
+ "capacity": 8192,
+ "expect_request_id": 1,
+ "name": "oversize",
+ "reject": "oversize",
+ "sha256": "cfcd6fd22c23893280b6ee76014f554fb210466e19ff68ce6cb62e61fa632b83",
+ "synthetic": true,
+ "valid": false
+}

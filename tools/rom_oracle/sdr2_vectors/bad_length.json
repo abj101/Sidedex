@@ -1,0 +1,10 @@
+{
+ "bytes": 2280,
+ "capacity": 8192,
+ "expect_request_id": 1,
+ "name": "bad_length",
+ "reject": "bad_length",
+ "sha256": "23d09146947d92fda1aab9a4046ec56eed09adf319187ee658b36181cbcf5596",
+ "synthetic": true,
+ "valid": false
+}
