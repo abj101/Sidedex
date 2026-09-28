@@ -598,9 +598,9 @@ static int parse_blob(const uint8_t *blob, size_t length, const char *artifact_s
     uint64_t payload_bytes = read_le64(blob + 16);
     if (payload_bytes != length - BLOB_HEADER_BYTES) return 2;
     if (wire_protocol != PROTOCOL_VERSION) return 1;
-    if (strcmp((const char *) blob + 88, SAVE_FORMAT_ID) != 0) return 1;
-    if (strcmp((const char *) blob + 152, ROM_WORKER_NAME) != 0) return 1;
-    if (strcmp((const char *) blob + 184, ROM_WORKER_MGBA_VERSION) != 0) return 1;
+    if (strncmp((const char *) blob + 88, SAVE_FORMAT_ID, 64) != 0) return 1;
+    if (strncmp((const char *) blob + 152, ROM_WORKER_NAME, 32) != 0) return 1;
+    if (strncmp((const char *) blob + 184, ROM_WORKER_MGBA_VERSION, 32) != 0) return 1;
     char blob_artifact[MAX_SHA_HEX + 1];
     raw_to_hex(blob + 24, blob_artifact);
     if (strcmp(blob_artifact, artifact_sha256) != 0) return 1;
