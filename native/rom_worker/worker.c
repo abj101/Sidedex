@@ -12,6 +12,8 @@
 #include <string.h>
 #include <time.h>
 
+#include "stop_policy.h"
+
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -253,10 +255,12 @@ static char s_save_sha256[65];
 static char s_trace_events[MAX_TRACE_EVENTS][MAX_TRACE_BYTES];
 static size_t s_trace_count;
 static bool s_trace_overflow;
-static bool s_turn_complete;
 static bool s_saw_after_turn;
 static bool s_slim_trace;
-static char s_stop_kind[16];
+/* Contract Appendix B stop policy; header-resident so the policy itself is
+ * unit-testable without an emulator (see stop_policy.h). */
+static struct stop_state s_stop = {"", 0};
+static bool s_compact_stop;
 static char s_stop_marker[MAX_TRACE_BYTES];
 struct BatchTurn {
     bool complete;
@@ -323,19 +327,9 @@ static uint64_t profile_now_ns(void) {
 static void respond_error(const char *reason);
 static bool write_hex(uint64_t address, const char *hex);
 
-static int stop_rank(const char *kind) {
-    if (strcmp(kind, "boundary") == 0 || strcmp(kind, "terminal") == 0 ||
-        strcmp(kind, "binary-ready") == 0) return 2;
-    if (strcmp(kind, "turn-complete") == 0) return 1;
-    return 0;
-}
-
 static void mark_stop(const char *kind, const char *marker) {
-    if (stop_rank(kind) > stop_rank(s_stop_kind)) {
-        snprintf(s_stop_kind, sizeof(s_stop_kind), "%s", kind);
+    if (stop_mark(&s_stop, kind, s_compact_stop ? 1 : 0))
         snprintf(s_stop_marker, sizeof(s_stop_marker), "%s", marker);
-    }
-    s_turn_complete = true;
 }
 
 static void capture_log(struct mLogger *logger, int category, enum mLogLevel level,
@@ -697,7 +691,9 @@ static bool validate_v9_result(uint8_t *result, size_t length, uint16_t request_
             uint16_t count = read_le16(result + start), words = read_le16(result + start + 2);
             if ((size_t) bytes != 4u + (size_t) count * words * 4u) return false;
             static const uint16_t expected_count[] = {0, 12, 2, 1, 2, 1, 1, 0};
-            static const uint16_t expected_words[] = {0, 32, 33, 6, 12, 10, 8, 4};
+            /* Contract Appendix C.2 word widths; test_rom_worker_smoke.py parses
+             * this table and fails if it drifts from sdr2_vectors/tables.json. */
+            static const uint16_t expected_words[] = {0, 32, 37, 6, 12, 10, 8, 4};
             if (words != expected_words[tag] || (tag != 7 && count != expected_count[tag]) ||
                 (tag == 7 && ((read_le16(result + 20) == 3 && count != 0) ||
                               (read_le16(result + 20) != 3 && count == 0)))) return false;
@@ -913,12 +909,13 @@ static bool run_batch_turns(const char *line) {
         }
         s_batch[i].restore_ms = (double) (clock() - restore_started) * 1000.0 / CLOCKS_PER_SEC;
         s_batch[i].restore_ns = s_profile ? profile_now_ns() - restore_ns_start : 0;
-        s_trace_count = 0; s_trace_overflow = false; s_turn_complete = false; s_saw_after_turn = false;
-        s_stop_kind[0] = '\0'; s_stop_marker[0] = '\0';
+        s_trace_count = 0; s_trace_overflow = false; s_saw_after_turn = false;
+        s_stop.kind[0] = '\0'; s_stop.turn_complete = 0; s_stop_marker[0] = '\0';
+        s_compact_stop = false;
         s_slim_trace = true;
         s_emu_ns = 0; s_log_ns = 0;
         uint64_t frames = 0;
-        while (frames < frames_limit && !s_turn_complete && !s_trace_overflow) {
+        while (frames < frames_limit && !s_stop.turn_complete && !s_trace_overflow) {
             uint64_t frame_start = s_profile ? profile_now_ns() : 0;
             s_core->runFrame(s_core); ++frames;
             if (s_profile) s_emu_ns += profile_now_ns() - frame_start;
@@ -931,12 +928,12 @@ static bool run_batch_turns(const char *line) {
         s_batch[i].emulation_ns = s_emu_ns;
         s_batch[i].log_ns = s_log_ns;
         s_batch[i].cycles = s_profile ? frames * (uint64_t) s_core->frameCycles(s_core) : 0;
-        s_batch[i].complete = s_turn_complete;
+        s_batch[i].complete = s_stop.turn_complete;
         s_batch[i].overflow = s_trace_overflow;
         s_batch[i].frames = frames;
         s_batch[i].elapsed_ms = (double) (clock() - turn_started) * 1000.0 / CLOCKS_PER_SEC;
         s_batch[i].count = s_trace_count;
-        snprintf(s_batch[i].stop, sizeof(s_batch[i].stop), "%s", s_stop_kind);
+        snprintf(s_batch[i].stop, sizeof(s_batch[i].stop), "%s", s_stop.kind);
         snprintf(s_batch[i].stop_marker, sizeof(s_batch[i].stop_marker), "%s", s_stop_marker);
         for (size_t j = 0; j < s_trace_count; ++j) strcpy(s_batch[i].events[j], s_trace_events[j]);
     }
@@ -1046,17 +1043,25 @@ static bool run_batch_turns_v3(const char *line) {
             free(mailboxes); respond_error("invalid-batch-address"); return false;
         }
         memcpy(request_memory, request, sizeof(request));
-        s_trace_count = 0; s_trace_overflow = false; s_turn_complete = false; s_saw_after_turn = false;
-        s_stop_kind[0] = '\0'; s_stop_marker[0] = '\0'; s_slim_trace = true;
+        s_trace_count = 0; s_trace_overflow = false; s_saw_after_turn = false;
+        s_stop.kind[0] = '\0'; s_stop.turn_complete = 0; s_stop_marker[0] = '\0';
+        s_slim_trace = true;
+        /* Contract Appendix B: a compact turn ends on binary-ready, never on the
+         * boundary/terminal marker that precedes it, so the child savestate below
+         * is taken after the hook committed the result. Without that marker the
+         * frame bound ends the loop and the turn fails closed as incomplete. */
+        s_compact_stop = true;
         uint64_t frames = 0;
-        while (frames < frames_limit && !s_turn_complete && !s_trace_overflow) {
+        while (frames < frames_limit && !s_stop.turn_complete && !s_trace_overflow) {
             s_core->runFrame(s_core); ++frames;
             if ((uint64_t) (clock() - started) * 1000 / CLOCKS_PER_SEC >= budget_ms) {
-                s_slim_trace = false; free(mailboxes); respond_error("deadline-exceeded"); return false;
+                s_slim_trace = false; s_compact_stop = false;
+                free(mailboxes); respond_error("deadline-exceeded"); return false;
             }
         }
         s_slim_trace = false;
-        if (strcmp(s_stop_kind, "binary-ready") != 0 || s_trace_overflow) {
+        s_compact_stop = false;
+        if (strcmp(s_stop.kind, "binary-ready") != 0 || s_trace_overflow) {
             free(mailboxes); respond_error("incomplete-state"); return false;
         }
         unsigned announced_address = 0, announced_length = 0;
