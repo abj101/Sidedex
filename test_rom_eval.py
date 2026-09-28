@@ -9,6 +9,7 @@ import copy
 import json
 import os
 import struct
+import threading
 import time
 import unittest
 from fractions import Fraction
@@ -19,7 +20,9 @@ import battle_engine as be
 import planner_ui
 import rom_bridge
 import rom_eval
+import rom_pool
 import rom_query
+import rom_transition
 from tools.rom_oracle import run_dynamic
 
 ROOT = Path(__file__).parent
@@ -38,6 +41,38 @@ WORKER = Path(os.environ.get(
 
 def _trainer(trainer_id):
     return next(record for record in DATA["trainers"] if record["id"] == trainer_id)
+
+
+class _FakeWorker:
+    """Worker-shaped double for the pool dispatch checks (no emulator)."""
+
+    def __init__(self, worker_id):
+        self.worker_id = worker_id
+        self.rom_sha256 = "AB" * 32
+        self.worker_sha256 = "CD" * 32
+        self.is_running = True
+
+    def save_checkpoint(self, name=None):
+        return {"handle": "default" if name is None else "F" * 32,
+                "name": name or "default", "bytes": 560,
+                "sha256": "EE" * 32, "identity": {}}
+
+    def restore_state(self, handle):
+        return {"frame_count": 1}
+
+    def load_state_blob(self, blob):
+        return {"frame_count": 1}
+
+    def export_state(self, handle):
+        return {"handle": handle, "blob": "QUJD", "blob_bytes": 560, "bytes": 560,
+                "sha256": "EE" * 32}
+
+    def import_state(self, blob, name=None):
+        return {"handle": "F" * 32, "name": name or "imported", "bytes": 560,
+                "sha256": "EE" * 32, "identity": {}}
+
+    def close(self):
+        self.is_running = False
 
 
 def _player_row(row_id=1):
@@ -152,7 +187,7 @@ class _RaisingEngine:
 
 
 def _run(snapshot, engine):
-    with mock.patch.object(rom_eval, "_engine_session", engine):
+    with mock.patch.object(rom_eval, "_TEST_SESSION", engine):
         return rom_eval.evaluate(snapshot, DATA, time.monotonic() + 10.0)
 
 
@@ -463,7 +498,7 @@ class SampledEvaluation(unittest.TestCase):
                     for payload in payloads]}
 
         engine = Engine()
-        with mock.patch.object(rom_eval, "_engine_session", lambda deadline: engine):
+        with mock.patch.object(rom_eval, "_TEST_SESSION", engine):
             result = rom_eval.evaluate(snapshot, DATA, time.monotonic() + 10.0,
                                        publish=published.append)
 
@@ -894,6 +929,157 @@ class PinnedEngineEvaluation(unittest.TestCase):
             self.assertEqual(result[kind]["status"], "engine-fixed-seed", (kind, result[kind]))
         self.assertLess(elapsed, 5.0)
         self.assertTrue(_no_exact(result))
+
+
+class PooledDispatch(unittest.TestCase):
+    """One evaluate request must fan out over every pooled worker (contract 2/8).
+
+    These drive the real `rom_pool.EnginePool` scheduler with worker-shaped
+    doubles, so the rom_eval dispatch path (adapter + CRN pairing + partial
+    handling) is exercised exactly as the pinned path uses it.
+    """
+
+    def _trace(self, party_sizes):
+        events = ["ROMTRACE|critical-policy|item-ability-only|battle-script-filtered",
+                  "ROMTRACE|action|0|0|move|84|1",
+                  "ROMTRACE|action|0|1|move|71|0"]
+        for side, size in enumerate(party_sizes):
+            for slot in range(size):
+                events.append(f"ROMTRACE|party|0|{side}|{slot}|25|10")
+        events.extend(["ROMTRACE|active|0|0|0|25|10|10",
+                       "ROMTRACE|rng|0|1|2|3|4|5|6|7|8",
+                       "ROMTRACE|boundary|player-choice|1|1"])
+        return events
+
+    def _prepared(self, snapshot, actions, seed):
+        identity = rom_eval._transition_identity()
+        node = rom_pool.NodeRecord(node="root", handle="root", owner="w1", portable=True,
+                                   blob="QUJD", bytes=560, sha256="EE" * 32,
+                                   artifact_sha256="AB" * 32, worker_sha256="CD" * 32)
+        request = rom_eval._request(snapshot, DATA, actions[0], seed)
+        return {"identity": identity, "counter": [rom_eval._RELEASE_REQUEST_ID_FIRST],
+                "nodes": {"root": node, "ready": node}, "query_cards": None,
+                "state": rom_eval._decision_state(identity, node, actions, seed, request,
+                                                  "player-choice", 0)}
+
+    def _pool(self, executor, created, size=3):
+        def factory(_deadline):
+            worker = _FakeWorker(f"w{len(created) + 1}")
+            created.append(worker)
+            return (worker, 0x02000000)
+        return rom_pool.EnginePool(factory, size=size)
+
+    def _cases(self):
+        snapshot = snapshot_v2("TRAINER_HALEY_1", rng=None)
+        actions = rom_eval._actions(snapshot)
+        seeds, _ = rom_eval._seed_pairs(snapshot, rom_eval.MIN_ESTIMATE_SAMPLES)
+        party_sizes = (len(snapshot["player"]["party"]), len(snapshot["enemy"]["party"]))
+        return snapshot, actions, seeds, party_sizes
+
+    def test_a_wave_is_spread_over_all_three_workers_with_paired_samples(self):
+        snapshot, actions, seeds, party_sizes = self._cases()
+        prepared = self._prepared(snapshot, actions, seeds[0])
+        calls = []
+        # Force the three dispatch threads to overlap: real turns block on worker
+        # I/O for ~100ms each, a fake executor returns instantly.
+        barrier = threading.Barrier(3)
+
+        def execute(client, mailbox, node, payloads, *, deadline, request_id, max_frames):
+            calls.append((client.worker_id, len(payloads)))
+            if len(calls) <= 3:
+                try:
+                    barrier.wait(timeout=5)
+                except threading.BrokenBarrierError:
+                    pass
+            return [{"complete": True, "events": self._trace(party_sizes),
+                     "worker": client.worker_id} for _ in payloads]
+
+        created = []
+        pool = self._pool(execute, created)
+        try:
+            with mock.patch.object(rom_eval, "_runner", lambda: pool), \
+                 mock.patch.object(rom_eval, "_executor", lambda: execute):
+                envelope = rom_eval._dispatch_transitions(
+                    prepared, actions, seeds, party_sizes,
+                    time.monotonic() + 10.0, None, 1)
+        finally:
+            pool.close()
+        workers = sorted(envelope["progress"]["workers_used"])
+        self.assertEqual(workers, ["w1", "w2", "w3"])
+        self.assertEqual(sorted(worker for worker, _ in calls), ["w1", "w2", "w3"])
+        # one seed per batch, so every worker ran a whole common-random-number unit
+        self.assertEqual({count for _, count in calls}, {len(actions)})
+        keys = sorted(rom_transition.action_key(action) for action in actions)
+        self.assertEqual(len(envelope["paired_samples"]), len(seeds))
+        for sample in envelope["paired_samples"]:
+            self.assertEqual(sorted(sample["actions"]), keys)
+
+    def test_partial_completion_never_invents_outcomes(self):
+        snapshot, actions, seeds, party_sizes = self._cases()
+        prepared = self._prepared(snapshot, actions, seeds[0])
+
+        def execute(client, mailbox, node, payloads, *, deadline, request_id, max_frames):
+            return [{"complete": index == 0, "events": self._trace(party_sizes)}
+                    for index, _ in enumerate(payloads)]
+
+        created = []
+        pool = self._pool(execute, created)
+        try:
+            with mock.patch.object(rom_eval, "_runner", lambda: pool), \
+                 mock.patch.object(rom_eval, "_executor", lambda: execute):
+                envelope = rom_eval._dispatch_transitions(
+                    prepared, actions, seeds, party_sizes,
+                    time.monotonic() + 10.0, None, 1)
+        finally:
+            pool.close()
+        keys = [rom_eval._action_key(action) for action in actions]
+        outcomes = {key: [] for key in keys}
+        scores = {key: [] for key in keys}
+        paired = {key: [] for key in keys}
+        rom_eval._absorb(envelope, actions, outcomes, scores, paired, {key: [] for key in keys},
+                         (snapshot["player"]["party"], snapshot["enemy"]["party"]))
+        # only the completed candidate of each seed is an observation
+        self.assertTrue(outcomes[keys[0]])
+        for key in keys[1:]:
+            self.assertEqual(outcomes[key], [])
+        self.assertEqual(envelope["paired_samples"], [])
+        for key in keys:
+            self.assertEqual(paired[key], [])
+        self.assertEqual(rom_eval._failure_code(envelope), None)
+
+    def test_deadline_keeps_the_completed_seed_and_marks_the_rest(self):
+        snapshot, actions, seeds, party_sizes = self._cases()
+        prepared = self._prepared(snapshot, actions, seeds[0])
+        state = {"calls": 0}
+
+        def execute(client, mailbox, node, payloads, *, deadline, request_id, max_frames):
+            state["calls"] += 1
+            if state["calls"] > 1:
+                raise rom_bridge.WorkerResponseError("deadline-exceeded")
+            return [{"complete": True, "events": self._trace(party_sizes)} for _ in payloads]
+
+        created = []
+        pool = self._pool(execute, created)
+        try:
+            with mock.patch.object(rom_eval, "_runner", lambda: pool), \
+                 mock.patch.object(rom_eval, "_executor", lambda: execute):
+                envelope = rom_eval._dispatch_transitions(
+                    prepared, actions, seeds, party_sizes,
+                    time.monotonic() + 10.0, None, 1)
+        finally:
+            pool.close()
+        self.assertEqual(rom_eval._failure_code(envelope), "deadline-exceeded")
+        keys = [rom_eval._action_key(action) for action in actions]
+        outcomes = {key: [] for key in keys}
+        scores = {key: [] for key in keys}
+        paired = {key: [] for key in keys}
+        rom_eval._absorb(envelope, actions, outcomes, scores, paired, {key: [] for key in keys},
+                         (snapshot["player"]["party"], snapshot["enemy"]["party"]))
+        # the surviving seed is a real paired sample; nothing was invented for the rest
+        for key in keys:
+            self.assertEqual(len(outcomes[key]), 1)
+            self.assertEqual(len(paired[key]), 1)
+        self.assertGreater(len(envelope["failures"]), 0)
 
 
 if __name__ == "__main__":

@@ -11,7 +11,8 @@ Deliberate seams (package C / rom_eval integration fills them):
   adapter never encodes the wire layout itself.
 * `decode_turn(job, raw, state, action, rng_pair) -> dict | None` turns one raw
   executor result into a contract section-4 `TransitionResult`; the default is
-  the identity, so raw worker output passes through untouched.
+  the identity, so raw worker output passes through untouched. A `None` return
+  (or a raised canonical failure) marks that observation missing.
 
 No ranking, no heuristic names, no invented outcomes: a comparison sample is
 paired only when every required action completed, and a missing action is
@@ -28,6 +29,7 @@ from collections.abc import Mapping
 import rom_bridge
 from rom_pool import (
     MAX_FRAMES_PER_JOB,
+    CanonicalError,
     EnginePool,
     Job,
     LimitError,
@@ -38,6 +40,34 @@ from rom_pool import (
 TRANSITION_SCHEMA = rom_bridge.TRANSITION_SCHEMA
 STATE_SCHEMA = rom_bridge.STATE_SCHEMA
 PLAYER_BOUNDARIES = ("player-choice", "forced-switch-player")
+
+
+def transition_identity(*, execution_mode: str = "normal",
+                        critical_policy: str = "item-ability-only",
+                        planner_identity: str = "none") -> dict:
+    """Contract section-1 TransitionIdentity tuple (one source of truth).
+
+    Attached to every state token, transition result, query result and cache
+    key; `planner_identity` is reserved until phase 5.
+    """
+    from tools.rom_oracle import run_dynamic
+    from rom_query import DECODE_SCHEMA
+
+    return {
+        "source_sha": rom_bridge.SOURCE_SHA,
+        "test_elf_sha256": rom_bridge.ENGINE_ELF_SHA256,
+        "worker_sha256": rom_bridge.WORKER_SHA256,
+        "worker_version": rom_bridge.WORKER_VERSION,
+        "mgba_version": rom_bridge.MGBA_VERSION,
+        "rom_hook_protocol": int(run_dynamic.VERSION),
+        "wire_protocol": rom_bridge.PROTOCOL_VERSION,
+        "save_format": rom_bridge.SAVE_FORMAT_ID,
+        "state_schema": rom_bridge.STATE_SCHEMA,
+        "decode_schema": DECODE_SCHEMA,
+        "execution_mode": execution_mode,
+        "critical_policy": critical_policy,
+        "planner_identity": planner_identity,
+    }
 
 
 def action_key(action: dict) -> str:
@@ -257,8 +287,7 @@ class TransitionAdapter:
     def _decode(self, job, raw, state, action, pair):
         if self.decode_turn is None:
             return raw
-        decoded = self.decode_turn(job, raw, state, action, pair)
-        return decoded if decoded is not None else raw
+        return self.decode_turn(job, raw, state, action, pair)
 
     def _envelope(self, request_id, state, node, keys, action_by_key, seed_items,
                   run: RequestRun) -> dict:
@@ -272,8 +301,16 @@ class TransitionAdapter:
                 if record is None:
                     missing.append(key)
                     continue
-                completed[key] = self._decode(record.job, record.result, state,
-                                              action_by_key[key], pair)
+                try:
+                    decoded = self._decode(record.job, record.result, state,
+                                           action_by_key[key], pair)
+                except (ValueError, KeyError, TypeError, CanonicalError):
+                    # A decode failure is a missing observation, never an outcome.
+                    decoded = None
+                if decoded is None:
+                    missing.append(key)
+                else:
+                    completed[key] = decoded
             if not completed:
                 continue  # never invent a zero outcome for a wholly missing sample
             sample = {"seed": skey, "rng": {"main": pair[0], "secondary": pair[1]},

@@ -32,13 +32,20 @@ _GENERATION = {"value": 0}       # invalidate fences older in-flight jobs
 _ROOT = Path(__file__).parent
 _DEFAULT_ELF = _ROOT / "native" / "rom_worker" / "build" / "mingw" / "pokeemerald-test-headless.elf"
 _DISK_PATH = _ROOT / "native" / "rom_worker" / "build" / "calc_cache.json"
-_ELF_SHA256 = "B26561E3F0590DE47167730F93ED11427450DBC835A306272C9B898D39B473DB"
+
+
+def _elf_sha256():
+    try:
+        import rom_bridge
+        return rom_bridge.ENGINE_ELF_SHA256
+    except Exception:
+        return "unknown"
 
 
 def _missing_artifact_detail(detail):
     return (f"{detail} Setup: copy the pinned {_DEFAULT_ELF.as_posix()} "
             "file (pokeemerald-test-headless.elf) "
-            f"(SHA-256 {_ELF_SHA256}) to native/rom_worker/build/mingw/ "
+            f"(SHA-256 {_elf_sha256()}) to native/rom_worker/build/mingw/ "
             "or set SIDEDEX_ENGINE_ELF_PATH, then run native/rom_worker/build.ps1; "
             "see tools/rom_oracle/README.md.")
 
@@ -72,20 +79,29 @@ def _rom_unavailable(reason, detail, source_sha):
 
 
 def snapshot_key(snapshot):
-    """Canonical key including the relevant evaluator identity."""
+    """Canonical key including the relevant evaluator identity.
+
+    A v2 snapshot is a ROM request and is keyed by the full contract section-1
+    `TransitionIdentity` tuple (source, test ELF, worker + version, mGBA,
+    wire/ROM-hook protocol, save format, state/decode schemas, execution mode,
+    critical policy, reserved planner identity). Opaque worker-local handles are
+    never part of the snapshot, so nothing worker-local is cached across a
+    process restart.
+    """
     if snapshot.get("schema_version") == 2:
         # v2 is a ROM request. Never normalize it through the legacy Python
         # engine, which only understands v1 and loses the second RNG stream.
         try:
+            import rom_transition
+            identity = tuple(sorted(rom_transition.transition_identity(
+                execution_mode="normal", critical_policy="item-ability-only").items()))
+        except Exception:
             import rom_bridge
-            identity = (getattr(rom_bridge, "ENGINE_ELF_SHA256", None),
-                        getattr(rom_bridge, "WORKER_SHA256", None),
-                        getattr(rom_bridge, "WORKER_VERSION", None),
-                        getattr(rom_bridge, "SAMPLER_VERSION", None))
-        except ImportError:
-            identity = (None, None, None)
+            identity = (("test_elf_sha256", getattr(rom_bridge, "ENGINE_ELF_SHA256", None)),
+                        ("worker_sha256", getattr(rom_bridge, "WORKER_SHA256", None)),
+                        ("worker_version", getattr(rom_bridge, "WORKER_VERSION", None)))
         payload = json.dumps(snapshot, sort_keys=True, separators=(",", ":"), default=str)
-        return hashlib.sha256(repr(("rom-v3", snapshot.get("source_sha"), identity, payload)).encode("utf-8")).hexdigest()
+        return hashlib.sha256(repr(("rom-v4", snapshot.get("source_sha"), identity, payload)).encode("utf-8")).hexdigest()
     engine, _ = _safe_engine()
     try:
         canonical = engine.normalize_snapshot(snapshot) if engine else snapshot

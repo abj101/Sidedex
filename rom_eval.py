@@ -17,6 +17,7 @@ import battle_engine as be
 import rom_bridge
 import rom_pool
 import rom_query
+import rom_transition
 from tools.rom_oracle import run_dynamic
 
 
@@ -26,18 +27,26 @@ _STAGE_KEYS = ("attack", "defense", "sp_attack", "sp_defense", "speed", "accurac
 _MAX_BATCH = 8
 _MAX_SAMPLES = 16
 MIN_ESTIMATE_SAMPLES = 3
+# The four-card path requests this policy; results and cards label exactly it.
+CRITICAL_POLICY = "item-ability-only"
+# ROM boundary hold/release tokens (contract appendix A: `requestId`).
+_HOLD_REQUEST_ID = 1
+_RELEASE_REQUEST_ID_FIRST = 2
 # Measured marginal cost of one batched engine turn on the pinned worker.
 _TURN_MS = 240
+# Test seam: set to a session factory (client, mailbox) to run the evaluator
+# against a fake engine instead of the three pooled pinned workers.
+_TEST_SESSION = None
 
 
 def _unavailable(reason, detail, missing=()):
     return {"status": "unavailable", "reason": reason, "detail": detail,
-            "missing": list(missing)}
+            "critical_policy": CRITICAL_POLICY, "missing": list(missing)}
 
 
 def _result(source_sha, status, **cards):
     meta = cards.pop("_meta", {})
-    return {"status": status, "source_sha": source_sha, "critical_policy": "item-ability-only",
+    return {"status": status, "source_sha": source_sha, "critical_policy": CRITICAL_POLICY,
             "_meta": meta, **meta,
                **{kind: cards.get(kind, _unavailable("incomplete-state", "No result was produced."))
                   for kind in _CARDS}}
@@ -164,7 +173,7 @@ def _request(snapshot, game_data, action, seed, *, second=None, replay_turns=Non
     party = snapshot["player"]["party"]
     enemy = snapshot["enemy"]
     request = {"ai_flags": _mask(enemy["ai_flags"]), "candidate_action": action,
-               "critical_policy": "item-ability-only",
+               "critical_policy": CRITICAL_POLICY,
                "replay_turns": turns,
                "player_active_index": 0,
                "opponent_active_index": 0,
@@ -323,9 +332,147 @@ def _action_key(action):
     return json.dumps({key: action[key] for key in fields}, sort_keys=True)
 
 
+def _slim_party_records(events, turn):
+    """`ROMTRACE|party|<turn>|<side>|<slot>|<species>|<hp>...` (v7 slim layout)."""
+    records = {}
+    for line in events:
+        cells = line.split("|")
+        if len(cells) >= 7 and cells[0] == "ROMTRACE" and cells[1] == "party" and int(cells[2]) == turn:
+            records.setdefault(int(cells[3]), {})[int(cells[4])] = {
+                "species": int(cells[5]), "hp": int(cells[6])}
+    return records
+
+
+def _rich_party_records(events, turn):
+    """`ROMTRACE|phase|<turn>|state|party|<side>|<slot>|<species>|<level>|<hp>|<maxHP>...`."""
+    records = {}
+    prefix = f"ROMTRACE|phase|{turn}|state|party|"
+    for line in events:
+        if not line.startswith(prefix):
+            continue
+        cells = line.split("|")
+        if len(cells) >= 11:
+            records.setdefault(int(cells[5]), {})[int(cells[6])] = {
+                "species": int(cells[7]), "hp": int(cells[9])}
+    return records
+
+
+def _parties_complete(records, party_sizes):
+    if not records:
+        return False
+    for side, size in enumerate(party_sizes):
+        party = records.get(side, {})
+        if len(party) < size or sorted(party) != list(range(len(party))):
+            return False
+    return True
+
+
+def _rng_record(events, turn):
+    for line in events:
+        cells = line.split("|")
+        if len(cells) == 11 and cells[0] == "ROMTRACE" and cells[1] == "rng" and int(cells[2]) == turn:
+            return [int(value) for value in cells[3:]]
+    return []
+
+
+def _has_active_state(events, turn):
+    return (any(line.startswith(f"ROMTRACE|active|{turn}|") for line in events)
+            or any(line.startswith(f"ROMTRACE|phase|{turn}|state|active|") for line in events))
+
+
+def _policy(events):
+    policy_records = [line for line in events if line.startswith((
+        "ROMTRACE|critical-policy|", "ROMTRACE|runner|critical-policy|"))]
+    expected_policy = "ROMTRACE|critical-policy|item-ability-only|battle-script-filtered"
+    expected_runner = ("ROMTRACE|runner|critical-policy|item-ability-only|verified-elf:" +
+                       rom_bridge.ENGINE_ELF_SHA256)
+    verified = bool(policy_records) and all(
+        line in (expected_policy, expected_runner) for line in policy_records)
+    return ("item-ability-only" if verified else None), verified
+
+
+def _parse_faints(events):
+    faints = []
+    for line in events:
+        cells = line.split("|")
+        if len(cells) == 6 and cells[:2] == ["ROMTRACE", "faint"]:
+            faints.append({"turn": int(cells[2]), "battler": int(cells[3]),
+                           "party_slot": int(cells[4]), "species_id": int(cells[5])})
+    return faints
+
+
+def _parse_boundary_turn(events, party_sizes, boundary, terminal):
+    """v8 SIMULATE_TURN: stop at the next decision boundary or terminal.
+
+    The resolved turn's slim records are used when a switch settled this turn;
+    otherwise the next boundary's complete state export (contract 2.2) supplies
+    the resulting parties, active state and both RNG streams.
+    """
+    actions_by_turn = {}
+    state_turns = set()
+    for line in events:
+        cells = line.split("|")
+        if cells[0] != "ROMTRACE":
+            continue
+        if cells[1] == "action" and len(cells) >= 6:
+            actions_by_turn.setdefault(int(cells[2]), []).append(
+                {"side": int(cells[3]), "kind": cells[4], "id": int(cells[5]),
+                 "target": int(cells[6]) if len(cells) > 6 else None})
+        elif cells[1] in ("party", "active", "rng") and len(cells) >= 3:
+            state_turns.add(int(cells[2]))
+        elif cells[1] == "phase" and len(cells) >= 4 and cells[3] == "state":
+            state_turns.add(int(cells[2]))
+    if actions_by_turn:
+        turn = max(actions_by_turn)
+    elif state_turns:
+        turn = max(state_turns)
+    else:
+        raise ValueError("incomplete-state: transition trace has no resolved turn")
+    actions = actions_by_turn.get(turn, [])
+    first_actions = actions_by_turn.get(min(actions_by_turn), []) if actions_by_turn else []
+    boundary_turn = None
+    if boundary is not None:
+        cells = boundary.split("|")
+        if len(cells) != 5 or cells[2] not in ("player-choice", "forced-switch-player"):
+            raise ValueError("engine-error: malformed boundary marker")
+        boundary_turn = int(cells[3])
+        if int(cells[4]) <= 0:
+            raise ValueError("no-legal-actions: boundary announced no legal action")
+    if terminal is not None:
+        cells = terminal.split("|")
+        if len(cells) != 4 or cells[2] not in ("win", "loss", "draw"):
+            raise ValueError("engine-error: malformed terminal marker")
+    records = _slim_party_records(events, turn)
+    rng_values = _rng_record(events, turn)
+    active_ok = _has_active_state(events, turn)
+    if not (_parties_complete(records, party_sizes) and rng_values and active_ok):
+        if boundary_turn is None:
+            raise ValueError("incomplete-state: outcome lacks a complete resulting state")
+        records = _rich_party_records(events, boundary_turn)
+        rng_values = _rng_record(events, boundary_turn) or rng_values
+        active_ok = _has_active_state(events, boundary_turn) or active_ok
+        turn = boundary_turn
+    if not _parties_complete(records, party_sizes):
+        raise ValueError("incomplete-state: outcome lacks a complete resulting party")
+    if not active_ok:
+        raise ValueError("incomplete-state: outcome lacks active battler state")
+    if not rng_values:
+        raise ValueError("incomplete-state: outcome lacks resulting RNG state")
+    policy, policy_verified = _policy(events)
+    return {"turn": turn, "actions": actions, "first_actions": first_actions,
+            "parties": records, "faints": _parse_faints(events),
+            "resulting_rng": rng_values, "critical_policy": policy,
+            "critical_policy_verified": policy_verified,
+            "boundary": boundary, "terminal": terminal}
+
+
 def _parse_turn(events, party_sizes):
     if not isinstance(events, list) or any(not isinstance(event, str) for event in events):
         raise ValueError("engine-error: malformed turn events")
+    boundary = next((row for row in reversed(events) if row.startswith("ROMTRACE|boundary|")), None)
+    terminal = next((row for row in reversed(events) if row.startswith("ROMTRACE|terminal|")), None)
+    if boundary is not None or terminal is not None:
+        return _parse_boundary_turn(events, party_sizes, boundary, terminal)
     done = [int(row.split("|")[2]) for row in events if row.startswith("ROMTRACE|complete|")]
     after = [int(row.split("|")[2]) for row in events
              if row.startswith("ROMTRACE|phase|") and row.endswith("|after-turn")]
@@ -906,8 +1053,10 @@ def _summarize(snapshot, game_data, actions, samples, outcomes, scores, known_se
     score_rows = ordered
     status = "engine-fixed-seed" if known_seed else "estimated"
     actual_samples = min((len(outcomes[_action_key(action)]) for action in actions), default=0)
-    meta = {} if known_seed else {"effective_samples": actual_samples,
-                                 "samples": actual_samples, "sampler_id": "paired-sfc32-v1"}
+    meta = {"critical_policy": CRITICAL_POLICY}
+    if not known_seed:
+        meta.update({"effective_samples": actual_samples,
+                     "samples": actual_samples, "sampler_id": "paired-sfc32-v1"})
     has_followup = any(row.get("followup_action") for row in ordered)
     return {
         "player_moves": {"status": status, **meta, **({"deterministic": True} if known_seed else {}), "moves": move_rows},
@@ -916,7 +1065,7 @@ def _summarize(snapshot, game_data, actions, samples, outcomes, scores, known_se
                        "conditioned_on": ("the planned player action" if planned else
                                           f"recommended action: {_label(baseline, game_data, snapshot)}"),
                        "actions": ai_rows},
-        "recommendation": {"status": status, **meta, "critical_policy": "item-ability-only",
+        "recommendation": {"status": status, **meta, "critical_policy": CRITICAL_POLICY,
                            "interval_95": (ordered[0]["death_risk"].get("interval_95")
                                            if ordered else None),
                            "ranking_basis": (
@@ -974,6 +1123,9 @@ def _boot_engine(deadline, elf, worker_path):
                     raise ValueError("engine-error: invalid mailbox announcement")
                 mailbox = int(fields[2])
                 client.save_state()
+                # An immutable named pristine-ready slot: every request restores
+                # it, because the default slot is overwritten by node installs.
+                client.sidedex_ready_handle = client.save_checkpoint("calc-ready")["handle"]
                 return client, mailbox
         raise TimeoutError("timeout: engine did not announce its request mailbox")
     except BaseException:
@@ -1000,6 +1152,325 @@ def prewarm():
 
 def _engine_session(deadline):
     return _engine_pool().session(deadline)
+
+
+def _worker_id(client, mailbox):
+    """Stable contract section-2/8 owner id for a pooled client."""
+    return getattr(client, "worker_id", None) or f"w{id(client):x}"
+
+
+def _session(deadline):
+    if _TEST_SESSION is not None:
+        return _TEST_SESSION(deadline)
+    return _engine_session(deadline)
+
+
+class _SerialPool:
+    """Test double for EnginePool: one injected session, no real workers.
+
+    Mirrors what the evaluator needs from the scheduler: deterministic
+    (node, seed) batching, canonical failures, partial results, and no invented
+    observations. Never used against the pinned artifacts.
+    """
+
+    def __init__(self, factory):
+        self.factory = factory
+
+    def session(self, deadline):
+        return self.factory(deadline)
+
+    def run_jobs(self, jobs, *, request_id, nodes, executor, deadline,
+                 cancelled=None, batch_size=_MAX_BATCH, max_attempts=2,
+                 worker_id=None, max_frames=24_000):
+        run = rom_pool.RequestRun(request_id=request_id)
+        node_map = {node.node: node for node in nodes}
+        grouped = {}
+        for job in jobs:
+            grouped.setdefault((job.node, job.seed), []).append(job)
+        with self.factory(deadline) as (client, mailbox):
+            run.workers_used = ("test",)
+            for (node_id, _seed), group in grouped.items():
+                node = node_map.get(node_id)
+                if node is None:
+                    for job in group:
+                        run.failures.setdefault(job.key, "stale-handle")
+                    continue
+                for start in range(0, len(group), batch_size):
+                    chunk = group[start:start + batch_size]
+                    if cancelled is not None and cancelled():
+                        for job in chunk:
+                            run.failures.setdefault(job.key, "deadline-exceeded")
+                        continue
+                    run.attempts += len(chunk)
+                    run.batches += 1
+                    try:
+                        results = executor(client, mailbox, node,
+                                           [job.payload for job in chunk],
+                                           deadline=deadline, request_id=request_id,
+                                           max_frames=max_frames)
+                    except BaseException as exc:  # mapped to a canonical name
+                        code = rom_pool.canonical_failure(exc)
+                        for job in chunk:
+                            run.failures.setdefault(job.key, code)
+                        continue
+                    for job, result in zip(chunk, results):
+                        run.results[job.key] = rom_pool.ResultRecord(job, result, 1)
+        run.pending = [job for job in jobs
+                       if job.key not in run.results and job.key not in run.failures]
+        for job in run.pending:
+            run.failures.setdefault(job.key, "deadline-exceeded")
+        run.pending = []
+        return run
+
+
+def _runner():
+    """The scheduler: three pooled pinned workers, or the injected test double."""
+    if _TEST_SESSION is not None:
+        return _SerialPool(_TEST_SESSION)
+    return _engine_pool()
+
+
+def _executor():
+    """Wire the scheduler's executor to the worker's `batch_turns` op."""
+    if _TEST_SESSION is not None:
+        def execute(client, mailbox, node, payloads, *, deadline, request_id,
+                    max_frames=None):
+            return _run_batch(client, mailbox, list(payloads), deadline, request_id)["turns"]
+        return execute
+    return rom_transition.bridge_executor(mailbox_bytes=run_dynamic.MAILBOX_BYTES,
+                                          request_id_prefix="calc")
+
+
+def _transition_identity():
+    return rom_transition.transition_identity(critical_policy=CRITICAL_POLICY)
+
+
+def _node_record(client, slot, identity):
+    """Portable node routing record with its blob exported once per request."""
+    blob = client.export_state(slot["handle"])
+    return rom_pool.NodeRecord(
+        node=slot["sha256"], handle=slot["handle"], owner=client.worker_id,
+        portable=True, blob=blob["blob"], blob_bytes=blob["blob_bytes"],
+        bytes=slot["bytes"], sha256=slot["sha256"],
+        artifact_sha256=identity["test_elf_sha256"],
+        worker_sha256=identity["worker_sha256"])
+
+
+def _encode_turn(state, counter):
+    """Mailbox encoder: one release token per job (differs from the hold id)."""
+    def encode(request_state, action, rng_pair):
+        request = dict(request_state["request"])
+        request["candidate_action"] = action
+        request["rng_main"] = list(rng_pair[0])
+        request["rng_secondary"] = list(rng_pair[1])
+        counter[0] = counter[0] + 1 if counter[0] < 0xFFFF else _RELEASE_REQUEST_ID_FIRST
+        request["request_id"] = counter[0]
+        return run_dynamic.encode_request(request)
+    return encode
+
+
+def _transition_decoder(party_sizes):
+    """Turn one raw batch reply into a transition outcome or fail closed."""
+    def decode(job, raw, state, action, pair):
+        if not isinstance(raw, dict) or not raw.get("complete"):
+            raise ValueError("incomplete-state: transition did not complete")
+        parsed = _parse_turn(raw.get("events"), party_sizes)
+        if not parsed["critical_policy_verified"]:
+            raise ValueError(
+                "unsupported-mechanic: transition did not verify the critical-hit policy")
+        parsed["action"] = action
+        return parsed
+    return decode
+
+
+def _prepare(deadline, snapshot, game_data, actions, seeds):
+    """Build the root decision state (and, on the pinned path, its blobs).
+
+    The pinned engine holds at a choice boundary and only resolves a turn when
+    a *different* `requestId` releases it (contract appendix A), so the root is
+    captured after one hold submission; the ready slot is kept for the
+    replay-construction follow-up queries (contract section 7).
+    """
+    identity = _transition_identity()
+    request = _request(snapshot, game_data, actions[0], seeds[0])
+    prepared = {"identity": identity, "counter": [_RELEASE_REQUEST_ID_FIRST]}
+    if _TEST_SESSION is not None:
+        node = rom_pool.NodeRecord(node="test-root", handle="test-root", owner="test",
+                                   portable=False, bytes=0)
+        prepared.update({"nodes": {"root": node, "ready": node},
+                         "query_cards": None,
+                         "state": _decision_state(identity, node, actions, seeds[0],
+                                                  request, "player-choice", 0)})
+        return prepared
+    with _engine_session(deadline) as (client, mailbox):
+        ready_handle = getattr(client, "sidedex_ready_handle", None)
+        if ready_handle is not None:
+            client.restore_state(ready_handle)
+        ready_node = _node_record(client, client.save_checkpoint(), identity)
+        query_cards = None
+        if getattr(client, "rom_sha256", None) == rom_bridge.ENGINE_ELF_SHA256:
+            try:
+                query_cards = _query_cards(client, mailbox, snapshot, game_data,
+                                           actions[0], seeds[0], deadline)
+            except (ValueError, rom_bridge.RomBridgeError):
+                query_cards = None
+        hold = dict(request)
+        hold["request_id"] = _HOLD_REQUEST_ID
+        reply = _run_batch(client, mailbox, [run_dynamic.encode_request(hold)],
+                           deadline, "calc-hold")
+        events = reply["turns"][0].get("events") or []
+        boundary = next((row for row in reversed(events)
+                         if row.startswith("ROMTRACE|boundary|")), None)
+        if boundary is None or len(boundary.split("|")) != 5:
+            raise ValueError("incomplete-state: engine did not hold at a decision boundary")
+        fields = boundary.split("|")
+        root_node = _node_record(client, client.save_checkpoint(), identity)
+        prepared.update({"nodes": {"root": root_node, "ready": ready_node},
+                         "query_cards": query_cards,
+                         "state": _decision_state(identity, root_node, actions, seeds[0],
+                                                  request, fields[2], int(fields[3]))})
+        return prepared
+
+
+def _decision_state(identity, node, actions, seed, request, boundary, turn):
+    """Contract section-2 DecisionState mapping handed to the adapter."""
+    return {
+        "state_schema": rom_bridge.STATE_SCHEMA,
+        "identity": dict(identity),
+        "token": {"handle": node.handle, "owner_worker": node.owner,
+                  "portable": bool(node.portable), "bytes": node.bytes,
+                  "sha256": node.sha256},
+        "boundary": boundary,
+        "turn": turn,
+        "terminal": None,
+        "decoded": {},
+        "legal_player_actions": list(actions),
+        "rng": {"main": list(seed[0]), "secondary": list(seed[1])},
+        "request": request,
+    }
+
+
+def _dispatch_transitions(prepared, actions, seeds, party_sizes, deadline,
+                          cancelled, request_no):
+    """Dispatch one wave of candidate transitions across the pooled workers.
+
+    The batch size is balanced against the pool size so a wave is spread over
+    every worker instead of one worker greedily taking the whole node.
+    """
+    state = prepared["state"]
+    actions = list(actions)
+    # One seed's candidates stay in one batch (a seed is the common-random-number
+    # unit), so a multi-seed wave spreads one seed per worker.
+    batch_size = min(_MAX_BATCH, max(1, len(actions)))
+    adapter = rom_transition.TransitionAdapter(
+        _runner(), executor=_executor(),
+        encode_turn=_encode_turn(state, prepared["counter"]),
+        decode_turn=_transition_decoder(party_sizes),
+        identity=prepared["identity"], worker_id=_worker_id,
+        batch_size=batch_size, max_frames=24_000)
+    return adapter.transitions(request_id=f"calc-{request_no}", state=state,
+                               actions=list(actions), seeds=list(seeds),
+                               deadline=deadline, cancelled=cancelled,
+                               node=prepared["nodes"]["root"])
+
+
+def _seed_waves(seeds, known, action_count):
+    """Deterministic seed waves under the pool's queued-job bound.
+
+    The sample floor goes first; later seeds go one at a time so progress keeps
+    publishing and the loop can stop as soon as the ranking is certain.
+    """
+    if known:
+        return [list(seeds[:max(1, rom_pool.MAX_QUEUED_JOBS // max(1, action_count))])]
+    first = list(seeds[:min(MIN_ESTIMATE_SAMPLES, len(seeds))])
+    waves = [first]
+    index = len(first)
+    while index < len(seeds):
+        waves.append(list(seeds[index:index + 1]))
+        index += 1
+    return waves
+
+
+def _absorb_sample(sample, keymap, outcomes, scores, initial_parties):
+    for akey, parsed in (sample.get("actions") or {}).items():
+        key = keymap.get(akey)
+        if key is None or not isinstance(parsed, dict) or "parties" not in parsed:
+            continue
+        outcomes[key].append(parsed)
+        scores[key].append(_score(parsed, *initial_parties))
+
+
+def _absorb(envelope, actions, outcomes, scores, paired_outcomes, paired_scores,
+            initial_parties):
+    """Merge one envelope: completed partial work counts, pairing is stricter."""
+    keymap = {rom_transition.action_key(action): _action_key(action) for action in actions}
+    for sample in envelope.get("partial_samples") or []:
+        _absorb_sample(sample, keymap, outcomes, scores, initial_parties)
+    for sample in envelope.get("paired_samples") or []:
+        _absorb_sample(sample, keymap, outcomes, scores, initial_parties)
+        _absorb_sample(sample, keymap, paired_outcomes, paired_scores, initial_parties)
+
+
+def _first_paired(envelope, actions):
+    """The first fully paired sample's seed pair and per-action outcome turns."""
+    keymap = {rom_transition.action_key(action): _action_key(action) for action in actions}
+    for sample in envelope.get("paired_samples") or []:
+        turns = {}
+        for akey, parsed in (sample.get("actions") or {}).items():
+            key = keymap.get(akey)
+            if key is not None and isinstance(parsed, dict) and "parties" in parsed:
+                turns[key] = parsed
+        if len(turns) == len(actions):
+            rng = sample.get("rng") or {}
+            return (rng.get("main"), rng.get("secondary")), turns
+    return None, {}
+
+
+def _failure_code(envelope):
+    codes = set((envelope.get("failures") or {}).values())
+    for code in ("deadline-exceeded", "timeout", "worker-failed", "stale-handle"):
+        if code in codes:
+            return code
+    return next(iter(codes), None)
+
+
+def _followup_queries(prepared, snapshot, game_data, actions, first_seed,
+                      first_turns, deadline, cancelled):
+    """Post-action QUERY_DAMAGE cards from the replay-construction ready node."""
+    jobs = []
+    for action in actions:
+        key = _action_key(action)
+        turn = first_turns.get(key)
+        if turn is None:
+            continue
+        request = _followup_query_payload(snapshot, game_data, action, turn, first_seed)
+        if request is None:
+            continue
+        try:
+            payload = run_dynamic.encode_request(request)
+        except (ValueError, KeyError):
+            continue
+        jobs.append(rom_pool.Job(node=prepared["nodes"]["ready"].node,
+                                 action=f"query:{key}", seed="followup", payload=payload))
+    if not jobs:
+        return {}
+    run = _runner().run_jobs(jobs, request_id="calc-followup",
+                             nodes=[prepared["nodes"]["ready"]], executor=_executor(),
+                             deadline=deadline, cancelled=cancelled,
+                             batch_size=_MAX_BATCH, worker_id=_worker_id)
+    cards = {}
+    for record in run.results.values():
+        events = record.result.get("events") if isinstance(record.result, dict) else None
+        if not events:
+            continue
+        try:
+            parsed = rom_query.parse(events, snapshot, game_data)
+        except ValueError:
+            continue
+        if (parsed.get("critical_policy_verified") and parsed.get("query_context") in
+                ("post-switch", "after-candidate-turn", "current-state")):
+            cards.setdefault(record.job.action[len("query:"):], []).append(parsed)
+    return cards
 
 
 def _seed_pairs(snapshot, count):
@@ -1052,7 +1523,8 @@ def evaluate(snapshot, game_data, deadline, cancelled=None, publish=None):
     post_queries = {key: [] for key in action_keys}
     request_no = 0
     failure = None
-    previous_seed_seconds = None
+    seeds = []
+    followup_done = False
 
     def _guard():
         if cancelled and cancelled():
@@ -1061,7 +1533,7 @@ def evaluate(snapshot, game_data, deadline, cancelled=None, publish=None):
             raise TimeoutError("timeout: calculation deadline expired")
 
     def _publish_refinement():
-        completed = min(len(paired_outcomes[key]) for key in action_keys)
+        completed = min((len(paired_outcomes[key]) for key in action_keys), default=0)
         if (not publish or completed < (1 if known else MIN_ESTIMATE_SAMPLES)
                 or completed in published_samples):
             return
@@ -1073,8 +1545,8 @@ def evaluate(snapshot, game_data, deadline, cancelled=None, publish=None):
         if snapshot["enemy"].get("items"):
             if query_cards:
                 preview = dict(query_cards["ai_actions"])
-                preview["preview"] = True
-                preview["conditioned_on"] = "one query seed at the entered battle state"
+                preview.update(preview=True,
+                               conditioned_on="one query seed at the entered battle state")
                 summary["ai_actions"] = preview
             summary["recommendation"] = _unavailable(
                 "unsupported-mechanic",
@@ -1095,115 +1567,55 @@ def evaluate(snapshot, game_data, deadline, cancelled=None, publish=None):
 
     try:
         seeds, known = _seed_pairs(snapshot, count)
-        with _engine_session(deadline) as (client, mailbox):
-            if getattr(client, "rom_sha256", None) == rom_bridge.ENGINE_ELF_SHA256:
-                try:
-                    _guard()
-                    query_cards = _query_cards(client, mailbox, snapshot, game_data,
-                                               actions[0], seeds[0], deadline)
-                except (ValueError, rom_bridge.RomBridgeError):
-                    query_cards = None
-                if query_cards and publish:
-                    preview = dict(query_cards["ai_actions"])
-                    preview["conditioned_on"] = "one query seed at the entered battle state"
-                    preview["preview"] = True
-                    try:
-                        publish(_result(source, "refining", _meta={
-                            "scenario": _scenario(snapshot), "assumed_lead": True,
-                            "refining": True, "phase": "Sampling turns",
-                            "completed_samples": 0, "target_samples": len(seeds)},
-                            player_moves=query_cards["player_moves"],
-                            enemy_moves=query_cards["enemy_moves"],
-                            ai_actions=preview,
-                            recommendation={"status": "pending"}))
-                    except Exception:
-                        pass
-            for seed in seeds:
-                completed = len(paired_scores[next(iter(action_keys))])
-                if (not known and completed >= MIN_ESTIMATE_SAMPLES
-                        and previous_seed_seconds is not None
-                        and time.monotonic() + max(0.5, previous_seed_seconds * 1.6 + 0.5) >= deadline):
+        prepared = _prepare(deadline, snapshot, game_data, actions, seeds)
+        query_cards = prepared.get("query_cards")
+        if query_cards and publish:
+            preview = dict(query_cards["ai_actions"])
+            preview["conditioned_on"] = "one query seed at the entered battle state"
+            preview["preview"] = True
+            try:
+                publish(_result(source, "refining", _meta={
+                    "scenario": _scenario(snapshot), "assumed_lead": True,
+                    "refining": True, "phase": "Sampling turns",
+                    "completed_samples": 0, "target_samples": len(seeds)},
+                    player_moves=query_cards["player_moves"],
+                    enemy_moves=query_cards["enemy_moves"],
+                    ai_actions=preview,
+                    recommendation={"status": "pending"}))
+            except Exception:
+                pass
+        for wave in _seed_waves(seeds, known, len(actions)):
+            _guard()
+            request_no += 1
+            wave_started = time.monotonic()
+            envelope = _dispatch_transitions(prepared, actions, wave, party_sizes,
+                                             deadline, cancelled, request_no)
+            _absorb(envelope, actions, outcomes, scores, paired_outcomes, paired_scores,
+                    initial_parties)
+            code = _failure_code(envelope)
+            if code in ("deadline-exceeded", "timeout", "worker-failed"):
+                failure = code
+            completed = min((len(paired_outcomes[key]) for key in action_keys), default=0)
+            if not followup_done and not snapshot["enemy"].get("items") and (
+                    known or completed >= MIN_ESTIMATE_SAMPLES) and time.monotonic() < deadline:
+                first_seed, first_turns = _first_paired(envelope, actions)
+                if first_seed is not None:
+                    followup_done = True
+                    for key, cards in _followup_queries(
+                            prepared, snapshot, game_data, actions, first_seed,
+                            first_turns, deadline, cancelled).items():
+                        post_queries[key] = cards
+            _publish_refinement()
+            if failure:
+                break
+            if not known and completed >= MIN_ESTIMATE_SAMPLES:
+                current = _summarize(snapshot, game_data, actions, seeds, paired_outcomes,
+                                     paired_scores, False, post_queries)
+                if not current["recommendation"]["ranking_uncertain"]:
                     break
-                seed_started = time.monotonic()
-                seed_turns = {}
-                for start in range(0, len(actions), _MAX_BATCH):
-                    _guard()
-                    batch = actions[start:start + _MAX_BATCH]
-                    payloads = [run_dynamic.encode_request(_request(snapshot, game_data, action, seed))
-                                for action in batch]
-                    request_no += 1
-                    try:
-                        reply = _run_batch(client, mailbox, payloads, deadline, f"calc-{request_no}")
-                    except (TimeoutError, rom_bridge.WorkerTimeoutError,
-                            rom_bridge.WorkerResponseError) as exc:
-                        if isinstance(exc, rom_bridge.WorkerResponseError) and exc.code != "deadline_exceeded":
-                            raise
-                        failure = exc
-                        reply = getattr(exc, "reply", None) or getattr(exc, "partial_reply", None)
-                        if not isinstance(reply, dict):
-                            break
-                    for action, turn in zip(batch, reply["turns"]):
-                        if turn.get("complete"):
-                            try:
-                                parsed = _parse_turn(turn.get("events"), party_sizes)
-                                if parsed["critical_policy_verified"]:
-                                    seed_turns[_action_key(action)] = parsed
-                            except ValueError:
-                                continue
-                for key, turn in seed_turns.items():
-                    outcomes[key].append(turn)
-                for key, turn in seed_turns.items():
-                    scores[key].append(_score(turn, *initial_parties))
-                if len(seed_turns) == len(action_keys):
-                    for key, turn in seed_turns.items():
-                        paired_outcomes[key].append(turn)
-                        paired_scores[key].append(scores[key][-1])
-                completed_pairs = len(paired_outcomes[next(iter(action_keys))])
-                query_budget = max(2.0, previous_seed_seconds * 1.5) if previous_seed_seconds else 2.0
-                if (len(post_queries[next(iter(action_keys))]) == 0 and
-                        len(seed_turns) == len(action_keys) and
-                        (known or completed_pairs >= MIN_ESTIMATE_SAMPLES) and
-                        time.monotonic() + query_budget < deadline and
-                        not snapshot["enemy"].get("items")):
-                    follow_payloads, follow_keys = [], []
-                    for action in actions:
-                        key = _action_key(action)
-                        request = _followup_query_payload(
-                            snapshot, game_data, action, seed_turns[key], seed)
-                        if request is None:
-                            continue
-                        try:
-                            follow_payloads.append(run_dynamic.encode_request(request))
-                            follow_keys.append(key)
-                        except (ValueError, KeyError):
-                            continue
-                    if follow_payloads:
-                        try:
-                            _guard()
-                            follow_reply = _run_batch(
-                                client, mailbox, follow_payloads, deadline,
-                                f"calc-followup-{request_no + 1}")
-                            for key, turn in zip(follow_keys, follow_reply["turns"]):
-                                events = turn.get("events") or []
-                                if (not turn.get("complete") and
-                                        "ROMTRACE|query|complete" not in events):
-                                    continue
-                                cards = rom_query.parse(events, snapshot, game_data)
-                                if (cards.get("critical_policy_verified") and
-                                        cards.get("query_context") in
-                                        ("post-switch", "after-candidate-turn", "current-state")):
-                                    post_queries[key].append(cards)
-                        except (TimeoutError, ValueError, rom_bridge.RomBridgeError):
-                            pass
-                _publish_refinement()
-                previous_seed_seconds = time.monotonic() - seed_started
-                if failure:
+                elapsed = time.monotonic() - wave_started
+                if time.monotonic() + max(0.5, elapsed * 1.6 + 0.5) >= deadline:
                     break
-                if not known and len(paired_scores[next(iter(action_keys))]) >= MIN_ESTIMATE_SAMPLES:
-                    current = _summarize(snapshot, game_data, actions, seeds,
-                                         paired_outcomes, paired_scores, False, post_queries)
-                    if not current["recommendation"]["ranking_uncertain"]:
-                        break
         required = 1 if known else MIN_ESTIMATE_SAMPLES
         usable = [action for action in actions
                   if len(outcomes[_action_key(action)]) >= required
@@ -1227,7 +1639,7 @@ def evaluate(snapshot, game_data, deadline, cancelled=None, publish=None):
                              post_queries)
         if query_cards:
             summary.update({kind: query_cards[kind] for kind in ("player_moves", "enemy_moves")})
-        if len(paired_outcomes[next(iter(action_keys))]) >= required:
+        if min((len(paired_outcomes[key]) for key in action_keys), default=0) >= required:
             summary["recommendation"] = _summarize(
                 snapshot, game_data, actions, seeds, paired_outcomes, paired_scores,
                 known, post_queries)["recommendation"]
@@ -1285,7 +1697,8 @@ def evaluate(snapshot, game_data, deadline, cancelled=None, publish=None):
                 "target_samples": len(seeds) if "seeds" in locals() else 0}}, **partial)
     except ValueError as exc:
         message = str(exc)
-        reason = next((code for code in ("invalid-id", "incomplete-state", "no-legal-actions")
+        reason = next((code for code in ("invalid-id", "incomplete-state", "no-legal-actions",
+                                         "unsupported-mechanic", "identity-mismatch")
                        if code in message), "engine-error")
         card = _unavailable(reason, message)
     except (rom_bridge.RomBridgeError, OSError, RuntimeError) as exc:
