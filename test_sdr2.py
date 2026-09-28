@@ -200,6 +200,18 @@ class ContractRuleTests(unittest.TestCase):
                                turn=3, boundary=3)
         self.assertEqual(decode_error(with_legal), "sdr2-version")
 
+    def test_out_of_enum_boundary_is_rejected_even_when_resealed(self):
+        good = self.base()
+        self.assertIsNone(decode_error(good))                       # negative control
+        for value in (4, 0x01FF, 0xFFFF):
+            mutated = bytearray(good)
+            struct.pack_into("<H", mutated, 20, value)
+            self.assertEqual(decode_error(bytes(mutated)), "sdr2-crc")   # stale CRC
+            self.assertEqual(decode_error(reseal(mutated)), "sdr2-version", value)
+        status = bytearray(ref.build(ref.common(ref.CHOICE, 2), status=6, boundary=0))
+        struct.pack_into("<H", status, 20, 0x01FF)
+        self.assertEqual(decode_error(reseal(status)), "sdr2-version")  # nonzero status too
+
     def test_request_mode_policy_and_rng_identity_rules(self):
         good = self.base()
         self.assertEqual(decode_error(good, request_id=2), "sdr2-request-id")

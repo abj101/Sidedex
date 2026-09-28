@@ -11,7 +11,9 @@ here, so a layout is never guessed from a reply.
 Raises SDR2Error with one of the C.3 codes. C.1 pins most of them; the rest are
 mapped by kind, and that mapping is what this module documents:
 
-    sdr2-version       bad magic/format/header size, unknown tag or event kind
+    sdr2-version       bad magic/format/header size, unknown tag or event kind,
+                       boundary kind outside the C.3 enum 0..3 (an unknown enum
+                       value is a version mismatch, as for tags and event kinds)
     sdr2-length        total_bytes != len(buf), a record that does not decode to
                        entry_count*words_per_entry*4 + 4, nonzero padding
     sdr2-oversize      total_bytes above capacity or 1 MiB
@@ -146,6 +148,8 @@ def parse(buf: bytes, request_id: int | None = None, mode: int | None = None,
         _reject("sdr2-mode", f"mode {header_mode} != {mode}")
     if critical_policy is not None and header_policy != critical_policy:
         _reject("sdr2-mode", f"critical policy {header_policy} != {critical_policy}")
+    if boundary > BOUNDARY_TERMINAL:
+        _reject("sdr2-version", f"boundary kind {boundary} is outside 0..3")
     rng_main = list(struct.unpack_from("<4I", buf, 32))
     rng_sec = list(struct.unpack_from("<4I", buf, 48))
 
