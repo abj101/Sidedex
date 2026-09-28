@@ -107,11 +107,16 @@ this ledger, the plan, `rom_identity.py`, `pinned_source.json`, `sdr2_vectors/`,
 | Gate 0 | see git log | the Gate 0 commit SHA is the base every agent prompt cites |
 | B0 profile | dispatched | agent `pkg-b`; output `.codex/artifacts/B/B0-profile.md` |
 | C closed-loop release root | dispatched | agent `pkg-c`; milestones under `.codex/artifacts/C` |
-| A1 export producer (tags 1-10) | not started | starts after Gate 0 |
-| B codec / rebase | not started | starts after Gate 0 and B0 |
-| Gate V vertical slice | not started | A1 ELF + B worker, coordinated flip |
-| A2 / D / C (H3, H2 plumbing) | not started | after Gate V |
-| Gate F, E, final | not started | |
+| A1 export producer (tags 1-10) | done (accepted with caveats) | `codex/rom-hook-a` `714c237`, WSL `sidedex/a1-export` `c9001b29`, ELF v9a `04060ed8`; caveats: acceptance ran on the old wire-2 worker with a scratch decoder, compact==trace is a framing check (audit) |
+| B codec / rebase / perf follow-up | done, needs V0/V1 fixes | `codex/rom-worker-b` `968d677`, worker `1529b4de`; merged on integration `f3e37dc`; wire 2 is retired by this worker (wire 3 only) |
+| C1 closed-loop release root | done | `codex/rom-release-c` `e78c6c9`; root sha is bound to worker 0601297e, must be regenerated after the worker flip |
+| C2 H3 + comparison plumbing | in progress | agent `pkg-c` |
+| Gate V0: v9a registered as CANDIDATE pin (no flip) | done | this commit; active pins stay v8c `422ade3e` + worker `0601297e`; `dynamic_request_v9.patch`, `rom_identity.CANDIDATE_*`, `pinned_source.json dynamic_oracle_v9` |
+| Gate V1: worker flip (wire 3, `rom-v5`) on v8c ELF | not started | branch `codex/gate-v1`; needs test_rom_bridge/harness/release identity ported to `rom_identity` |
+| Gate V2: live v9a x worker-1529 evidence (committed, non-skipped, sdr2.py decoder, negative controls) | not started | see plan section 9 |
+| A2 mechanics | PAUSED for corrections | A2 evidence defects found by audit (logic-only no-op, P19 blanket refusal, P9 attribution, staging hygiene) |
+| D (fresh agent) | not started | starts after V1, against the candidate pin |
+| Gate F (single ELF flip: v9b + D), E, final | not started | |
 
 Superseded by the finish plan and removed from this table: the "3 known
 failures" pin-flip row, the v8-only phase gates, and the logic-only frame
