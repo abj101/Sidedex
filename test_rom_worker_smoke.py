@@ -31,6 +31,7 @@ DECODE_SCHEMA = "decode-v2"
 
 MINGW_BIN = Path(os.environ.get("SIDEDEX_MINGW_BIN", "C:/msys64/mingw64/bin"))
 STOP_POLICY_TEST = ROOT / "native" / "rom_worker" / "stop_policy_test.c"
+RESULT_TAGS_TEST = ROOT / "native" / "rom_worker" / "result_tags_test.c"
 
 
 def c_compiler():
@@ -286,6 +287,54 @@ class StopPolicyTest(unittest.TestCase):
         self.assertEqual(self.decide((0, ("boundary", "binary-ready")), (0, ("terminal",)),
                                      (0, ("phase", "ready"))),
                          ["boundary|1", "terminal|1", "none|0"])
+
+
+class ResultTagsTest(unittest.TestCase):
+    """Contract C.1: the worker's required-tag rule depends on the boundary.
+
+    Builds the production native/rom_worker/result_tags.h (the rule
+    validate_v9_result calls) into a tiny harness; no emulator involved.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.compiler = c_compiler()
+        if cls.compiler is None:
+            raise unittest.SkipTest("no C compiler to build the result tags harness")
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.exe = Path(cls.temp.name) / "result_tags_test.exe"
+        built = subprocess.run([cls.compiler, "-O2", "-o", str(cls.exe), str(RESULT_TAGS_TEST)],
+                               capture_output=True, text=True, env=compiler_env())
+        if built.returncode != 0 or not cls.exe.is_file():
+            cls.temp.cleanup()
+            raise unittest.SkipTest(f"cannot build the result tags harness: {built.stderr[:200]}")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def accepted(self, status, boundary, tags):
+        line = f"{status} {boundary} {' '.join(map(str, tags))}\n"
+        run = subprocess.run([str(self.exe)], input=line, capture_output=True, text=True,
+                             env=compiler_env())
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return run.stdout.strip() == "1"
+
+    def test_nonterminal_needs_tags_1_to_9(self):
+        for boundary in (1, 2):
+            self.assertTrue(self.accepted(0, boundary, range(1, 10)))
+        self.assertFalse(self.accepted(0, 1, [1, 2, 3, 4, 5, 6, 8, 9]))  # no tag 7
+        self.assertFalse(self.accepted(0, 1, range(1, 11)))              # tag 10 on a choice
+
+    def test_terminal_has_no_tag_7(self):
+        self.assertTrue(self.accepted(0, 3, [1, 2, 3, 4, 5, 6, 8, 9, 10]))
+        self.assertFalse(self.accepted(0, 3, range(1, 11)))              # tag 7 present
+        self.assertFalse(self.accepted(0, 3, range(1, 10)))              # no tag 10
+
+    def test_nonzero_status_is_exactly_tag_11(self):
+        self.assertTrue(self.accepted(1, 0, [11]))
+        self.assertFalse(self.accepted(1, 0, [1, 11]))
+        self.assertFalse(self.accepted(1, 0, range(1, 10)))
 
 
 if __name__ == "__main__":

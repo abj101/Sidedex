@@ -12,6 +12,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "result_tags.h"
 #include "stop_policy.h"
 
 #ifdef _WIN32
@@ -717,9 +718,8 @@ static bool validate_v9_result(uint8_t *result, size_t length, uint16_t request_
         for (size_t pad = end; pad < padded; ++pad) if (result[pad]) return false;
         offset = padded;
     }
-    bool groups_ok = read_le16(result + 18) == 0 ? (seen & 0x00FEu) == 0x00FEu : seen == (1u << 11);
     uint16_t boundary = read_le16(result + 20);
-    return offset == length && groups_ok && boundary <= 3 &&
+    return offset == length && result_tags_ok(read_le16(result + 18), boundary, seen) && boundary <= 3 &&
            ((boundary == 3) == ((seen & (1u << 10)) != 0));
 }
 
