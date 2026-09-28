@@ -12,6 +12,10 @@
 #include <string.h>
 #include <time.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #ifndef ROM_WORKER_VERSION
 #define ROM_WORKER_VERSION "dev"
 #endif
@@ -264,6 +268,10 @@ struct BatchTurn {
     char stop[16];
     char stop_marker[MAX_TRACE_BYTES];
     char events[MAX_TRACE_EVENTS][MAX_TRACE_BYTES];
+    uint64_t emulation_ns;
+    uint64_t log_ns;
+    uint64_t restore_ns;
+    uint64_t cycles;
 };
 static struct BatchTurn s_batch[MAX_BATCH_TURNS];
 struct BinaryBatchTurn {
@@ -277,6 +285,40 @@ struct BinaryBatchTurn {
     int child_slot;
 };
 static struct BinaryBatchTurn s_binary_batch[MAX_BATCH_TURNS];
+
+/* ------------------------------------------------------------------ profiler */
+/* High-resolution (QPC on Windows) timing, enabled only by
+ * SIDEDEX_WORKER_PROFILE=1. SIDEDEX_WORKER_MIN_LOG=1 attaches an mLogFilter
+ * that drops every log category except GBA Debug (the ROMTRACE channel). Both
+ * default off: no behaviour change when unset. */
+static bool s_profile;
+static bool s_min_log;
+static double s_tick_ns;
+static uint64_t s_emu_ns;
+static uint64_t s_log_ns;
+static uint64_t s_cycles;
+static uint64_t s_save_ns;
+
+static void profile_clock_init(void) {
+#ifdef _WIN32
+    LARGE_INTEGER frequency;
+    if (QueryPerformanceFrequency(&frequency) && frequency.QuadPart) {
+        s_tick_ns = 1e9 / (double) frequency.QuadPart;
+    }
+#else
+    s_tick_ns = 1e9 / (double) CLOCKS_PER_SEC;
+#endif
+}
+
+static uint64_t profile_now_ns(void) {
+#ifdef _WIN32
+    LARGE_INTEGER counter;
+    if (s_tick_ns > 0 && QueryPerformanceCounter(&counter)) {
+        return (uint64_t) ((double) counter.QuadPart * s_tick_ns);
+    }
+#endif
+    return (uint64_t) ((double) clock() * 1e9 / (double) CLOCKS_PER_SEC);
+}
 
 static void respond_error(const char *reason);
 static bool write_hex(uint64_t address, const char *hex);
@@ -298,13 +340,20 @@ static void mark_stop(const char *kind, const char *marker) {
 
 static void capture_log(struct mLogger *logger, int category, enum mLogLevel level,
                         const char *format, va_list args) {
+    uint64_t start = s_profile ? profile_now_ns() : 0;
     (void) logger;
     (void) level;
     const char *category_name = mLogCategoryName(category);
-    if (!category_name || strcmp(category_name, "GBA Debug") != 0 || s_trace_overflow) return;
+    if (!category_name || strcmp(category_name, "GBA Debug") != 0 || s_trace_overflow) {
+        if (s_profile) s_log_ns += profile_now_ns() - start;
+        return;
+    }
     char message[MAX_TRACE_BYTES];
     vsnprintf(message, sizeof(message), format, args);
-    if (strncmp(message, "ROMTRACE|", 9) != 0) return;
+    if (strncmp(message, "ROMTRACE|", 9) != 0) {
+        if (s_profile) s_log_ns += profile_now_ns() - start;
+        return;
+    }
     if (strncmp(message, "ROMTRACE|boundary|", 18) == 0) mark_stop("boundary", message);
     if (strncmp(message, "ROMTRACE|terminal|", 18) == 0) mark_stop("terminal", message);
     if (strncmp(message, "ROMTRACE|binary-ready|", 22) == 0) mark_stop("binary-ready", message);
@@ -333,13 +382,17 @@ static void capture_log(struct mLogger *logger, int category, enum mLogLevel lev
         strncmp(message, "ROMTRACE|unrepresentable|", 25) != 0 &&
         strncmp(message, "ROMTRACE|instruction-budget-exceeded|", 37) != 0 &&
         strncmp(message, "ROMTRACE|complete|", 18) != 0 &&
-        strncmp(message, "ROMTRACE|ready|", 15) != 0)
+        strncmp(message, "ROMTRACE|ready|", 15) != 0) {
+        if (s_profile) s_log_ns += profile_now_ns() - start;
         return;
+    }
     if (s_trace_count == MAX_TRACE_EVENTS || strlen(message) >= MAX_TRACE_BYTES - 1) {
         s_trace_overflow = true;
+        if (s_profile) s_log_ns += profile_now_ns() - start;
         return;
     }
     strcpy(s_trace_events[s_trace_count++], message);
+    if (s_profile) s_log_ns += profile_now_ns() - start;
 }
 
 static void print_json_string(const char *value) {
@@ -853,23 +906,31 @@ static bool run_batch_turns(const char *line) {
     for (size_t i = 0; i < item_count; ++i) {
         clock_t turn_started = clock();
         clock_t restore_started = clock();
+        uint64_t restore_ns_start = s_profile ? profile_now_ns() : 0;
         saved_state->seek(saved_state, 0, SEEK_SET);
         if (!mCoreLoadStateNamed(s_core, saved_state, SAVESTATE_SAVEDATA | SAVESTATE_RTC) || !write_hex(address, items[i])) {
             respond_error("batch-checkpoint-or-write-failed"); return false;
         }
         s_batch[i].restore_ms = (double) (clock() - restore_started) * 1000.0 / CLOCKS_PER_SEC;
+        s_batch[i].restore_ns = s_profile ? profile_now_ns() - restore_ns_start : 0;
         s_trace_count = 0; s_trace_overflow = false; s_turn_complete = false; s_saw_after_turn = false;
         s_stop_kind[0] = '\0'; s_stop_marker[0] = '\0';
         s_slim_trace = true;
+        s_emu_ns = 0; s_log_ns = 0;
         uint64_t frames = 0;
         while (frames < frames_limit && !s_turn_complete && !s_trace_overflow) {
+            uint64_t frame_start = s_profile ? profile_now_ns() : 0;
             s_core->runFrame(s_core); ++frames;
+            if (s_profile) s_emu_ns += profile_now_ns() - frame_start;
             if ((uint64_t) (clock() - started) * 1000 / CLOCKS_PER_SEC >= budget_ms) {
                 s_slim_trace = false;
                 respond_error("deadline-exceeded"); return false;
             }
         }
         s_slim_trace = false;
+        s_batch[i].emulation_ns = s_emu_ns;
+        s_batch[i].log_ns = s_log_ns;
+        s_batch[i].cycles = s_profile ? frames * (uint64_t) s_core->frameCycles(s_core) : 0;
         s_batch[i].complete = s_turn_complete;
         s_batch[i].overflow = s_trace_overflow;
         s_batch[i].frames = frames;
@@ -902,7 +963,14 @@ static bool run_batch_turns(const char *line) {
         if (s_batch[i].stop_marker[0]) print_json_string(s_batch[i].stop_marker); else printf("null");
         printf(",\"frames\":%" PRIu64 ",\"events\":[", s_batch[i].frames);
         for (size_t j = 0; j < s_batch[i].count; ++j) { if (j) putchar(','); print_json_string(s_batch[i].events[j]); }
-        printf("],\"trace_overflow\":%s}", s_batch[i].overflow ? "true" : "false");
+        printf("],\"trace_overflow\":%s", s_batch[i].overflow ? "true" : "false");
+        if (s_profile) {
+            printf(",\"profile\":{\"emulation_ns\":%" PRIu64 ",\"log_ns\":%" PRIu64
+                   ",\"restore_ns\":%" PRIu64 ",\"cycles\":%" PRIu64 ",\"frames\":%" PRIu64 "}",
+                   s_batch[i].emulation_ns, s_batch[i].log_ns, s_batch[i].restore_ns,
+                   s_batch[i].cycles, s_batch[i].frames);
+        }
+        printf("}");
     }
     printf("]}\n"); fflush(stdout);
     return true;
@@ -1104,13 +1172,20 @@ static void respond_run_frames(void) {
         if (i) putchar(',');
         print_json_string(s_trace_events[i]);
     }
-    printf("],\"trace_overflow\":%s}\n", s_trace_overflow ? "true" : "false");
+    printf("],\"trace_overflow\":%s", s_trace_overflow ? "true" : "false");
+    if (s_profile) {
+        printf(",\"profile\":{\"emulation_ns\":%" PRIu64 ",\"log_ns\":%" PRIu64
+               ",\"cycles\":%" PRIu64 "}", s_emu_ns, s_log_ns, s_cycles);
+    }
+    printf("}\n");
     fflush(stdout);
 }
 
 static void respond_slot(int index) {
     printf("{\"protocol\":%d,\"ok\":true,\"slot\":", PROTOCOL_VERSION);
     print_slot_summary(&s_slots[index]);
+    if (s_profile && s_save_ns) printf(",\"save_ns\":%" PRIu64, s_save_ns);
+    s_save_ns = 0; /* one-shot: only the save that set it reports it */
     printf("}\n");
     fflush(stdout);
 }
@@ -1153,6 +1228,7 @@ static bool handle_save_state(const char *line) {
         respond_error("invalid-state-name");
         return false;
     }
+    uint64_t save_start = s_profile ? profile_now_ns() : 0;
     struct VFile *next = VFileMemChunk(NULL, 0);
     if (!next || !mCoreSaveStateNamed(s_core, next, SAVESTATE_SAVEDATA | SAVESTATE_RTC)) {
         if (next) next->close(next);
@@ -1182,6 +1258,7 @@ static bool handle_save_state(const char *line) {
     if (index == -1) { respond_error("state-memory-exceeded"); return false; }
     if (index == -2) { respond_error("state-limit-exceeded"); return false; }
     if (index < 0) { respond_error("save-state-failed"); return false; }
+    s_save_ns = s_profile ? profile_now_ns() - save_start : 0;
     respond_slot(index);
     return true;
 }
@@ -1393,7 +1470,13 @@ static bool handle_request(const char *line, bool *should_quit) {
         }
         s_trace_count = 0;
         s_trace_overflow = false;
-        for (uint64_t i = 0; i < frames; ++i) s_core->runFrame(s_core);
+        s_emu_ns = 0; s_log_ns = 0;
+        for (uint64_t i = 0; i < frames; ++i) {
+            uint64_t frame_start = s_profile ? profile_now_ns() : 0;
+            s_core->runFrame(s_core);
+            if (s_profile) s_emu_ns += profile_now_ns() - frame_start;
+        }
+        s_cycles = s_profile ? frames * (uint64_t) s_core->frameCycles(s_core) : 0;
         respond_run_frames();
         return true;
     }
@@ -1517,7 +1600,22 @@ int main(int argc, char **argv) {
         }
     }
     load_state_limit_override();
+    profile_clock_init();
+    const char *profile_env = getenv("SIDEDEX_WORKER_PROFILE");
+    s_profile = profile_env && *profile_env && strcmp(profile_env, "0") != 0;
+    const char *minlog_env = getenv("SIDEDEX_WORKER_MIN_LOG");
+    s_min_log = minlog_env && *minlog_env && strcmp(minlog_env, "0") != 0;
     struct mLogger logger = {.log = capture_log};
+    static struct mLogFilter s_log_filter;
+    if (s_min_log) {
+        /* Headless setting: drop every log category except GBA Debug, which is
+         * the ROMTRACE channel. Category filters run before capture_log, so the
+         * per-frame log callback is skipped for all non-ROMTRACE messages. */
+        mLogFilterInit(&s_log_filter);
+        s_log_filter.defaultLevels = 0;
+        mLogFilterSet(&s_log_filter, "gba.debug", mLOG_ALL);
+        logger.filter = &s_log_filter;
+    }
     mLogSetDefaultLogger(&logger);
 
     s_core = mCoreFind(rom_path);
