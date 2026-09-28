@@ -51,6 +51,25 @@ Orchestrator owns: pins (`pinned_source.json`, `rom_bridge.py` identity constant
 contract, cross-agent merges, and the acceptance checklist. Resolve shared `run_dynamic.py`,
 `rom_bridge.py`, and fixture edits in the order A → B → C → D → E.
 
+## Wave plan (dependency-ordered)
+
+| Wave | Package | Owner | Gate to start |
+| --- | --- | --- | --- |
+| 1 | A — ROM hook v8, boundary, state export, logic-only | agent `rom-hook-a` | contract v1 (done) |
+| 1 | B — worker named slots, portable blobs, boundary-aware batches, release-harness ops | agent `worker-transport-b` | contract v1 (done; ROM marker spellings frozen) |
+| 2 | orchestrator repin | orchestrator | A + B artifacts reviewed |
+| 2 | C — split query ops, ROM-layer outcome enumeration, parser adaptation | next | A's v8 ELF + repin |
+| 3 | D — pool scheduler + transition adapter | next | B API + C card contract |
+| 3 | E — differential fixtures (ELF pair) | next | A/B normal mode |
+| 4 | E — release-ROM harness | next | B release ops + RELEASE_HARNESS_PLAN.md |
+
+Frozen marker spellings all packages code against: `ROMTRACE|boundary|<kind>|<turn>|<legal-action-count>`,
+`ROMTRACE|terminal|<result>|<reason>`, `ROMTRACE|unrepresentable|<field>`,
+`ROMTRACE|instruction-budget-exceeded|<instructions>`.
+
+Release-ROM decision: method and evidence gate recorded in `tools/rom_oracle/RELEASE_HARNESS_PLAN.md`.
+The product keeps the `compiled-engine` label until H1/H2 and the scenario gates pass.
+
 ## Gate state
 
 | Gate | State | Evidence |
