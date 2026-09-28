@@ -7,6 +7,8 @@ or calculate battle outcomes.
 from __future__ import annotations
 
 import hashlib
+import base64
+import binascii
 import json
 import os
 import queue
@@ -18,10 +20,13 @@ from pathlib import Path
 from typing import Any, Sequence
 
 
-PROTOCOL_VERSION = 1
-WORKER_VERSION = "sidedex-mgba-worker/0.1.4"
+PROTOCOL_VERSION = 2
+WORKER_VERSION = "sidedex-mgba-worker/0.2.0"
 MGBA_VERSION = "0.10.5+26b7884"
 SAMPLER_VERSION = "paired-sfc32-v7-risk-first-crit-policy"
+SAVE_FORMAT_ID = "mgba-savestate-savedata-rtc-v1"
+STATE_SCHEMA = "sidedex-state-v1"
+TRANSITION_SCHEMA = "sidedex-transition-v1"
 SOURCE_SHA = "2576d0f3f4c861c760f0c55198e37e6d7b91683e"
 # Gate 0 artifact: default source pin and build configuration, SHA-256.
 ROM_SHA256 = "0CCAAAD0878A9CBFB36FBEFFF800E9B6DD66055924B7595038EDE1E8771EC5A2"
@@ -34,8 +39,19 @@ DEFAULT_WORKER = ROOT / "native" / "rom_worker" / "build" / "mingw" / "rom_worke
 MAX_FRAMES_PER_REQUEST = 100_000
 EWRAM_START = 0x02000000
 EWRAM_END = 0x02040000
+IWRAM_START = 0x03000000
+IWRAM_END = 0x03008000
 MAX_MEMORY_WRITE_BYTES = 2048
+MAX_MEMORY_BLOCK_BYTES = 4096
 MAX_BATCH_TURNS = 8
+# Contract section 8 bounds; the worker enforces the same numbers.
+MAX_STATE_SLOTS = 3
+MAX_STATE_TOTAL_BYTES = 64 * 1024 * 1024
+MAX_STATE_NAME_BYTES = 64
+MAX_HANDLE_HEX = 32
+MAX_KEYS_MASK = 0x3FF
+MAX_BLOB_BASE64_BYTES = 900_000
+STOP_KINDS = ("boundary", "terminal", "turn-complete")
 # 256 bounded trace events (up to 510 bytes each, JSON escaped) fit below 1 MiB.
 MAX_MESSAGE_BYTES = 1_048_576
 
@@ -285,7 +301,7 @@ class RomWorkerClient:
             except (BrokenPipeError, OSError) as exc:
                 raise WorkerExitedError("mGBA worker closed its input pipe") from exc
             reply = _parse_reply(self._read_line(_timeout))
-            if op in {"status", "run_frames", "reset", "load_state", "write_memory"}:
+            if op in {"status", "run_frames", "reset", "load_state", "load_state_blob", "write_memory"}:
                 self._status = self._validate_status_reply(reply)
             return reply
 
@@ -307,10 +323,13 @@ class RomWorkerClient:
     def status_request(self) -> dict[str, Any]:
         return self._request("status")
 
-    def run_frames(self, frames: int) -> dict[str, Any]:
+    def run_frames(self, frames: int, keys: int | None = None) -> dict[str, Any]:
         if type(frames) is not int or not 0 <= frames <= MAX_FRAMES_PER_REQUEST:
             raise ValueError(f"frames must be an integer from 0 to {MAX_FRAMES_PER_REQUEST}")
-        reply = self._request("run_frames", frames=frames)
+        fields: dict[str, Any] = {"frames": frames}
+        if keys is not None:
+            fields["keys"] = self._validate_keys(keys)
+        reply = self._request("run_frames", **fields)
         events = reply.get("trace_events")
         if (not isinstance(events, list) or any(not isinstance(event, str) for event in events) or
                 type(reply.get("trace_overflow")) is not bool):
@@ -322,16 +341,173 @@ class RomWorkerClient:
     def reset(self) -> dict[str, Any]:
         return self._request("reset")
 
-    def save_state(self) -> int:
-        reply = self._request("save_state")
-        size = reply.get("state_bytes")
-        if type(size) is not int or size <= 0:
-            raise WorkerProtocolError("worker returned an invalid saved state size")
+    @staticmethod
+    def _validate_keys(keys: int) -> int:
+        if type(keys) is not int or not 0 <= keys <= MAX_KEYS_MASK:
+            raise ValueError(f"keys must be an integer key mask from 0 to 0x{MAX_KEYS_MASK:x}")
+        return keys
+
+    @staticmethod
+    def _validate_state_name(name: str) -> str:
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,%d}" % MAX_STATE_NAME_BYTES, name):
+            raise ValueError("state name must be 1 to 64 safe ASCII characters")
+        return name
+
+    @staticmethod
+    def _validate_handle(handle: str) -> str:
+        if not isinstance(handle, str) or not re.fullmatch(r"[0-9a-f]{%d}" % MAX_HANDLE_HEX, handle):
+            raise ValueError("state handle must be a 32-character lowercase hex string")
+        return handle
+
+    @staticmethod
+    def _validate_blob_text(blob: str) -> str:
+        if not isinstance(blob, str) or not blob or len(blob) > MAX_BLOB_BASE64_BYTES:
+            raise ValueError(f"blob must be a non-empty base64 string of at most {MAX_BLOB_BASE64_BYTES} characters")
+        try:
+            base64.b64decode(blob, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise ValueError("blob must be valid base64") from exc
+        return blob
+
+    def _validate_state_identity(self, identity: Any) -> dict[str, Any]:
+        if not isinstance(identity, dict):
+            raise WorkerProtocolError("worker state slot is missing its identity")
+        for key, expected in (
+            ("worker_version", WORKER_VERSION),
+            ("mgba_version", MGBA_VERSION),
+            ("wire_protocol", PROTOCOL_VERSION),
+            ("save_format", SAVE_FORMAT_ID),
+        ):
+            if identity.get(key) != expected:
+                raise WorkerProtocolError(f"worker state slot identity {key} does not match the pinned build")
+        artifact = identity.get("artifact_sha256")
+        if not isinstance(artifact, str) or artifact.upper() != self.rom_sha256:
+            raise WorkerProtocolError("worker state slot artifact identity does not match this ROM/ELF")
+        return identity
+
+    def _validate_slot_reply(self, reply: dict[str, Any]) -> dict[str, Any]:
+        slot = reply.get("slot")
+        if not isinstance(slot, dict):
+            raise WorkerProtocolError("worker reply is missing a state slot")
+        handle = slot.get("handle")
+        if not isinstance(handle, str) or not re.fullmatch(r"[0-9a-f]{%d}" % MAX_HANDLE_HEX, handle):
+            raise WorkerProtocolError("worker returned an invalid state handle")
+        name = slot.get("name")
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,%d}" % MAX_STATE_NAME_BYTES, name):
+            raise WorkerProtocolError("worker returned an invalid state name")
+        size = slot.get("bytes")
+        if type(size) is not int or not 0 < size <= MAX_STATE_TOTAL_BYTES:
+            raise WorkerProtocolError("worker returned an invalid state size")
+        if not isinstance(slot.get("sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", slot["sha256"]):
+            raise WorkerProtocolError("worker returned an invalid state digest")
+        self._validate_state_identity(slot.get("identity"))
+        return slot
+
+    def save_checkpoint(self, name: str | None = None) -> dict[str, Any]:
+        """Save an immutable named state slot; returns {handle, bytes, sha256, identity}."""
+        fields: dict[str, Any] = {"artifact_sha256": self.rom_sha256.lower()}
+        if name is not None:
+            fields["name"] = self._validate_state_name(name)
+        slot = self._validate_slot_reply(self._request("save_state", **fields))
         self._has_checkpoint = True
-        return size
+        return {"handle": slot["handle"], "name": slot["name"], "bytes": slot["bytes"],
+                "sha256": slot["sha256"], "identity": slot["identity"]}
+
+    def save_state(self) -> int:
+        """Legacy single-slot save used by the query path; returns the byte size."""
+        return self.save_checkpoint()["bytes"]
+
+    def restore_state(self, handle: str) -> dict[str, Any]:
+        return self._request("load_state", handle=self._validate_handle(handle),
+                             artifact_sha256=self.rom_sha256.lower())
 
     def load_state(self) -> dict[str, Any]:
-        return self._request("load_state")
+        """Legacy restore of the unnamed default slot."""
+        return self._request("load_state", artifact_sha256=self.rom_sha256.lower())
+
+    def drop_state(self, handle: str) -> dict[str, Any]:
+        reply = self._request("drop_state", handle=self._validate_handle(handle))
+        if reply.get("dropped") is not True:
+            raise WorkerProtocolError("worker did not confirm the dropped state slot")
+        return reply
+
+    def list_states(self) -> dict[str, Any]:
+        reply = self._request("list_states")
+        states = reply.get("states")
+        if not isinstance(states, list) or len(states) > MAX_STATE_SLOTS:
+            raise WorkerProtocolError("worker returned an invalid state list")
+        for slot in states:
+            if not isinstance(slot, dict):
+                raise WorkerProtocolError("worker returned a non-object state slot")
+            handle = slot.get("handle")
+            if not isinstance(handle, str) or not re.fullmatch(r"[0-9a-f]{%d}" % MAX_HANDLE_HEX, handle):
+                raise WorkerProtocolError("worker returned an invalid state handle")
+            if type(slot.get("bytes")) is not int or slot["bytes"] <= 0:
+                raise WorkerProtocolError("worker returned an invalid state slot size")
+        if type(reply.get("slot_limit")) is not int or reply["slot_limit"] != MAX_STATE_SLOTS:
+            raise WorkerProtocolError("worker returned an unexpected state slot limit")
+        if type(reply.get("memory_limit")) is not int or reply["memory_limit"] <= 0:
+            raise WorkerProtocolError("worker returned an invalid state memory limit")
+        return reply
+
+    def export_state(self, handle: str) -> dict[str, Any]:
+        """Export a slot as a portable base64 blob for an identical worker."""
+        reply = self._request("export_state", handle=self._validate_handle(handle),
+                              artifact_sha256=self.rom_sha256.lower())
+        blob = self._validate_blob_text(reply.get("blob"))
+        if reply.get("handle") != handle:
+            raise WorkerProtocolError("worker returned a mismatched export handle")
+        size = reply.get("bytes")
+        if type(size) is not int or not 0 < size <= MAX_STATE_TOTAL_BYTES:
+            raise WorkerProtocolError("worker returned an invalid exported state size")
+        if not isinstance(reply.get("sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", reply["sha256"]):
+            raise WorkerProtocolError("worker returned an invalid exported state digest")
+        blob_bytes = reply.get("blob_bytes")
+        if type(blob_bytes) is not int or blob_bytes <= size:
+            raise WorkerProtocolError("worker returned an invalid exported blob size")
+        return {"handle": handle, "bytes": size, "sha256": reply["sha256"],
+                "blob": blob, "blob_bytes": blob_bytes, "base64_bytes": len(blob)}
+
+    def import_state(self, blob: str, name: str | None = None) -> dict[str, Any]:
+        """Install a host-supplied blob as a new immutable slot without restoring it."""
+        fields: dict[str, Any] = {"blob": self._validate_blob_text(blob),
+                                  "artifact_sha256": self.rom_sha256.lower()}
+        if name is not None:
+            fields["name"] = self._validate_state_name(name)
+        slot = self._validate_slot_reply(self._request("import_state", **fields))
+        return {"handle": slot["handle"], "name": slot["name"], "bytes": slot["bytes"],
+                "sha256": slot["sha256"], "identity": slot["identity"]}
+
+    def load_state_blob(self, blob: str) -> dict[str, Any]:
+        """Restore a host-supplied blob into the core without keeping a slot."""
+        return self._request("load_state_blob", blob=self._validate_blob_text(blob),
+                             artifact_sha256=self.rom_sha256.lower())
+
+    @staticmethod
+    def _validate_batch_reply(reply: dict[str, Any], payload_count: int, max_frames: int) -> list[dict[str, Any]]:
+        turns = reply.get("turns")
+        if not isinstance(turns, list) or len(turns) != payload_count:
+            raise WorkerProtocolError("batch response has a mismatched turn count")
+        for turn in turns:
+            if not isinstance(turn, dict):
+                raise WorkerProtocolError("batch response contains a non-object turn")
+            events = turn.get("events")
+            if (type(turn.get("complete")) is not bool or type(turn.get("frames")) is not int or
+                    not 0 <= turn["frames"] <= max_frames or type(turn.get("trace_overflow")) is not bool or
+                    not isinstance(events, list) or len(events) > 256 or
+                    any(not isinstance(event, str) or len(event.encode("utf-8")) >= 512 for event in events) or
+                    turn["trace_overflow"]):
+                raise WorkerProtocolError("batch response contains an invalid or oversized turn")
+            stop = turn.get("stop")
+            marker = turn.get("stop_marker")
+            if stop is not None:
+                if stop not in STOP_KINDS or not isinstance(marker, str) or not marker.startswith("ROMTRACE|"):
+                    raise WorkerProtocolError("batch response contains an invalid stop record")
+            elif marker is not None:
+                raise WorkerProtocolError("batch response has a stop marker without a stop kind")
+            if not turn["complete"]:
+                raise WorkerResponseError("incomplete_turn")
+        return turns
 
     def batch_turns(
         self,
@@ -370,19 +546,25 @@ class RomWorkerClient:
             raise WorkerTimeoutError("batch deadline has expired")
         budget_ms = max(1, int(remaining * 1000))
         started = time.monotonic()
-        reply = self._request(
-            "batch_turns",
-            _timeout=min(self._timeout, remaining),
-            address=address,
-            mailbox_bytes=mailbox_bytes,
-            budget_ms=budget_ms,
-            max_frames=max_frames,
-            payloads="|".join(payload.hex() for payload in payloads),
-            request_id=request_id,
-            source_sha=SOURCE_SHA,
-            engine_elf_sha256=engine_elf_sha256.upper(),
-            worker_sha256=self.worker_sha256,
-        )
+        try:
+            reply = self._request(
+                "batch_turns",
+                _timeout=min(self._timeout, remaining),
+                address=address,
+                mailbox_bytes=mailbox_bytes,
+                budget_ms=budget_ms,
+                max_frames=max_frames,
+                payloads="|".join(payload.hex() for payload in payloads),
+                request_id=request_id,
+                source_sha=SOURCE_SHA,
+                engine_elf_sha256=engine_elf_sha256.upper(),
+                worker_sha256=self.worker_sha256,
+            )
+        except WorkerResponseError as exc:
+            # rom_eval (package D, frozen) matches the historical snake_case code.
+            if exc.code == "deadline-exceeded":
+                raise WorkerResponseError("deadline_exceeded") from exc
+            raise
         expected = {
             "request_id": request_id,
             "source_sha": SOURCE_SHA,
@@ -392,19 +574,7 @@ class RomWorkerClient:
         for key, value in expected.items():
             if reply.get(key) != value:
                 raise WorkerProtocolError(f"batch response {key} mismatch")
-        turns = reply.get("turns")
-        if not isinstance(turns, list) or len(turns) != len(payloads):
-            raise WorkerProtocolError("batch response has a mismatched turn count")
-        for turn in turns:
-            events = turn.get("events") if isinstance(turn, dict) else None
-            if (type(turn.get("complete")) is not bool or type(turn.get("frames")) is not int or
-                    not 0 <= turn["frames"] <= max_frames or type(turn.get("trace_overflow")) is not bool or
-                    not isinstance(events, list) or len(events) > 256 or
-                    any(not isinstance(event, str) or len(event.encode("utf-8")) >= 512 for event in events) or
-                    turn["trace_overflow"]):
-                raise WorkerProtocolError("batch response contains an invalid or oversized turn")
-            if not turn["complete"]:
-                raise WorkerResponseError("incomplete_turn")
+        turns = self._validate_batch_reply(reply, len(payloads), max_frames)
         elapsed_ms = (time.monotonic() - started) * 1000
         return {"protocol_version": 3, **expected, "turns": turns,
                 "elapsed_ms": elapsed_ms, "mean_turn_ms": elapsed_ms / len(turns)}
@@ -423,13 +593,45 @@ class RomWorkerClient:
             raise WorkerProtocolError("worker returned an invalid memory value")
         return value
 
+    @staticmethod
+    def _memory_region_end(address: int, length: int) -> int:
+        if type(address) is not int:
+            raise ValueError("address must be an unsigned 32-bit integer")
+        if EWRAM_START <= address < EWRAM_END:
+            end = EWRAM_END
+        elif IWRAM_START <= address < IWRAM_END:
+            end = IWRAM_END
+        else:
+            raise ValueError("address must be within EWRAM (0x02000000..0x0203ffff) or IWRAM (0x03000000..0x03007fff)")
+        if type(length) is not int or length <= 0 or length > end - address:
+            raise ValueError("memory range must stay inside a single mapped region")
+        return end
+
+    def read_memory_block(self, address: int, length: int = 16) -> bytes:
+        """Read a bounded EWRAM/IWRAM block; length is capped at MAX_MEMORY_BLOCK_BYTES."""
+        if length > MAX_MEMORY_BLOCK_BYTES:
+            raise ValueError(f"length must be at most {MAX_MEMORY_BLOCK_BYTES} bytes")
+        self._memory_region_end(address, length)
+        reply = self._request("read_memory_block", address=address, length=length)
+        if reply.get("address") != address or reply.get("length") != length:
+            raise WorkerProtocolError("worker returned a mismatched memory block range")
+        data = reply.get("data")
+        if not isinstance(data, str) or len(data) != length * 2 or re.fullmatch(r"[0-9a-f]*", data) is None:
+            raise WorkerProtocolError("worker returned invalid memory block data")
+        return bytes.fromhex(data)
+
+    def set_keys(self, keys: int) -> dict[str, Any]:
+        """Hold a GBA key mask (active high) for later run_frames calls."""
+        validated = self._validate_keys(keys)
+        reply = self._request("set_keys", keys=validated)
+        if reply.get("keys") != validated:
+            raise WorkerProtocolError("worker did not acknowledge the key mask")
+        return reply
+
     def write_memory(self, address: int, data: bytes) -> dict[str, Any]:
-        if type(address) is not int or not EWRAM_START <= address < EWRAM_END:
-            raise ValueError("address must be within EWRAM (0x02000000..0x0203ffff)")
         if type(data) is not bytes or not 1 <= len(data) <= MAX_MEMORY_WRITE_BYTES:
             raise ValueError("data must be 1 to 256 bytes")
-        if len(data) > EWRAM_END - address:
-            raise ValueError("write must stay within EWRAM (0x02000000..0x0203ffff)")
+        self._memory_region_end(address, len(data))
         return self._request("write_memory", address=address, data=data.hex())
 
     def close(self) -> None:
