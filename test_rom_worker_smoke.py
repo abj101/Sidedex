@@ -1,6 +1,6 @@
 """Smoke test the real mGBA worker when a built worker and ROM are available.
 
-This verifies emulator lifecycle primitives and the protocol-2 state/transport
+This verifies emulator lifecycle primitives and the protocol-3 state/transport
 ops. It intentionally does not assert or synthesize battle outcomes.
 """
 
@@ -19,11 +19,13 @@ WORKER = Path(os.environ.get(
     ROOT / "native" / "rom_worker" / "build" / "mingw" / "rom_worker.exe",
 ))
 ROM = Path(os.environ.get("SIDEDEX_ROM_PATH", "")) if os.environ.get("SIDEDEX_ROM_PATH") else None
-PROTOCOL = 2
-WORKER_NAME = "sidedex-mgba-worker/0.2.0"
+# Gate V1 retired wire 2; the pinned worker (1529b4de) speaks wire 3 only and
+# advertises the v9/compact transition contract.
+PROTOCOL = 3
+WORKER_NAME = "sidedex-mgba-worker/0.3.0"
 MGBA = "0.10.5+26b7884"
-# The instrumented wire-3 worker advertises this; the pinned worker does not.
-V3_WIRE_PROTOCOLS = [3]
+TRANSITION_SCHEMA = "sidedex-transition-v2"
+DECODE_SCHEMA = "decode-v2"
 
 
 def sha256_file(path):
@@ -64,12 +66,16 @@ class RomWorkerSmokeTest(unittest.TestCase):
         self.assertTrue(reply.get("ok"), reply)
         return reply
 
-    def test_protocol2_state_ops_and_memory(self):
+    def test_protocol3_state_ops_and_memory(self):
         status = self.initial
         self.assertTrue(status["ok"])
         self.assertEqual(status["worker"], WORKER_NAME)
         self.assertEqual(status["mgba"], MGBA)
         self.assertEqual(status["platform"], "gba")
+        self.assertEqual(status["supported_wire_protocols"], [PROTOCOL])
+        self.assertEqual(status["state_schema"], "sidedex-state-v1")
+        self.assertEqual(status["transition_schema"], TRANSITION_SCHEMA)
+        self.assertEqual(status["decode_schema"], DECODE_SCHEMA)
         self.assertGreater(status["rom_bytes"], 0)
         base_frame = status["frame_count"]
 
@@ -146,12 +152,12 @@ class RomWorkerSmokeTest(unittest.TestCase):
                 text=True, encoding="utf-8", bufsize=1,
             )
             try:
-                # --save was added on this branch; the pinned release-evidence
-                # worker only accepts --rom, so skip rather than fail on it.
+                # Some worker builds accept only --rom; skip rather than fail on
+                # one that predates --save.
                 line = process.stdout.readline()
                 if not line:
                     process.wait(timeout=10)
-                    self.skipTest("worker has no --save option (pinned wire-2 build)")
+                    self.skipTest("worker build has no --save option")
                 status = json.loads(line)
                 self.assertTrue(status["ok"], status)
                 self.assertEqual(status["save_bytes"], 128 * 1024)
@@ -182,10 +188,7 @@ class RomWorkerProfileFlagTest(unittest.TestCase):
         )
         try:
             status = json.loads(process.stdout.readline())
-            # The timing flag only exists in the instrumented wire-3 worker; the
-            # pinned release-evidence worker has no profile key at all.
-            if status.get("supported_wire_protocols") != V3_WIRE_PROTOCOLS:
-                self.skipTest("worker at SIDEDEX_ROM_PATH is the pinned wire-2 build")
+            self.assertEqual(status.get("supported_wire_protocols"), [PROTOCOL], status)
             process.stdin.write(json.dumps({"protocol": PROTOCOL, "op": "run_frames", "frames": 3}) + "\n")
             process.stdin.flush()
             return json.loads(process.stdout.readline())
