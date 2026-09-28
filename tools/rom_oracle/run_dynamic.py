@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from rom_bridge import RomWorkerClient  # noqa: E402
+from rom_bridge import RomWorkerClient, parse_v9_ready  # noqa: E402
 
 
 MAGIC = 0x53445831  # SDX1
@@ -37,6 +37,14 @@ CRITICAL_POLICY_MECHANISMS = {"normal": "real-crit-rolls",
                               "item-ability-only": "battle-script-filtered"}
 V7_HEADER_BYTES = 856
 V8_EXTENSION_BYTES = 8
+# Contract Appendix B: v9 keeps the v8 864-byte prefix and appends the compact
+# result buffer the ROM announced in its `ROMTRACE|ready|` line.
+V9_EXTENSION_OFFSET = 864
+V9_MAILBOX_BYTES = 876
+V9_RESULT_VERSION = 1
+V9_FLAG_COMPACT = 0x0001
+# Versions `encode_request` speaks. v9 shares the v8 body but adds a mandatory
+# ROM-announced result buffer, so it has its own entry point (encode_v9_request).
 SUPPORTED_PROTOCOL_VERSIONS = (7, 8)
 SUBMITTED = 1
 SECOND_ACTION_OFFSET = 836
@@ -50,11 +58,13 @@ if ID_MAP.get("source_sha") != PIN["source_commit"]:
 
 
 def mailbox_bytes(protocol_version: int) -> int:
-    """Contract Appendix A: v7 is 856 bytes, v8 appends eight bytes."""
+    """Contract Appendix A/B: v7 856, v8 864, v9 876 bytes."""
     if protocol_version == 7:
         return V7_HEADER_BYTES
     if protocol_version == 8:
         return V7_HEADER_BYTES + V8_EXTENSION_BYTES
+    if protocol_version == 9:
+        return V9_MAILBOX_BYTES
     raise ValueError(
         f"unsupported-protocol-version: {protocol_version!r} is not a known mailbox layout")
 
@@ -147,7 +157,8 @@ def encode_request(request: dict, protocol_version: int | None = None) -> bytes:
     `protocol_version` defaults to the pinned protocol from `pinned_source.json`.
     Version 7 writes the 856-byte v7 mailbox (query via `secondPresent == 2`);
     version 8 appends op/mode/criticalPolicy/requestId at offset 856 for an
-    864-byte request. Both layouts share the v7 field offsets.
+    864-byte request. Both layouts share the v7 field offsets. The 876-byte v9
+    request is `encode_v9_request` because it needs the ROM's announcement.
     """
     version = _protocol_version(protocol_version)
     query = is_query(request)
@@ -239,6 +250,34 @@ def encode_request(request: dict, protocol_version: int | None = None) -> bytes:
     return payload
 
 
+def encode_v9_request(request: dict, result_buffer: dict) -> bytes:
+    """Encode the 876-byte v9 request (contract Appendix B).
+
+    The v9 request is the v8 request with those four little-endian fields
+    appended: resultAddress:u32 at 864, resultCapacity:u32 at 868,
+    resultVersion:u16 = 1 at 872 and flags:u16 at 874 (bit 0 = compact result,
+    remaining bits zero).
+
+    `result_buffer` must be the `rom_bridge.parse_v9_ready` record for the ROM's
+    own `ROMTRACE|ready|` announcement, so the address is never the caller's:
+    a request carrying one is refused rather than encoded.
+    """
+    if not isinstance(result_buffer, dict):
+        raise ValueError(
+            "invalid-state: the v9 result buffer must come from the ROM's ready announcement")
+    for banned in ("result_address", "result_capacity", "result_version", "resultVersion"):
+        if banned in request:
+            raise ValueError(f"invalid-state: {banned} comes from the ROM announcement, not the caller")
+    payload = encode_request(request, protocol_version=8)
+    # v9 shares the v8 body and extension; only the layout version in the header
+    # (u16 at offset 4) and the appended result tail differ.
+    payload = payload[:4] + struct.pack("<H", 9) + payload[6:]
+    payload += struct.pack("<IIHH", result_buffer["result_address"],
+                           result_buffer["result_capacity"], V9_RESULT_VERSION, V9_FLAG_COMPACT)
+    assert len(payload) == V9_MAILBOX_BYTES
+    return payload
+
+
 def _encode_mon(mon: dict) -> bytes:
     core = [numeric_id("species", mon["species"]), mon["level"],
             numeric_id("abilities", mon["ability"]), numeric_id("items", mon["item"]),
@@ -303,8 +342,43 @@ def _trace(reply: dict) -> list[str]:
     return trace
 
 
+def run_v9_turn(elf: Path, sha256: str, request: dict, *, worker_path: Path | None = None,
+                worker_sha256: str | None = None, request_id: str = "dynamic-oracle-v9") -> dict:
+    """Drive one v9 compact turn and return the decoded SDR2 turns.
+
+    Needs the A1 candidate ELF. The result address and capacity are read from the
+    ROM's own `ROMTRACE|ready|` announcement; the request cannot supply them.
+    """
+    size = mailbox_bytes(9)
+    kwargs: dict = {"expected_artifact_sha256": sha256, "wire_protocol": 3, "timeout": 15.0}
+    if worker_path is not None:
+        kwargs["worker_path"] = worker_path
+    if worker_sha256 is not None:
+        kwargs["expected_worker_sha256"] = worker_sha256
+    trace: list[str] = []
+    with RomWorkerClient(rom_path=elf, **kwargs) as worker:
+        announced = None
+        for _ in range(400):
+            trace.extend(_trace(worker.run_frames(60)))
+            ready = [line for line in trace if line.startswith("ROMTRACE|ready|")]
+            if ready:
+                announced = parse_v9_ready(ready)
+                break
+        if announced is None:
+            raise TimeoutError("battle harness did not announce a v9 mailbox")
+        payload = encode_v9_request(request, announced)
+        worker.save_state()
+        result = worker.batch_turns_v3(
+            announced["address"], announced["result_address"], announced["result_capacity"],
+            [payload], mailbox_bytes=size, engine_elf_sha256=sha256,
+            deadline_ms=int(time.monotonic() * 1000) + 15_000, request_id=request_id)
+    return {"announced": announced, "payload_bytes": len(payload), "turns": result["turns"]}
+
+
 def run_turn(elf: Path, sha256: str, request: dict, *, protocol_version: int | None = None) -> list[str]:
     version = _protocol_version(protocol_version)
+    if version >= 9:
+        raise RuntimeError("unsupported-protocol-version: v9 returns SDR2 bytes, use run_v9_turn")
     size = mailbox_bytes(version)
     if version == PINNED_PROTOCOL_VERSION:
         expected_elf = PIN["dynamic_oracle"]["headless_elf_sha256"]

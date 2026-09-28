@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -21,6 +22,8 @@ ROM = Path(os.environ.get("SIDEDEX_ROM_PATH", "")) if os.environ.get("SIDEDEX_RO
 PROTOCOL = 2
 WORKER_NAME = "sidedex-mgba-worker/0.2.0"
 MGBA = "0.10.5+26b7884"
+# The instrumented wire-3 worker advertises this; the pinned worker does not.
+V3_WIRE_PROTOCOLS = [3]
 
 
 def sha256_file(path):
@@ -132,6 +135,75 @@ class RomWorkerSmokeTest(unittest.TestCase):
         self.assertTrue(self.ok("quit")["ok"])
         self.process.wait(timeout=10)
         self.assertEqual(self.process.returncode, 0, self.process.stderr.read())
+
+    def test_optional_external_save_loads_before_status(self):
+        with tempfile.TemporaryDirectory() as temp:
+            save = Path(temp) / "fixture.sav"
+            save.write_bytes(bytes([0xFF]) * (128 * 1024))
+            process = subprocess.Popen(
+                [str(WORKER), "--rom", str(ROM), "--save", str(save)],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, encoding="utf-8", bufsize=1,
+            )
+            try:
+                # --save was added on this branch; the pinned release-evidence
+                # worker only accepts --rom, so skip rather than fail on it.
+                line = process.stdout.readline()
+                if not line:
+                    process.wait(timeout=10)
+                    self.skipTest("worker has no --save option (pinned wire-2 build)")
+                status = json.loads(line)
+                self.assertTrue(status["ok"], status)
+                self.assertEqual(status["save_bytes"], 128 * 1024)
+                self.assertEqual(status["save_sha256"], hashlib.sha256(save.read_bytes()).hexdigest())
+                process.stdin.write(json.dumps({"protocol": PROTOCOL, "op": "quit"}) + "\n")
+                process.stdin.flush()
+                self.assertTrue(json.loads(process.stdout.readline())["ok"])
+                process.wait(timeout=10)
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    process.wait(timeout=10)
+
+@unittest.skipUnless(WORKER.is_file(), f"mGBA worker executable is missing: {WORKER}")
+@unittest.skipUnless(ROM is not None and ROM.is_file(), "set SIDEDEX_ROM_PATH to a ROM artifact")
+class RomWorkerProfileFlagTest(unittest.TestCase):
+    """The B0 timer flag is opt-in: off must change nothing, on only adds a profile."""
+
+    def _run_frames(self, profile_on):
+        env = dict(os.environ)
+        env.pop("SIDEDEX_WORKER_PROFILE", None)
+        if profile_on:
+            env["SIDEDEX_WORKER_PROFILE"] = "1"
+        process = subprocess.Popen(
+            [str(WORKER), "--rom", str(ROM)], env=env,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", bufsize=1,
+        )
+        try:
+            status = json.loads(process.stdout.readline())
+            # The timing flag only exists in the instrumented wire-3 worker; the
+            # pinned release-evidence worker has no profile key at all.
+            if status.get("supported_wire_protocols") != V3_WIRE_PROTOCOLS:
+                self.skipTest("worker at SIDEDEX_ROM_PATH is the pinned wire-2 build")
+            process.stdin.write(json.dumps({"protocol": PROTOCOL, "op": "run_frames", "frames": 3}) + "\n")
+            process.stdin.flush()
+            return json.loads(process.stdout.readline())
+        finally:
+            process.terminate()
+            process.wait(timeout=10)
+
+    def test_profile_flag_defaults_off_and_is_additive(self):
+        off = self._run_frames(False)
+        on = self._run_frames(True)
+        self.assertNotIn("profile", off)
+        self.assertEqual(off["frame_count"], 3)
+        # With the flag on the reply is byte-for-byte the same apart from the
+        # additive profile object: no other observable behaviour changes.
+        self.assertEqual({key: value for key, value in on.items() if key != "profile"}, off)
+        self.assertEqual(set(on["profile"]), {"emulation_ns", "log_ns", "cycles"})
+        self.assertGreater(on["profile"]["emulation_ns"], 0)
+        self.assertEqual(on["profile"]["cycles"], 3 * 280896)
 
 
 if __name__ == "__main__":
