@@ -537,3 +537,17 @@ parity on every supported row; otherwise it is a documented test-only flag.
 Frozen benchmark fixtures: P1, P29, P25, P26, P19, P27, P28, each with the
 fixed paired dual-RNG seeds of `tools/rom_oracle/fixtures/`, in both modes, on
 parity-passing transitions only. Warm end-to-end card latency target: p50 <= 40 ms.
+
+### C.6 Request flags and worker stop rule (2026-09-28 amendment)
+
+v9 request `flags:u16` at offset 874: bit 0 = compact result, bits 1-2 = battle
+difficulty override (0 keep the test default, 1 easy, 2 medium, 3 hard; mapped by
+the hook to the ROM's DIFFICULTY_* values, with the source cited in the A1/A2
+README). All other bits must be zero and the ROM rejects a request that sets
+them. Difficulty is part of the canonical request hash and of cache identity.
+Worker stop rule for compact turns: the hook emits `ROMTRACE|binary-ready|addr|len`
+LAST (after the boundary or terminal marker and after the header and CRC are
+committed); the worker stops and saves the child at binary-ready, never at the
+earlier boundary/terminal marker, and a missing binary-ready within the frame
+bound is a fail-closed error. Wire protocol 2 is retired: worker 0.3.0 speaks
+wire 3 only.
