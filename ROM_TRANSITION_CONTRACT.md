@@ -439,3 +439,101 @@ mailboxes in one JSONL control request and returns compact base64 result bytes,
 child summaries/blobs, frames and IPC byte counts without parsing textual
 state records. Query operations may retain trace transport until independently
 ported, but must honor the same token identity and immutability rules.
+
+## Appendix C: contract v2.1 (2026-09-28; orchestrator frozen)
+
+Supersedes nothing in Appendix B; it pins the details Appendix B left open. Word
+tables and vectors are executable: `tools/rom_oracle/make_sdr2_vectors.py`
+(`TABLES`, `sdr2_vectors/tables.json`) is the reference *encoder*; package B's
+`tools/rom_oracle/sdr2.py` is the only production *decoder*; package A1's ROM
+code must emit bytes the decoder accepts. Golden vectors are synthetic wire
+examples (they pin layout, CRC, padding, negatives), not ROM-derived state.
+
+### C.1 SDR2 byte layout (little-endian)
+
+Header, 64 bytes: `0 magic "SDR2"`, `4 u16 format=1`, `6 u16 header_bytes=64`,
+`8 u32 total_bytes`, `12 u32 crc32`, `16 u16 request_id`, `18 u16 status`,
+`20 u16 boundary`, `22 u16 mode`, `24 u16 critical_policy`, `26 u16 record_count`,
+`28 u32 turn`, `32 u32[4] rng_main`, `48 u32[4] rng_secondary`. CRC is zlib CRC-32
+of `buffer[12:total]` computed with the CRC field (bytes 12..15) zeroed. Each
+record is `u16 tag, u16 payload_bytes, payload`, zero-padded to 4 bytes
+(`payload_bytes` excludes padding, max 65535). Tags appear in ascending order and
+are singletons. A decoder rejects: bad magic/format/header size, `total_bytes`
+that differs from the buffer length or exceeds the announced capacity (8192 in
+production) or 1 MiB, CRC mismatch, `record_count` mismatch, duplicate or
+descending tags, unknown required tags, `entry_count*words_per_entry*4 + 4 !=
+payload_bytes`, wrong `words_per_entry`, request id / mode / critical policy
+differing from the request, and missing required tags.
+
+Required tags: nonterminal success (`status=0`, boundary 1 or 2) = 1..9;
+terminal success (boundary 3) = 1..6, 8, 9, 10 (no tag 7); any nonzero status =
+exactly tag 11 and no other record (no child). Tag 9 may be empty
+(`payload_bytes=0`). Tag 7 must carry at least one action for boundary 1/2, and
+at boundary 2 only switch actions.
+
+### C.2 Word tables (`u32` words; typed payloads start `entry_count:u16,words_per_entry:u16`)
+
+| Tag | Group | Entries x words | Field order |
+| --- | --- | --- | --- |
+| 1 | party | 12 x 32 (index = side*6+slot) | side, slot, species, level, hp, max_hp, status1, item, ability, form, nature, move1-4, pp1-4, iv hp/atk/def/spe/spa/spd, ev hp/atk/def/spe/spa/spd, present |
+| 2 | active | 2 x 37 (singles) | battler, party_slot, species, hp, max_hp, status1, status2, status3, ability, item, form, type1-3, stages atk/def/spe/spa/spd/acc/eva, move1-4, pp1-4, volatile_flags, disabled_move, disable_timer, protect_flags, special_status_flags, substitute_hp, encore_timer, taunt_timer |
+| 3 | field | 1 x 6 | weather, weather_timer, terrain, terrain_timer, trick_room, trick_room_timer |
+| 4 | side | 2 x 12 | side, screens, hazards, hazard_layers, conditions, reflect, light_screen, aurora_veil, mist, safeguard, tailwind, follow_me timers |
+| 5 | battle | 1 x 10 | turn, outcome, type_flags, battler_count, ai_flags, item_count, item1-4 |
+| 6 | rng | 1 x 8 | main a,b,c,ctr, secondary a,b,c,ctr (must equal the header pair) |
+| 7 | legal | N x 4 | kind (0 move, 1 switch, 2 item), id, pp_or_species, target_or_slot |
+| 8 | trainer action | 1 x 3 | kind, id, target |
+| 9 | events | variable | subrecords `event_kind:u16, payload_words:u16, payload:u32[]` |
+| 10 | terminal | 1 x 2 | result, reason |
+| 11 | unsupported/error | 1 x 2 | reason, source |
+
+`active` is 37 words (Appendix B's draft said 33 with packed protect/special
+fields; packed fields were unspecified, so they are split). Every flag word names
+its C source in the exporter; unreadable values use tag 11, never zero-fill.
+The exact bit meaning of `volatile_flags`, `protect_flags`, `special_status_flags`,
+`screens`, `hazards`, `hazard_layers` and `conditions` is defined in the A1
+README section "v9 flag words" (with `file:line` sources) and is checked by the
+compact-vs-`ROMTRACE` equality test.
+
+### C.3 Enum tables
+
+- Boundary kind: 0 none, 1 choice, 2 forced switch, 3 terminal.
+- Status: 0 ok, 1 incomplete-state, 2 unrepresentable-state, 3 unsupported-mechanic,
+  4 instruction-budget-exceeded, 5 frame-cap-exceeded, 6 invalid-request,
+  7 internal-error. A nonzero status carries only tag 11.
+- Tag 11 `reason`: same numbering as status. `source`: 1 export coverage,
+  2 controller exec flags, 3 AI scoring scratch, 4 preset field/side state in a
+  request, 5 trainer item use, 6 non-singles battle, 7 form/mega/tera change,
+  8 request validation, 9 other (must name a C source in the A1 README).
+- Terminal `result`: 1 player win, 2 player loss, 3 draw, 4 escaped, 5 captured.
+  `reason`: 0 normal, 1 forfeit, 2 turn cap.
+- Event kinds (tag 9): 1 move used [battler, move, target]; 2 damage [battler,
+  amount, hp_after]; 3 heal [battler, amount, hp_after]; 4 status change [battler,
+  before, after]; 5 stat stage [battler, stat, delta]; 6 faint [battler];
+  7 switch out [battler, slot]; 8 switch in [battler, slot, species];
+  9 weather [before, after]; 10 terrain [before, after]; 11 ability activated
+  [battler, ability]; 12 item used/consumed [battler, item]; 13 miss/fail
+  [battler, move, reason]; 14 critical hit [battler]; 15 hazard/side change
+  [side, kind, value]. An unknown event kind fails closed.
+- Error codes surfaced by the client: `sdr2-crc`, `sdr2-length`, `sdr2-version`,
+  `sdr2-request-id`, `sdr2-mode`, `sdr2-record-count`, `sdr2-duplicate-tag`,
+  `sdr2-missing-tag`, `sdr2-oversize`, `sdr2-identity`, `sdr2-status` (tag 11).
+
+### C.4 Child transport decision
+
+The worker result's inline child summary is `{handle, bytes, sha256}`; the
+portable blob is retrieved with `export_state` on demand (already built in B).
+A public token (`DecisionState.token`) always carries the blob or a still-live
+exportable handle before it leaves the worker's request scope; the host adapter
+(D) exports before a handle can be evicted. The three-slot / 64 MiB bounds and
+explicit failure on exceeding them stand.
+
+### C.5 Performance decision rule and frozen benchmark set
+
+The rule in ROM_TRANSITION_FINISH_PLAN.md section 6 is frozen. Logic-only
+becomes the planner default only if it gives at least 20 % more 3-worker pool
+throughput than optimized normal mode on the frozen fixtures and passes full
+parity on every supported row; otherwise it is a documented test-only flag.
+Frozen benchmark fixtures: P1, P29, P25, P26, P19, P27, P28, each with the
+fixed paired dual-RNG seeds of `tools/rom_oracle/fixtures/`, in both modes, on
+parity-passing transitions only. Warm end-to-end card latency target: p50 <= 40 ms.

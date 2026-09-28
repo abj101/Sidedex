@@ -86,69 +86,40 @@ pinned ELF. Untracked WSL fixture `test/battle/ai/sidedex_trace.c` is preserved 
 
 ## Contract
 
-`ROM_TRANSITION_CONTRACT.md` (v1) is frozen. Packages code against it; changes need an orchestrator merge
-and a version bump.
+`ROM_TRANSITION_CONTRACT.md` Appendix B (v2) and Appendix C (v2.1) are the
+frozen interface; changes need an orchestrator merge and a version bump.
+Orchestration is governed by `ROM_TRANSITION_FINISH_PLAN.md` (v2), which
+supersedes the earlier package plan.
 
-## Work-package ownership (nonoverlapping)
+## Ownership (one writer per file set)
 
-| Package | Owns | Must not touch |
+See `ROM_TRANSITION_FINISH_PLAN.md` section 4. Orchestrator owns: contract,
+this ledger, the plan, `rom_identity.py`, `pinned_source.json`, `sdr2_vectors/`,
+`make_sdr2_vectors.py`, `bench.py`, artifact pins/copies, WSL `sidedex/integration`.
+
+## Current gate table (single source of truth)
+
+| Gate / item | State | Evidence |
 | --- | --- | --- |
-| A — ROM hook + logic-only | `tools/rom_oracle/dynamic_request.patch`, WSL source edits, `tools/rom_oracle/README.md`, contract appendix for the v8 layout | pins, `rom_bridge.py`, Python parsers |
-| B — worker state/transport | `native/rom_worker/*`, `rom_bridge.py`, `test_rom_bridge.py`, `test_rom_worker_smoke.py` | ROM patch, `rom_eval.py` |
-| C — exact query API | `rom_query.py`, `tools/rom_oracle/run_dynamic.py`, `test_rom_query.py`, `test_rom_oracle_dynamic*.py` | ROM patch, worker, pool |
-| D — scheduler + adapter | `rom_pool.py`, new transition adapter, `rom_eval.py`, `calc_service.py`, `test_rom_pool.py`, `test_rom_eval.py`, `test_calc_*` | ROM patch, worker protocol, query parser |
-| E — differential verification | new fixtures/tests under `tools/rom_oracle/` and `test_rom_*`, release harness | production code (unless orchestrator approves) |
+| Baseline preserved, pins verified | done | this file; 377 passed / 9 skipped |
+| Wave 0: A1 WIP frozen | done | `codex/rom-hook-a` `c82c948`; WSL `sidedex/a1-export` `4b1b3442` over `sidedex/base-v8c` `27497866` |
+| Wave 0: contract v2.1, vectors, `rom_identity.py` | done | Appendix C, `tools/rom_oracle/sdr2_vectors/`, `test_sdr2_vectors.py`; suite 378 passed / 9 skipped |
+| Gate 0 | see git log | the Gate 0 commit SHA is the base every agent prompt cites |
+| B0 profile | dispatched | agent `pkg-b`; output `.codex/artifacts/B/B0-profile.md` |
+| C closed-loop release root | dispatched | agent `pkg-c`; milestones under `.codex/artifacts/C` |
+| A1 export producer (tags 1-10) | not started | starts after Gate 0 |
+| B codec / rebase | not started | starts after Gate 0 and B0 |
+| Gate V vertical slice | not started | A1 ELF + B worker, coordinated flip |
+| A2 / D / C (H3, H2 plumbing) | not started | after Gate V |
+| Gate F, E, final | not started | |
 
-Orchestrator owns: pins (`pinned_source.json`, `rom_bridge.py` identity constants), this ledger, the
-contract, cross-agent merges, and the acceptance checklist. Resolve shared `run_dynamic.py`,
-`rom_bridge.py`, and fixture edits in the order A → B → C → D → E.
-
-## Wave plan (dependency-ordered)
-
-| Wave | Package | Owner | Gate to start |
-| --- | --- | --- | --- |
-| 1 | A — ROM hook v8, boundary, state export, logic-only | agent `rom-hook-a` | contract v1 (done) |
-| 1 | B — worker named slots, portable blobs, boundary-aware batches, release-harness ops | agent `worker-transport-b` | contract v1 (done; ROM marker spellings frozen) |
-| 2 | orchestrator repin | orchestrator | A + B artifacts reviewed |
-| 2 | C — split query ops, ROM-layer outcome enumeration, parser adaptation | next | A's v8 ELF + repin |
-| 3 | D — pool scheduler + transition adapter | next | B API + C card contract |
-| 3 | E — differential fixtures (ELF pair) | next | A/B normal mode |
-| 4 | E — release-ROM harness | next | B release ops + RELEASE_HARNESS_PLAN.md |
-
-Frozen marker spellings all packages code against: `ROMTRACE|boundary|<kind>|<turn>|<legal-action-count>`,
-`ROMTRACE|terminal|<result>|<reason>`, `ROMTRACE|unrepresentable|<field>`,
-`ROMTRACE|instruction-budget-exceeded|<instructions>`.
-
-Release-ROM decision: method and evidence gate recorded in `tools/rom_oracle/RELEASE_HARNESS_PLAN.md`.
-The product keeps the `compiled-engine` label until H1/H2 and the scenario gates pass.
-
-## Gate state
-
-| Gate | State | Evidence |
-| --- | --- | --- |
-| Baseline preserved, pins verified | done | this file |
-| Contract v1 frozen | done | `ROM_TRANSITION_CONTRACT.md` |
-| Phase 1 | partial | A/A2 landed (`1aa0c82`, `8aee054`, `f0fa279`): v8 ops/mode/policy, choice boundary (marker emitted last), complete state export, ROM-derived `legal|` actions, real-AI no-leakage, faint/forced-switch + terminal verified, outcome-weight enumeration, trainer items root-caused (recorded_battle.c u16 cursor underflow) and now fail closed in 205 frames instead of stalling. **Open:** hold-release RNG seeding fix (A3), logic-only reduces frames (205→130) but not wall time (43.5→51.3 ms) and is a coarse 4x pump, `instruction-budget-exceeded` unexercised, voluntary player switch unimplemented |
-| Phase 2 | done (wave 1) | C committed `fde93f5` + `cc3375c`: `QUERY_DAMAGE`/`QUERY_AI_ACTION`/`SIMULATE_TURN` split, v7/v8 encoders selected by the pin, `normal` + `item-ability-only` policies end to end (labels verified, mislabelled traces fail closed), ROM-enumerated `query|outcomes` consumer (the old Python composition was measurably wrong under normal crits), p50 136.7 ms / p95 144.8 ms query latency. Unsupported mechanics fail closed |
-| Phase 3 | done (wave 2) | D wave 1 (`3dfec57`) scheduler + adapter; D wave 2 (`5cc7440`, `510f243`) integrated them into `rom_eval.py`/`calc_service.py`: v8 boundary/terminal transition parsing (`_parse_boundary_turn`), one evaluation request spread over all three workers through `EnginePool.run_jobs` with CRN pairing (3-worker vs 1-worker results byte-identical), no-sample/partial results labelled honestly, query cards still publish when transitions fail, contract §1 cache identity (`rom-v4` key: source/ELF/worker/mgba/protocols/schemas/mode/policy/planner), heuristics untouched. Focused set 100 passed/5 skipped; full suite 377 passed/9 skipped/0 failed |
-| Phase 4 | partial | E wave 1 (`49e4918`): harness + 32-row fixture matrix, 8 rows green on both v8 and v8b with 0 diffs, AI-leakage/restore-determinism/identity-rejection/query-immutability checks pass, H4/H5 pass, H1 FAILED (patch not release-neutral - A3 fixing), H3 release half blocked (needs a battle-entry input script), H2 not run. **Open:** full normal-vs-logic-only matrix, release harness |
-| Worker pin flip (protocol 2) | superseded | see the coordinated flip below |
-| Coordinated pin flip (ELF v8c + worker v3) | done, 3 known failures | `pinned_source.json` protocol_version 8 + both hashes, `rom_bridge` identity constants, artifacts swapped. Suite: **353 passed, 8 skipped, 3 failed**; the 3 are `test_rom_eval.py::PinnedEngineEvaluation` (`insufficient-samples`, 0 complete samples) because `rom_eval.py` still assumes the v7 after-turn mailbox — package D wave 2 owns it. `app.py --self-check` OK |
-
-## Open items after wave 2 (owner)
-
-1. Hold-release RNG seeding fix + v8c rebuild + pre-patchelf test_elf sha, then the coordinated pin flip (package A3 → orchestrator).
-2. Release neutrality: guard the recorded-player call sites so a `TEST=0` build is byte-identical to `0ccaaad0…` (package A3).
-3. Canonical `ROMTRACE|legal|` in the worker slim allow-list; `worker_id`; per-batch slot selection; v3 worker binary for repinning (package B2).
-4. Pin flip is ONE coordinated step: copy v8c → `pokeemerald-test-headless.elf`, update `pinned_source.json` (`protocol_version` 8, `headless_elf_sha256`, `test_elf_sha256`) and `rom_bridge.ENGINE_ELF_SHA256`, plus the v3 worker sha (orchestrator), then re-run the full suite.
-5. ~~`rom_eval.py` / `calc_service.py` integration~~ **done** (D wave 2, `5cc7440` + `510f243`): v8 semantics consumed, scheduler integrated, cache identity extended. Remaining nuance: the four-card candidate list still comes from the snapshot while the ROM-derived `legal|` records are validated for count/completeness (not used to rebuild the card set) — acceptable, since the ROM refuses an illegal payload with `no-legal-actions`.
-6. Release harness wave 2: battle-entry input script, then H2 and the scenario comparisons under the `RELEASE_HARNESS_PLAN.md` gate (package E wave 2).
-7. Logic-only measurement discrepancy to settle on the pinned artifact: A measured 205→130 frames on a mid-battle branch, C measured 754→1086 frames on a root transition; the phase-1 gate needs one agreed measurement set.
+Superseded by the finish plan and removed from this table: the "3 known
+failures" pin-flip row, the v8-only phase gates, and the logic-only frame
+discrepancy item (replaced by the plan section 6 adopt-or-park rule).
 
 ## Baseline limitations to keep visible (not to be papered over)
 
-One replay turn; active slot zero only; one in-memory savestate slot restored for every batch entry; partial
-state export (no terrain/trick-room/screens/hazards readable fields, no trainer bag inventory in the
-resolved trace, no battle outcome marker); no logic-only mode or presentation bypass; one pooled worker per
-request with at most 16 samples; trainer items predicted by queries but excluded from resolved
-recommendations.
+One replay turn; active slot zero only; one in-memory savestate slot restored
+for every batch entry; partial state export; no public child token; no
+logic-only presentation audit; trainer items predicted by queries but excluded
+from resolved recommendations; release-ROM root not yet at a battle.

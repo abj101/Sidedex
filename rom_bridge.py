@@ -20,18 +20,19 @@ from pathlib import Path
 from typing import Any, Sequence
 
 
-PROTOCOL_VERSION = 2
-WORKER_VERSION = "sidedex-mgba-worker/0.2.0"
-MGBA_VERSION = "0.10.5+26b7884"
-SAMPLER_VERSION = "paired-sfc32-v7-risk-first-crit-policy"
-SAVE_FORMAT_ID = "mgba-savestate-savedata-rtc-v1"
-STATE_SCHEMA = "sidedex-state-v1"
-TRANSITION_SCHEMA = "sidedex-transition-v1"
-SOURCE_SHA = "2576d0f3f4c861c760f0c55198e37e6d7b91683e"
-# Gate 0 artifact: default source pin and build configuration, SHA-256.
-ROM_SHA256 = "0CCAAAD0878A9CBFB36FBEFFF800E9B6DD66055924B7595038EDE1E8771EC5A2"
-ENGINE_ELF_SHA256 = "422ADE3E159916F9CC8BC1350AD274201B6AF6CB9B9D38C14D073F85E982BC77"
-WORKER_SHA256 = "0601297E8BED7CA1319DC9BE86A547AA01B16624CE0DE5431093E6B59D7E5122"
+from rom_identity import (
+    PROTOCOL_VERSION,
+    WORKER_VERSION,
+    MGBA_VERSION,
+    SAMPLER_VERSION,
+    SAVE_FORMAT_ID,
+    STATE_SCHEMA,
+    TRANSITION_SCHEMA,
+    SOURCE_SHA,
+    ROM_SHA256,
+    ENGINE_ELF_SHA256,
+    WORKER_SHA256,
+)  # noqa: F401  (re-exported)
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_SOURCE_LOCK = ROOT / "data" / "source_lock.json"
