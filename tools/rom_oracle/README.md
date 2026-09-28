@@ -506,6 +506,12 @@ past the end of a `u8[MAX_BATTLERS_COUNT][BATTLER_RECORD_SIZE]` array, corruptin
 EWRAM and wedging the turn. Fixed in `src/recorded_battle.c` by guarding the
 cursor before the decrement (clear nothing when the cursor is already 0).
 
+That guard is part of the v8c release-neutral hook and **must stay on the
+branch**: an early v9 WIP commit dropped it (it made
+`RecordedBattle_ClearBattlerAction` flag-independent), which silently re-opened
+the 64 KiB out-of-bounds write. Any diff that shows
+`src/recorded_battle.c` as changed against `sidedex/base-v8c` is a regression.
+
 With that fixed, a resolved `SIMULATE_TURN` now carries the request's
 `trainer_items` like a query does, so the AI makes the **real** item decision.
 The ROM's own ruleset still refuses the resulting `B_ACTION_USE_ITEM` in a
