@@ -1,0 +1,10 @@
+{
+ "bytes": 2280,
+ "capacity": 8192,
+ "expect_request_id": 1,
+ "name": "bad_record_count",
+ "reject": "bad_record_count",
+ "sha256": "e92b0df6593dee3987920a7eeb8747933dd72a56bc5ccfa7f749be53acd4a563",
+ "synthetic": true,
+ "valid": false
+}

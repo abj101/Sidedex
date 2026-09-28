@@ -1,0 +1,10 @@
+{
+ "bytes": 3824,
+ "capacity": 8192,
+ "expect_request_id": 1,
+ "name": "duplicate_tag",
+ "reject": "duplicate_tag",
+ "sha256": "75fe05078a02123149c1c385a341555f927107e598162d3e4513bc15e678df12",
+ "synthetic": true,
+ "valid": false
+}

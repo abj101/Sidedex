@@ -1,0 +1,40 @@
+{
+ "bytes": 80,
+ "capacity": 8192,
+ "child_expected": false,
+ "expect_request_id": 1,
+ "header": {
+  "boundary": 0,
+  "crc": 1233152347,
+  "critical_policy": 0,
+  "format": 1,
+  "header_bytes": 64,
+  "magic": "SDR2",
+  "mode": 0,
+  "record_count": 1,
+  "request_id": 1,
+  "rng_main0": 1,
+  "rng_main1": 2,
+  "rng_main2": 3,
+  "rng_main3": 4,
+  "rng_sec0": 5,
+  "rng_sec1": 6,
+  "rng_sec2": 7,
+  "rng_sec3": 8,
+  "status": 6,
+  "total": 80,
+  "turn": 1
+ },
+ "name": "unsupported_status",
+ "records": {
+  "unsupported": [
+   {
+    "reason": 3,
+    "source": 4
+   }
+  ]
+ },
+ "sha256": "1b8ea315d1e403299fb3adf507fa65690d2ec6b86c3c32db25c538fee5c679f8",
+ "synthetic": true,
+ "valid": true
+}
