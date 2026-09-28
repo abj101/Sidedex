@@ -61,6 +61,11 @@ The trace does not snapshot every global byte or prove that the release ROM foll
 
 ## Dynamic battle request v8
 
+The mailbox layout below is unchanged by the A2 revision (the A2 artifact is
+`native/rom_worker/build/mingw/pokeemerald-test-v8b.elf`; the byte layout and
+`SIDEDEX_DYNAMIC_VERSION` 8 are identical, so package C's encoder needs no
+change).
+
 `dynamic_request.patch` applies to the pinned source on its own; it already
 contains the trace hooks, so `trace_hooks.patch` is only used for the separate
 170-record oracle. It adds a test-only, versioned **864-byte** EWRAM mailbox.
@@ -89,18 +94,32 @@ ROM side. The v7 fields keep their v7 offsets; the v8 extension appends
   query damage path applies the same policy to its crit weights.
 - `requestId` (u16, 862): caller-chosen monotonic token. The boundary hold
   releases only when a submitted request carries a different `requestId`.
+- The v7 `secondPresent` byte (842) still selects the historical paths: `0` a
+  plain candidate turn, `1` a second scripted turn, `2` the pre-choice query.
+  A2 adds `3`: a **forced-switch scenario** where the candidate turn is expected
+  to faint the player's active monster and `secondSlot` (840) is the recorded
+  compulsory-replacement party index (the ROM holds at the forced-switch
+  boundary and injects the real choice).
 
 ### Choice-point boundary (v8 SIMULATE_TURN)
 
 The ROM stops at the decision boundary defined by contract section 3: after
 entry/end-of-turn effects and compulsory faint replacement have settled, at the
 start of the next turn's action selection and **before the AI chooses**. At that
-point it emits
+point it emits the legal-action records, the complete state export, and then
 
 ```
 ROMTRACE|boundary|player-choice|<turn>|<legal-action-count>
 ROMTRACE|phase|<turn>|boundary|player-choice|<count>   (legacy slim filter)
 ```
+
+**Wire contract: the boundary marker is the LAST record of the boundary
+emission.** The worker's `batch_turns` stop treats `ROMTRACE|boundary|` as "this
+turn's evidence is complete" and breaks the frame loop as soon as it sees one,
+so anything emitted after it is truncated. Emitting it first (the original v8
+order) returned only 4 of 34 records through a real batch; emitting it last
+returns all 37 (v8b, measured). The same rule applies to `terminal|`: `complete`
+is emitted before the terminal marker. Both marker spellings are unchanged.
 
 The machine then holds: `HandleTurnActionSelectionState` returns without
 advancing until a submitted request with a different `requestId` arrives. The
@@ -109,9 +128,33 @@ while the machine is stopped, so the boundary is exact. A forced switch after a
 faint emits `boundary|forced-switch-player|...` and holds the pokémon-choice
 controller the same way (switches only, `legal-action-count` counts switchable
 party slots). If the battle has ended, the ROM emits
-`ROMTRACE|terminal|<win|loss|draw>|<reason>` plus `ROMTRACE|complete|<turn>` and
+`ROMTRACE|terminal|win|loss|draw|<reason>` plus `ROMTRACE|complete|<turn>` and
 never a boundary; a terminal/faint path finishes without the 24,000-frame
-fallback (measured: 325 frames).
+fallback (measured: win 325 frames, loss 415 frames).
+
+### Legal player actions at a decision point
+
+Contract section 2 requires the ROM-derived `legal_player_actions` list, so the
+boundary reports each action explicitly (not just the count), for both a
+player-choice boundary and the pre-choice query path:
+
+```
+ROMTRACE|legal|move|<move_id>|<pp>|<target>
+ROMTRACE|legal|switch|<slot>|<species>
+ROMTRACE|phase|<turn>|legal|move|<move_id>|<pp>|<target>   (slim-filter mirror)
+ROMTRACE|phase|<turn>|legal|switch|<slot>|<species>       (slim-filter mirror)
+```
+
+`<target>` is the battler the move would hit (opponent-left in singles). At a
+forced-switch boundary only `legal|switch` is emitted. The `legal|item` spelling
+is reserved for a ROM that would allow a player item, but this build never emits
+it: the fixture models no player bag, and a trainer battle outside easy mode
+forbids item actions outright (`src/battle_main.c`).
+
+Note for the worker owner (package B): `ROMTRACE|legal|` is **not** in
+`worker.c`'s slim allow-list, so the canonical records are dropped in
+`batch_turns`; only the `phase|<turn>|legal|...` mirrors survive. Add
+`ROMTRACE|legal|` to the allow-list to carry the canonical spelling.
 
 ### Decoded state export at the boundary
 
@@ -148,6 +191,38 @@ ROMTRACE|unrepresentable|ai-scoring-scratch
 
 (each also mirrored under `phase|<turn>|unrepresentable|`).
 
+### Complete outcome weights (query, contract phase 2)
+
+For every candidate move the query enumerates the COMPLETE joint distribution
+over the target's remaining HP, so the Python layer only has to sum integers
+instead of composing mechanics. The mechanics folded in-ROM are: the engine's
+damage roll spread (16 rolls through `CalculateMoveDamage`), the real crit odds
+(`GetCritHitOdds`), the composed accuracy percent (`GetTotalAccuracy`),
+per-hit crit/damage independence, the engine's multi-hit count distribution
+(`src/battle_util.c SetRandomMultiHitCounter`: `RandomWeighted` 7/7/3/3 for
+2/3/4/5 hits, Loaded Dice `RandomUniform 4..5`, Skill Link 5), hit-count weights,
+miss-ends-the-sequence, and Focus Sash / Sturdy at full HP (single-hit moves
+only — a multi-hit move KOs through both).
+
+```
+ROMTRACE|query|outcomes|<owner>|<move>|<flags>|<chunk>|<chunks>|<denom>|
+        <branches>|<hitsMode>|<minHits>|<maxHits>|<accuracy>|<hp>|<weight>|...
+```
+
+One record per chunk of at most 8 `(<hp>,<weight>)` branches; every record
+repeats the self-describing header. `denom` is 1000000 (parts per million) and
+the weights sum to it exactly (the largest branch absorbs integer rounding).
+`flags` bits: 1 multi-hit, 2 Focus Sash folded in, 4 Sturdy folded in,
+8 accuracy<100, 16 enumeration refused (0 branches), 32 an HP/damage value hit
+the internal 256 axis bound (not reachable with these fixtures). `hitsMode`:
+0 standard 2-5, 1 Loaded Dice, 2 Skill Link, 3 Battle Bond, 4 fixed.
+
+Verified with the sample request (opponent Gyarados at 10/10 HP, Focus Sash):
+Tackle (100% acc) → 1 branch HP 1 weight 1000000 (sash folded in, flags 2);
+Growl (status) → 1 branch HP 10 weight 1000000; Fury Attack (2-5 hits) → HP 0,
+flags 1; Hydro Pump (80% acc) → HP 1 weight 800000 and HP 10 weight 200000,
+flags 10. All records sum to 1000000.
+
 ### Transition from a saved decision state (what a caller must supply)
 
 Root creation still uses the mailbox party builder plus at most one replayed
@@ -182,29 +257,79 @@ at a boundary, a terminal, an unmechanical dependency, or the 2,000,000
 instruction budget (`ROMTRACE|instruction-budget-exceeded|<n>`). Normal mode is
 exactly one advance per frame, so it stays the differential baseline. Measured
 on the same scenario: normal 205 frames to the next boundary, logic-only 130
-frames, no error. Deviation from contract 5: the runtime mode switch is present
-but there is no separate `SIDEDEX_LOGIC_ONLY` compile-time define — the whole
-hook only exists in the test build, so the test ELF is already the gate. A
-finer presentation/controller audit (which individual waits are pure
-presentation) is not yet done; the pump is the coarse, safe version.
+frames (~37% fewer), no error and the same boundary/state/RNG. Deviation from
+contract 5: the runtime mode switch is present but there is no separate
+`SIDEDEX_LOGIC_ONLY` compile-time define — the whole hook only exists in the test
+build, so the test ELF is already the gate.
 
-### Trainer items in a resolved turn (blocked, documented)
+**Presentation audit (A2-4): attempted, not achieved; the 4× pump stands.** What
+blocks the stronger version is that the remaining frame cost is not a
+classification problem the ROM hook can solve locally:
 
-Enabling the request's `trainer_items` for a resolved `SIMULATE_TURN` was tried
-in v8 and is **not safe in this harness**: the battle completes action selection
-(both `ROMTRACE|action|` records are emitted) and then makes no further progress
-for at least 1500 frames, with no hp/faint/boundary record. It reproduces for
-any item list, including one the AI would not use (opponent at 80/155 HP with an
-unused Potion), so the presence of a resolved-turn trainer bag itself breaks the
-turn, not the heal decision. The hook therefore keeps the v7 behaviour: items
-are copied into the battle history for the pre-choice **query** turn only, the
-query returns the exact item prediction, and the resolved-turn recommendation
-fails closed (`unsupported-mechanic`) when the predicted action is an item. The
-`SetUpBattleVarsAndBirchZigzagoon` hook cannot currently be made safe; the exact
-blocker is the interaction between a populated `battleHistory->trainerItems` and
-the resolved turn's controller/action-selection loop, not `ShouldUseItem`'s
-item consumption. The v8 restore path does undo the `ShouldUseItem` mutation
-across branches, so that part of the old concern is resolved.
+- The presentation handlers are `static` in `src/battle_controllers.c` and
+  `src/battle_interface.c` (`BtlController_HandlePrintString`,
+  `BtlController_HandleHealthBarUpdate`, ability pop-ups, move animations), so a
+  hook cannot compare `gBattlerControllerFuncs[battler]` against them or tag them
+  without editing every controller (a large, behaviour-risking change).
+- The already-headless paths short-circuit the obvious cases (`gTestRunnerHeadless`
+  returns early from print-string, ability pop-up and animation), so the residual
+  waits are `gBattleControllerExecFlags` / `waitstate` waits whose semantics are
+  per-command, not per-controller.
+- `BattleMainCB2` still does real per-frame video/sprite work between
+  `BattleMainCB1` calls; raising the iteration count without a proven-safe
+  classification risks skipping side effects the battle logic depends on. 4 was
+  chosen as the safe, measurable bound.
+
+So the honest status is: coarse pump kept, stronger per-command audit blocked on
+controller-handler attribution, with the measurement above as the baseline to
+beat.
+
+### Trainer items in a resolved turn (root-caused and fixed)
+
+A2 root-caused the v8 stall. It was a **base-code bug**, not an item-decision
+problem: `RecordedBattle_ClearBattlerAction(battler, 1)` (called when the ROM
+ruleset refuses an AI item action) decremented a `u16` record cursor that was
+already 0 for the live-AI battler of a non-link recorded battle, underflowing to
+65535 and executing `sBattleRecords[battler][65535] = 0xFF` — a write ~64 KiB
+past the end of a `u8[MAX_BATTLERS_COUNT][BATTLER_RECORD_SIZE]` array, corrupting
+EWRAM and wedging the turn. Fixed in `src/recorded_battle.c` by guarding the
+cursor before the decrement (clear nothing when the cursor is already 0).
+
+With that fixed, a resolved `SIMULATE_TURN` now carries the request's
+`trainer_items` like a query does, so the AI makes the **real** item decision.
+The ROM's own ruleset still refuses the resulting `B_ACTION_USE_ITEM` in a
+trainer battle outside easy mode (`src/battle_main.c`), so the resolved turn
+cannot *execute* the item: the AI falls back to a move and the ROM reports the
+divergence, visibly and once per request, as
+
+```
+ROMTRACE|unrepresentable|trainer-item-decision
+ROMTRACE|phase|<turn>|unrepresentable|trainer-item-decision
+ROMTRACE|phase|<turn>|item-refused|<battler>|<item_id>
+```
+
+The turn then TERMINATES (measured: next boundary in 43 ms / 205 frames, no
+stall). Callers must treat a transition carrying
+`unrepresentable|trainer-item-decision` as `unsupported-mechanic`, because the
+resolved AI action is the fallback move, not the item the query predicts.
+Making the item actually execute would require forcing
+`VAR_GAME_SETTING_DIFFICULTY_MODE` to easy, which also changes boss-trainer
+behaviour (`src/battle_main.c` 2075/2087) and so is deliberately not done.
+
+### Forced-switch boundary and terminal paths (verified)
+
+`secondPresent == 3` declares a forced-switch scenario: the candidate turn is
+expected to faint the player's active monster, and `secondSlot` is the recorded
+compulsory-replacement party index (the ROM holds at the boundary and injects
+the real choice, so the recorded slot is overridden). Verified end to end with
+the sample request (player slot 0 at 1 HP, slot 1 healthy): the candidate Tackle
+faints slot 0 (`hp|0|0|1|0`), the ROM emits
+`ROMTRACE|boundary|forced-switch-player|0|1` plus `ROMTRACE|legal|switch|1|6` and
+the full state export at 280 frames, then the injected switch (slot 1) advances
+to the next `boundary|player-choice|1|2` at 230 frames with the new active
+monster (species 6, 138/138) in the state export. Terminal win (opponent single
+mon at 1 HP) and terminal loss (player single mon at 1 HP) both emit
+`ROMTRACE|terminal|...` with no 24,000-frame fallback.
 
 ### Bounded fixtures and unsupported boundaries
 
@@ -228,16 +353,17 @@ the bounded raw ROMTRACE event list; the Python transition/query adapter is
 package B/C work. These boundaries are explicit and must not be treated as
 trainer-battle parity or full state coverage.
 
-### Reproducing the v8 evidence
+### Reproducing the v8b evidence
 
-The verification harness used by package A lives outside the repository
-(`work/v8_verify.py`, not committed). It drives the v8 ELF through the worker's
-`run_frames`/`write_memory`/`save_checkpoint`/`restore_state` operations and is
-reproducible with the pinned worker and the v8 ELF; the raw report is
-`work/v8_report.json` in the handoff. The build recipe is unchanged:
-`make -j4 pokeemerald-test.elf TESTS='Sidedex oracle: dynamic AI singles request'`,
-copy to the new artifact name, then
-`tools/patchelf/patchelf <elf> gTestRunnerHeadless '\x01' gTestRunnerSkipIsFail "\x00"`.
+The A2 verification harness lives outside the repository (`work/v8b_verify.py`
+and `work/priority0_batch.py`, not committed). It drives the v8b ELF through the
+pinned protocol-2 worker via `rom_bridge` (`run_frames`/`write_memory`/
+`save_checkpoint`/`restore_state`) and, for the wire-contract check, through a
+real `batch_turns`. Raw reports: `work/v8b_report.json` and
+`work/priority0_batch.json`. The build recipe is unchanged: `make -j4
+pokeemerald-test.elf TESTS='Sidedex oracle: dynamic AI singles request'`, copy to
+the new artifact name, then `tools/patchelf/patchelf <elf> gTestRunnerHeadless
+'\x01' gTestRunnerSkipIsFail "\x00"`.
 
 ## Query mode
 

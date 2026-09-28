@@ -1,9 +1,9 @@
 diff --git a/include/test/sidedex_dynamic.h b/include/test/sidedex_dynamic.h
 new file mode 100644
-index 0000000000..fda3ac4f99
+index 0000000000..e1c59999bd
 --- /dev/null
 +++ b/include/test/sidedex_dynamic.h
-@@ -0,0 +1,104 @@
+@@ -0,0 +1,109 @@
 +#ifndef SIDEDEX_DYNAMIC_H
 +#define SIDEDEX_DYNAMIC_H
 +
@@ -83,6 +83,11 @@ index 0000000000..fda3ac4f99
 +    struct SidedexDynamicMon player[SIDEDEX_DYNAMIC_PARTY_LIMIT];
 +    struct SidedexDynamicMon opponent[SIDEDEX_DYNAMIC_PARTY_LIMIT];
 +    struct SidedexDynamicTurn replay;
++    // v7 compatibility tail. secondPresent: 0 = none, 1 = a second scripted
++    // turn follows, 2 = pre-choice query turn, 3 = forced-switch scenario (the
++    // candidate turn is expected to faint the player's active monster and
++    // secondSlot is the recorded compulsory-replacement party index; the ROM
++    // holds at the forced-switch boundary and injects the real choice).
 +    unsigned short secondKind, secondMove, secondSlot, secondPresent;
 +    unsigned short trainerItems[SIDEDEX_DYNAMIC_MAX_TRAINER_ITEMS];
 +    unsigned short trainerItemCount;
@@ -109,10 +114,10 @@ index 0000000000..fda3ac4f99
 +
 +#endif
 diff --git a/include/test_runner.h b/include/test_runner.h
-index f61f26b66e..575f315975 100644
+index f61f26b66e..a09fecd4ea 100644
 --- a/include/test_runner.h
 +++ b/include/test_runner.h
-@@ -16,6 +16,20 @@ void TestRunner_Battle_RecordStatus1(u32 battlerId, u32 status1);
+@@ -16,11 +16,29 @@ void TestRunner_Battle_RecordStatus1(u32 battlerId, u32 status1);
  void TestRunner_Battle_AfterLastTurn(void);
  void TestRunner_Battle_CheckChosenMove(u32 battlerId, u32 moveId, u32 target);
  void TestRunner_Battle_CheckSwitch(u32 battlerId, u32 partyIndex);
@@ -133,7 +138,16 @@ index f61f26b66e..575f315975 100644
  void TestRunner_Battle_CheckAiMoveScores(u32 battlerId);
  void TestRunner_Battle_AISetScore(const char *file, u32 line, u32 battlerId, u32 moveIndex, s32 score);
  void TestRunner_Battle_AIAdjustScore(const char *file, u32 line, u32 battlerId, u32 moveIndex, s32 score);
-@@ -37,6 +51,20 @@ u32 TestRunner_Battle_GetChosenGimmick(u32 side, u32 partyIndex);
+ void TestRunner_Battle_InvalidNoHPMon(u32 battlerId, u32 partyIndex);
+ 
++// A2: visible refusal when the ROM ruleset rejects an AI trainer item action
++// inside a resolved turn (see tools/rom_oracle/README.md).
++void TestRunner_Battle_RejectTrainerItem(u32 battler, u32 item);
++
+ void TestRunner_Battle_CheckBattleRecordActionType(u32 battlerId, u32 recordIndex, u32 actionType);
+ 
+ u32 TestRunner_Battle_GetForcedAbility(u32 side, u32 partyIndex);
+@@ -37,10 +55,25 @@ u32 TestRunner_Battle_GetChosenGimmick(u32 side, u32 partyIndex);
  #define TestRunner_Battle_AfterLastTurn(...) (void)0
  #define TestRunner_Battle_CheckChosenMove(...) (void)0
  #define TestRunner_Battle_CheckSwitch(...) (void)0
@@ -154,6 +168,11 @@ index f61f26b66e..575f315975 100644
  #define TestRunner_Battle_CheckAiMoveScores(...) (void)0
  #define TestRunner_Battle_AISetScore(...) (void)0
  #define TestRunner_Battle_AIAdjustScore(...) (void)0
+ #define TestRunner_Battle_InvalidNoHPMon(...) (void)0
++#define TestRunner_Battle_RejectTrainerItem(...) (void)0
+ 
+ #define TestRunner_Battle_CheckBattleRecordActionType(...) (void)0
+ 
 diff --git a/src/battle_controller_opponent.c b/src/battle_controller_opponent.c
 index f1ff1a2e4d..ab9aafb3c4 100644
 --- a/src/battle_controller_opponent.c
@@ -230,7 +249,7 @@ index f537ceecb0..2bb2969bb3 100644
      if (gBattleTypeFlags & BATTLE_TYPE_FIRST_BATTLE)
      {
 diff --git a/src/battle_main.c b/src/battle_main.c
-index 43cad76a64..443b726742 100644
+index 43cad76a64..45e8d7df6f 100644
 --- a/src/battle_main.c
 +++ b/src/battle_main.c
 @@ -3141,11 +3141,20 @@ bool32 InBattleRunningActions()
@@ -284,6 +303,14 @@ index 43cad76a64..443b726742 100644
              *(gBattleStruct->monToSwitchIntoId + battler) = PARTY_SIZE;
              if (gBattleTypeFlags & BATTLE_TYPE_MULTI
                  || (position & BIT_FLANK) == B_FLANK_LEFT
+@@ -4485,6 +4503,7 @@ static void HandleTurnActionSelectionState(void)
+                 case B_ACTION_USE_ITEM:
+                     if (gBattleTypeFlags & BATTLE_TYPE_TRAINER && VarGet(VAR_GAME_SETTING_DIFFICULTY_MODE) != GAME_SETTING_DIFFICULTY_EASY_MODE)
+                     {
++                        TestRunner_Battle_RejectTrainerItem(battler, gBattleStruct->chosenItem[battler]);
+                         RecordedBattle_ClearBattlerAction(battler, 1);
+                         gSelectionBattleScripts[battler] = BattleScript_ActionSelectionItemsCantBeUsed;
+                         gBattleCommunication[battler] = STATE_SELECTION_SCRIPT;
 diff --git a/src/battle_script_commands.c b/src/battle_script_commands.c
 index 39cc0803bb..8c1e789887 100644
 --- a/src/battle_script_commands.c
@@ -329,12 +356,33 @@ index 39cc0803bb..8c1e789887 100644
  
      if (gBattleTypeFlags & BATTLE_TYPE_PALACE
          && gBattleMons[battler].maxHP / 2 >= gBattleMons[battler].hp
+diff --git a/src/recorded_battle.c b/src/recorded_battle.c
+index c32e86b525..8c5a4cc7ad 100644
+--- a/src/recorded_battle.c
++++ b/src/recorded_battle.c
+@@ -166,10 +166,14 @@ void RecordedBattle_ClearBattlerAction(u8 battlerId, u8 bytesToClear)
+ 
+     for (i = 0; i < bytesToClear; i++)
+     {
+-        sBattlerRecordSizes[battlerId]--;
+-        sBattleRecords[battlerId][sBattlerRecordSizes[battlerId]] = 0xFF;
++        // Guard before the decrement: a battler with no recorded actions (the
++        // live AI side of a non-link recorded battle) has a zero cursor, and
++        // decrementing it underflowed the u16 and wrote sBattleRecords far out
++        // of bounds. Clearing nothing is the correct behaviour there.
+         if (sBattlerRecordSizes[battlerId] == 0)
+             break;
++        sBattlerRecordSizes[battlerId]--;
++        sBattleRecords[battlerId][sBattlerRecordSizes[battlerId]] = 0xFF;
+     }
+ }
+ 
 diff --git a/test/battle/ai/sidedex_dynamic.c b/test/battle/ai/sidedex_dynamic.c
 new file mode 100644
-index 0000000000..3e67a8cdbe
+index 0000000000..888fd64a07
 --- /dev/null
 +++ b/test/battle/ai/sidedex_dynamic.c
-@@ -0,0 +1,97 @@
+@@ -0,0 +1,104 @@
 +#include "global.h"
 +#include "test/battle.h"
 +#include "test/sidedex_dynamic.h"
@@ -420,6 +468,13 @@ index 0000000000..3e67a8cdbe
 +                MOVE(player, request->playerMove);
 +            else
 +                SWITCH(player, request->playerSlot);
++            // secondPresent == 3 marks a forced-switch scenario: the candidate
++            // turn is expected to faint the player's active monster, so the
++            // party index of the compulsory replacement is recorded here.
++            // The ROM holds at the forced-switch boundary and injects the real
++            // choice from the next request, so the recorded slot is overridden.
++            if (request->secondPresent == 3)
++                SEND_OUT(player, request->secondSlot);
 +        }
 +        if (request->secondPresent == 1) {
 +            TURN {
@@ -433,7 +488,7 @@ index 0000000000..3e67a8cdbe
 +    }
 +}
 diff --git a/test/test_runner.c b/test/test_runner.c
-index ced86196f0..a8c454eeb5 100644
+index ced86196f0..ab8ab24b6c 100644
 --- a/test/test_runner.c
 +++ b/test/test_runner.c
 @@ -6,9 +6,13 @@
@@ -459,7 +514,7 @@ index ced86196f0..a8c454eeb5 100644
  
  enum {
      CURRENT_TEST_STATE_ESTIMATE,
-@@ -27,6 +33,163 @@ __attribute__((section(".persistent"))) static struct {
+@@ -27,6 +33,172 @@ __attribute__((section(".persistent"))) static struct {
      u32 state:1;
  } sCurrentTest = {0};
  
@@ -545,7 +600,7 @@ index ced86196f0..a8c454eeb5 100644
 +     || request->opponentCount == 0 || request->opponentCount > SIDEDEX_DYNAMIC_PARTY_LIMIT
 +     || request->replayCount > 1
 +     || request->candidateKind > SIDEDEX_DYNAMIC_SWITCH
-+     || request->secondPresent > 2
++     || request->secondPresent > 3
 +     || request->op > SIDEDEX_DYNAMIC_QUERY_AI_ACTION
 +     || request->mode > SIDEDEX_DYNAMIC_MODE_LOGIC_ONLY
 +     || request->criticalPolicy > SIDEDEX_DYNAMIC_CRIT_ITEM_ABILITY_ONLY
@@ -571,6 +626,15 @@ index ced86196f0..a8c454eeb5 100644
 +        activePlayerSlot = request->replay.playerSlot;
 +    if (request->secondPresent == 2 && request->candidateKind == SIDEDEX_DYNAMIC_SWITCH)
 +        return FALSE;
++    if (request->secondPresent == 3)
++    {
++        // Forced-switch scenario: the candidate turn is expected to faint the
++        // player's active monster and secondSlot is the recorded
++        // compulsory-replacement party index (the ROM holds at the
++        // forced-switch boundary and injects the real choice).
++        if (request->secondSlot == 0 || request->secondSlot >= request->playerCount)
++            return FALSE;
++    }
 +    if (request->candidateKind == SIDEDEX_DYNAMIC_MOVE)
 +    {
 +        for (i = 0; i < MAX_MON_MOVES; i++)
@@ -623,7 +687,7 @@ index ced86196f0..a8c454eeb5 100644
  void TestRunner_Battle(const struct Test *);
  
  static bool32 MgbaOpen_(void);
-@@ -180,6 +343,42 @@ top:
+@@ -180,6 +352,42 @@ top:
              else
                  break;
          }
@@ -666,7 +730,7 @@ index ced86196f0..a8c454eeb5 100644
  
          Test_MgbaPrintf(":N%s", gTestRunnerState.test->name);
          Test_MgbaPrintf(":L%s:%d", gTestRunnerState.test->filename);
-@@ -379,7 +578,16 @@ top:
+@@ -379,7 +587,16 @@ top:
  
      case STATE_NEXT_TEST:
          gTestRunnerState.state = STATE_ASSIGN_TEST;
@@ -685,7 +749,7 @@ index ced86196f0..a8c454eeb5 100644
  
      case STATE_EXIT:
 diff --git a/test/test_runner_battle.c b/test/test_runner_battle.c
-index 4b4efed49f..9b1182b707 100644
+index 4b4efed49f..3dea305380 100644
 --- a/test/test_runner_battle.c
 +++ b/test/test_runner_battle.c
 @@ -15,6 +15,12 @@
@@ -720,7 +784,7 @@ index 4b4efed49f..9b1182b707 100644
  #define RNG_SEED_DEFAULT {0, 0, 0, 0}
  static inline bool32 RngSeedNotDefault(const rng_value_t *seed)
  {
-@@ -54,6 +72,775 @@ static void PushBattlerAction(u32 sourceLine, s32 battlerId, u32 actionType, u32
+@@ -54,6 +72,1143 @@ static void PushBattlerAction(u32 sourceLine, s32 battlerId, u32 actionType, u32
  static void PrintAiMoveLog(u32 battlerId, u32 moveSlot, u32 moveId, s32 totalScore);
  static void ClearAiLog(u32 battlerId);
  static const char *BattlerIdentifier(s32 battlerId);
@@ -787,6 +851,7 @@ index 4b4efed49f..9b1182b707 100644
 +static bool8 sSidedexBudgetReported;
 +static bool8 sSidedexTerminalEmitted;
 +static bool8 sSidedexUnrepresentableEmitted;
++static bool8 sSidedexItemRefused;
 +
 +static const char *SidedexCriticalPolicyLabel(void)
 +{
@@ -926,6 +991,46 @@ index 4b4efed49f..9b1182b707 100644
 +}
 +
 +// Legal player actions at the boundary, enumerated from the ROM (contract 2.2
++// rule 4, and contract 2 `legal_player_actions`). Detailed records are emitted
++// as `ROMTRACE|legal|move|...` / `ROMTRACE|legal|switch|...` with the same
++// `phase|<turn>|legal|...` mirror the other boundary records use. Player items
++// are never enumerated: the fixture models no player bag, and a trainer battle
++// outside easy mode forbids item actions outright (src/battle_main.c), so no
++// `legal|item` record can be emitted here.
++static void SidedexEmitLegalActions(u32 battler, u32 turn, bool32 forcedSwitch)
++{
++    u32 i;
++    u32 activeSlot = gBattleStruct->battlerPartyIndexes[battler];
++    u32 switchOnly = forcedSwitch || gBattleMons[battler].hp == 0;
++
++    if (!switchOnly)
++    {
++        u32 target = GetBattlerAtPosition(B_POSITION_OPPONENT_LEFT);
++        for (i = 0; i < MAX_MON_MOVES; i++)
++        {
++            if (gBattleMons[battler].moves[i] == MOVE_NONE || gBattleMons[battler].pp[i] == 0)
++                continue;
++            Test_MgbaPrintf("ROMTRACE|legal|move|%d|%d|%d",
++                            gBattleMons[battler].moves[i], gBattleMons[battler].pp[i], target);
++            Test_MgbaPrintf("ROMTRACE|phase|%d|legal|move|%d|%d|%d", turn,
++                            gBattleMons[battler].moves[i], gBattleMons[battler].pp[i], target);
++        }
++    }
++    if (switchOnly || CanBattlerEscape(battler))
++    {
++        for (i = 0; i < gSidedexDynamicRequest.playerCount; i++)
++        {
++            if (i == activeSlot || GetMonData(&gPlayerParty[i], MON_DATA_HP, NULL) == 0)
++                continue;
++            Test_MgbaPrintf("ROMTRACE|legal|switch|%d|%d", i,
++                            GetMonData(&gPlayerParty[i], MON_DATA_SPECIES, NULL));
++            Test_MgbaPrintf("ROMTRACE|phase|%d|legal|switch|%d|%d", turn, i,
++                            GetMonData(&gPlayerParty[i], MON_DATA_SPECIES, NULL));
++        }
++    }
++}
++
++// Legal player actions at the boundary, enumerated from the ROM (contract 2.2
 +// rule 4). Forced switch (active fainted) offers switches only.
 +static u32 SidedexLegalActionCount(u32 battler)
 +{
@@ -1022,11 +1127,16 @@ index 4b4efed49f..9b1182b707 100644
 +        if (gBattleResults.battleTurnCounter < gSidedexDynamicRequest.replayCount)
 +            return FALSE;
 +        turn = gBattleResults.battleTurnCounter;
++        // Wire-contract ordering: the boundary marker must be the LAST record of
++        // the boundary emission. The worker's batch stop treats
++        // ROMTRACE|boundary| as "this turn's evidence is complete", so emitting
++        // it before the state export truncates the export. Keep it last.
++        SidedexEmitLegalActions(battler, turn, FALSE);
++        SidedexEmitDecisionState(turn);
 +        Test_MgbaPrintf("ROMTRACE|boundary|player-choice|%d|%d", turn,
 +                        SidedexLegalActionCount(battler));
 +        Test_MgbaPrintf("ROMTRACE|phase|%d|boundary|player-choice|%d", turn,
 +                        SidedexLegalActionCount(battler));
-+        SidedexEmitDecisionState(turn);
 +        sSidedexBoundaryHold = TRUE;
 +        sSidedexHoldRequestId = gSidedexDynamicRequest.requestId;
 +    }
@@ -1043,11 +1153,13 @@ index 4b4efed49f..9b1182b707 100644
 +    if (!sSidedexBoundaryHold)
 +    {
 +        u32 turn = gBattleResults.battleTurnCounter;
++        // Marker last, as above.
++        SidedexEmitLegalActions(battler, turn, TRUE);
++        SidedexEmitDecisionState(turn);
 +        Test_MgbaPrintf("ROMTRACE|boundary|forced-switch-player|%d|%d", turn,
 +                        SidedexLegalActionCount(battler));
 +        Test_MgbaPrintf("ROMTRACE|phase|%d|boundary|forced-switch-player|%d", turn,
 +                        SidedexLegalActionCount(battler));
-+        SidedexEmitDecisionState(turn);
 +        sSidedexBoundaryHold = TRUE;
 +        sSidedexHoldRequestId = gSidedexDynamicRequest.requestId;
 +    }
@@ -1128,6 +1240,7 @@ index 4b4efed49f..9b1182b707 100644
 +    sSidedexBudgetReported = FALSE;
 +    sSidedexTerminalEmitted = FALSE;
 +    sSidedexUnrepresentableEmitted = FALSE;
++    sSidedexItemRefused = FALSE;
 +}
 +
 +enum
@@ -1171,6 +1284,313 @@ index 4b4efed49f..9b1182b707 100644
 +    damage = CalculateMoveDamage(&damageCalcData, 0);
 +    sSidedexQueryRngActive = FALSE;
 +    return max(0, damage);
++}
++
++// ---- Outcome-weight enumeration (contract phase 2, deliverable A2-3) -------
++// The ROM enumerates the COMPLETE joint distribution over the target's
++// remaining HP after the candidate move, so the Python layer only has to sum
++// integers. Weights are parts-per-million (denominator 1000000) of the exact
++// integer probability; the largest branch absorbs rounding, so every record's
++// weights sum exactly to the reported denominator. Mechanics folded in-ROM:
++// the engine damage roll spread (16 rolls via CalculateMoveDamage), the real
++// crit odds (critDen), the composed accuracy percent (GetTotalAccuracy),
++// per-hit crit/damage independence, the engine multi-hit count distribution
++// (src/battle_util.c SetRandomMultiHitCounter: RandomWeighted 7/7/3/3 for
++// 2/3/4/5, Loaded Dice 4..5, Skill Link 5), miss-terminates-the-sequence, and
++// Focus Sash / Sturdy at full HP (single-hit moves only; a multi-hit move
++// still KOs through them).
++//
++// Record spelling (also in tools/rom_oracle/README.md and Appendix A):
++//   ROMTRACE|query|outcomes|<owner>|<move>|<flags>|<chunk>|<chunks>|<denom>
++//          |<branches>|<hitsMode>|<minHits>|<maxHits>|<accuracy>
++//          |<hp>|<weight>|...            (<= 8 pairs per record)
++// flags bits: 1 multi-hit, 2 focus-sash folded in, 4 sturdy folded in,
++//             8 accuracy<100, 16 enumeration refused (0 branches).
++#define SDX_OUTCOME_DENOM 1000000
++// Damage/HP axis bound. Scratch is deliberately small (IWRAM is nearly full in
++// the test build): three s32 arrays of this size, reusing one for the HP fold.
++// Fixtures have maxHP <= 155 and per-hit damage <= ~120, so 256 is exact for
++// them; if a value clamps, flag bit 32 is set and the record says so.
++#define SDX_OUTCOME_MAXSUM 256
++#define SDX_OUTCOME_PER_RECORD 8
++#define SDX_OUTCOME_REFUSED 16
++#define SDX_OUTCOME_CLAMPED 32
++
++static s32 sSdxOutHitDmg[40];
++static s32 sSdxOutHitW[40];
++static s32 sSdxOutCur[SDX_OUTCOME_MAXSUM];
++static s32 sSdxOutTmp[SDX_OUTCOME_MAXSUM];
++static s32 sSdxOutAcc[SDX_OUTCOME_MAXSUM];
++static u8 sSdxOutBuf[512];
++
++static s32 SidedexOutScale(s32 a, s32 b)
++{
++    if (a <= 0 || b <= 0)
++        return 0;
++    return (s32)(((s64)a * (s64)b + SDX_OUTCOME_DENOM / 2) / SDX_OUTCOME_DENOM);
++}
++
++static u32 SidedexBufFieldInt(u8 *buf, u32 len, s32 v)
++{
++    u8 tmp[12];
++    u32 n = 0, i;
++    buf[len++] = '|';
++    if (v < 0)
++    {
++        buf[len++] = '-';
++        v = -v;
++    }
++    do
++    {
++        tmp[n++] = (u8)('0' + (v % 10));
++        v /= 10;
++    } while (v);
++    for (i = 0; i < n; i++)
++        buf[len++] = tmp[n - 1 - i];
++    return len;
++}
++
++static void SidedexEmitOutcomesRefused(u32 owner, u32 move, u32 flags)
++{
++    u32 len = 0;
++    const char *head = "ROMTRACE|query|outcomes";
++    while (*head)
++        sSdxOutBuf[len++] = *head++;
++    len = SidedexBufFieldInt(sSdxOutBuf, len, owner);
++    len = SidedexBufFieldInt(sSdxOutBuf, len, move);
++    len = SidedexBufFieldInt(sSdxOutBuf, len, (s32)(flags | SDX_OUTCOME_REFUSED));
++    len = SidedexBufFieldInt(sSdxOutBuf, len, 0);
++    len = SidedexBufFieldInt(sSdxOutBuf, len, 0);
++    len = SidedexBufFieldInt(sSdxOutBuf, len, SDX_OUTCOME_DENOM);
++    len = SidedexBufFieldInt(sSdxOutBuf, len, 0);
++    len = SidedexBufFieldInt(sSdxOutBuf, len, 0);
++    len = SidedexBufFieldInt(sSdxOutBuf, len, 1);
++    len = SidedexBufFieldInt(sSdxOutBuf, len, 1);
++    len = SidedexBufFieldInt(sSdxOutBuf, len, 0);
++    sSdxOutBuf[len] = 0;
++    Test_MgbaPrintf("%s", sSdxOutBuf);
++}
++
++static void SidedexEmitOutcomeWeights(u32 owner, u32 move, u32 battlerDef,
++                                      const u32 rollDamage[2][16],
++                                      u32 nonCritWeight, u32 critWeight,
++                                      u32 accuracy, u32 minHits, u32 maxHits,
++                                      u32 hitsMode, u32 flags)
++{
++    u32 i, j, k, idx, dmg;
++    u32 nHit = 0, nHitCounts = 0, hitDen = 1;
++    u32 hitCnt[8], hitWgt[8];
++    u32 perHitDen, hp = gBattleMons[battlerDef].hp, maxHp = gBattleMons[battlerDef].maxHP;
++    u32 outFlags = 0, branches = 0, chunks, chunk, curMax, newMax = 0, maxPerHit = 0;
++    s32 accW, missW, sum = 0, best = 0;
++    u32 multiHit = (flags & SIDEDEX_QUERY_MULTI_HIT_RANGE) != 0;
++    u32 sash = (flags & SIDEDEX_QUERY_FOCUS_SASH) != 0;
++    u32 sturdy = (flags & SIDEDEX_QUERY_STURDY) != 0;
++
++    perHitDen = 16 * (nonCritWeight + critWeight);
++    if (hp == 0)
++        return;
++    if (accuracy > 100)
++        accuracy = 100;
++
++    if (multiHit)
++        outFlags |= 1;
++    // Sash/sturdy are only *applied* (folded into the distribution) on a
++    // single-hit move; a multi-hit move KOs through both, so the flag would lie.
++    if (sash && !multiHit)
++        outFlags |= 2;
++    if (sturdy && !multiHit)
++        outFlags |= 4;
++    if (accuracy < 100)
++        outFlags |= 8;
++
++    for (i = 0; i < SDX_OUTCOME_MAXSUM; i++)
++        sSdxOutAcc[i] = 0;
++
++    if (gMovesInfo[move].category == DAMAGE_CATEGORY_STATUS)
++    {
++        // A status move never changes HP: one certain branch.
++        sSdxOutAcc[0] = SDX_OUTCOME_DENOM;
++    }
++    else
++    {
++        if (perHitDen == 0)
++        {
++            SidedexEmitOutcomesRefused(owner, move, outFlags);
++            return;
++        }
++        // Per-hit distribution conditional on the hit landing, DENOM scale.
++        for (i = 0; i < 16; i++)
++        {
++            if (nonCritWeight)
++            {
++                sSdxOutHitDmg[nHit] = (s32)rollDamage[0][i];
++                sSdxOutHitW[nHit++] = (s32)(((s64)SDX_OUTCOME_DENOM * nonCritWeight + perHitDen / 2) / perHitDen);
++            }
++            if (critWeight)
++            {
++                sSdxOutHitDmg[nHit] = (s32)rollDamage[1][i];
++                sSdxOutHitW[nHit++] = (s32)(((s64)SDX_OUTCOME_DENOM * critWeight + perHitDen / 2) / perHitDen);
++            }
++        }
++        if (nHit == 0)
++        {
++            SidedexEmitOutcomesRefused(owner, move, outFlags);
++            return;
++        }
++        for (i = 0; i < nHit; i++)
++        {
++            sum += sSdxOutHitW[i];
++            if ((u32)sSdxOutHitDmg[i] > maxPerHit)
++                maxPerHit = (u32)sSdxOutHitDmg[i];
++        }
++        sSdxOutHitW[0] += (s32)SDX_OUTCOME_DENOM - sum; // exact sum
++
++        switch (hitsMode)
++        {
++        case SIDEDEX_HITS_STANDARD:
++            hitCnt[0] = 2; hitWgt[0] = 7; hitCnt[1] = 3; hitWgt[1] = 7;
++            hitCnt[2] = 4; hitWgt[2] = 3; hitCnt[3] = 5; hitWgt[3] = 3;
++            nHitCounts = 4; hitDen = 20; break;
++        case SIDEDEX_HITS_LOADED_DICE:
++            hitCnt[0] = 4; hitWgt[0] = 1; hitCnt[1] = 5; hitWgt[1] = 1;
++            nHitCounts = 2; hitDen = 2; break;
++        case SIDEDEX_HITS_SKILL_LINK:
++            hitCnt[0] = 5; hitWgt[0] = 1; nHitCounts = 1; hitDen = 1; break;
++        case SIDEDEX_HITS_BATTLE_BOND:
++            hitCnt[0] = 3; hitWgt[0] = 1; nHitCounts = 1; hitDen = 1; break;
++        default:
++            hitCnt[0] = minHits; hitWgt[0] = 1; nHitCounts = 1; hitDen = 1; break;
++        }
++        if (maxHits < minHits)
++            maxHits = minHits;
++        if (maxHits == 0)
++            maxHits = 1;
++
++        accW = (s32)(((s64)SDX_OUTCOME_DENOM * accuracy + 50) / 100);
++        missW = (s32)SDX_OUTCOME_DENOM - accW;
++
++        for (idx = 0; idx < nHitCounts; idx++)
++        {
++            s32 hn = (s32)(((s64)SDX_OUTCOME_DENOM * hitWgt[idx]) / hitDen);
++            s32 runW = hn;
++            for (i = 0; i < SDX_OUTCOME_MAXSUM; i++)
++                sSdxOutCur[i] = 0;
++            sSdxOutCur[0] = SDX_OUTCOME_DENOM;
++            curMax = 0;
++            for (k = 0; k <= hitCnt[idx]; k++)
++            {
++                s32 wSeq;
++                if (k > 0)
++                {
++                    newMax = curMax + maxPerHit;
++                    if (newMax > SDX_OUTCOME_MAXSUM - 1)
++                        newMax = SDX_OUTCOME_MAXSUM - 1;
++                    for (i = 0; i < SDX_OUTCOME_MAXSUM; i++)
++                        sSdxOutTmp[i] = 0;
++                    for (dmg = 0; dmg <= curMax; dmg++)
++                    {
++                        if (sSdxOutCur[dmg] == 0)
++                            continue;
++                        for (j = 0; j < nHit; j++)
++                        {
++                            u32 t = dmg + (u32)sSdxOutHitDmg[j];
++                            if (t > newMax)
++                                t = newMax;
++                            sSdxOutTmp[t] += SidedexOutScale(sSdxOutCur[dmg], sSdxOutHitW[j]);
++                        }
++                    }
++                    for (i = 0; i <= newMax; i++)
++                        sSdxOutCur[i] = sSdxOutTmp[i];
++                    curMax = newMax;
++                    runW = SidedexOutScale(runW, accW); // reached k hits
++                }
++                // k < n: the next hit missed and ended the sequence.
++                // k == n: every allowed hit landed.
++                wSeq = (k < hitCnt[idx]) ? SidedexOutScale(runW, missW) : runW;
++                for (i = 0; i <= curMax; i++)
++                    if (sSdxOutCur[i])
++                        sSdxOutAcc[i] += SidedexOutScale(sSdxOutCur[i], wSeq);
++            }
++        }
++    }
++
++    // Fold damage into the target's remaining HP; sash/sturdy clamp full-HP KOs.
++    // The convolution scratch is finished with, so reuse it for the HP buckets.
++    for (i = 0; i < SDX_OUTCOME_MAXSUM; i++)
++        sSdxOutCur[i] = 0;
++    for (dmg = 0; dmg < SDX_OUTCOME_MAXSUM; dmg++)
++    {
++        s32 w = sSdxOutAcc[dmg];
++        u32 finalHp;
++        if (w == 0)
++            continue;
++        if (gMovesInfo[move].category != DAMAGE_CATEGORY_STATUS && dmg >= (s32)hp)
++            finalHp = (!multiHit && (sash || sturdy) && hp == maxHp) ? 1 : 0;
++        else
++            finalHp = hp - dmg;
++        if (finalHp >= SDX_OUTCOME_MAXSUM)
++        {
++            finalHp = SDX_OUTCOME_MAXSUM - 1;
++            outFlags |= SDX_OUTCOME_CLAMPED;
++        }
++        sSdxOutCur[finalHp] += w;
++    }
++    {
++        u32 hpLimit = min(hp + 1, (u32)SDX_OUTCOME_MAXSUM);
++        branches = 0;
++        sum = 0;
++        best = -1;
++        for (i = 0; i < hpLimit; i++)
++        {
++            if (sSdxOutCur[i] <= 0)
++                continue;
++            branches++;
++            sum += sSdxOutCur[i];
++            if (best < 0 || sSdxOutCur[i] > sSdxOutCur[best])
++                best = (s32)i;
++        }
++        if (branches == 0)
++        {
++            SidedexEmitOutcomesRefused(owner, move, outFlags);
++            return;
++        }
++        sSdxOutCur[best] += (s32)SDX_OUTCOME_DENOM - sum; // exact sum
++    }
++
++    chunks = (branches + SDX_OUTCOME_PER_RECORD - 1) / SDX_OUTCOME_PER_RECORD;
++    for (chunk = 0; chunk < chunks; chunk++)
++    {
++        u32 hpLimit = min(hp + 1, (u32)SDX_OUTCOME_MAXSUM);
++        u32 seen = 0, emitted = 0;
++        u32 len = 0;
++        const char *head = "ROMTRACE|query|outcomes";
++        while (*head)
++            sSdxOutBuf[len++] = *head++;
++        len = SidedexBufFieldInt(sSdxOutBuf, len, owner);
++        len = SidedexBufFieldInt(sSdxOutBuf, len, move);
++        len = SidedexBufFieldInt(sSdxOutBuf, len, (s32)outFlags);
++        len = SidedexBufFieldInt(sSdxOutBuf, len, (s32)chunk);
++        len = SidedexBufFieldInt(sSdxOutBuf, len, (s32)chunks);
++        len = SidedexBufFieldInt(sSdxOutBuf, len, SDX_OUTCOME_DENOM);
++        len = SidedexBufFieldInt(sSdxOutBuf, len, (s32)branches);
++        len = SidedexBufFieldInt(sSdxOutBuf, len, (s32)hitsMode);
++        len = SidedexBufFieldInt(sSdxOutBuf, len, (s32)minHits);
++        len = SidedexBufFieldInt(sSdxOutBuf, len, (s32)maxHits);
++        len = SidedexBufFieldInt(sSdxOutBuf, len, (s32)accuracy);
++        for (i = 0; i < hpLimit && emitted < SDX_OUTCOME_PER_RECORD; i++)
++        {
++            if (sSdxOutCur[i] <= 0)
++                continue;
++            if (seen++ < chunk * SDX_OUTCOME_PER_RECORD)
++                continue;
++            len = SidedexBufFieldInt(sSdxOutBuf, len, (s32)i);
++            len = SidedexBufFieldInt(sSdxOutBuf, len, sSdxOutCur[i]);
++            emitted++;
++        }
++        sSdxOutBuf[len] = 0;
++        Test_MgbaPrintf("%s", sSdxOutBuf);
++    }
 +}
 +
 +static void SidedexQueryMove(u32 owner, u32 battlerAtk, u32 battlerDef, u32 move)
@@ -1227,11 +1647,14 @@ index 4b4efed49f..9b1182b707 100644
 +    {
 +        Test_MgbaPrintf("ROMTRACE|query|damage|%d|%d|0|0|%d|0|0|0|0",
 +                        owner, move, flags);
++        SidedexEmitOutcomesRefused(owner, move, flags);
 +        return;
 +    }
 +    if (gMovesInfo[move].category == DAMAGE_CATEGORY_STATUS)
 +    {
 +        Test_MgbaPrintf("ROMTRACE|query|damage|%d|%d|0|1600|0|0|0|0|1", owner, move);
++        SidedexEmitOutcomeWeights(owner, move, battlerDef, rollDamage, 0, 0, 100,
++                                  1, 1, SIDEDEX_HITS_FIXED, flags);
 +        return;
 +    }
 +
@@ -1327,10 +1750,15 @@ index 4b4efed49f..9b1182b707 100644
 +                        rollDamage[1][8], rollDamage[1][9], rollDamage[1][10], rollDamage[1][11],
 +                        rollDamage[1][12], rollDamage[1][13], rollDamage[1][14], rollDamage[1][15]);
 +    }
++    // Complete outcome-weight enumeration for this move (contract phase 2).
++    SidedexEmitOutcomeWeights(owner, move, battlerDef, rollDamage, nonCritWeight,
++                              critWeight, accuracy, minHits, maxHits, hitsMode, flags);
 +    gBattlerAttacker = oldAttacker;
 +    gBattlerTarget = oldTarget;
 +    gCurrentMove = oldMove;
 +}
++
++// Complete outcome-weight enumeration (see SidedexEmitOutcomeWeights).
 +static u32 SidedexDynamicPartySlot(u32 battler)
 +{
 +    const volatile struct SidedexDynamicMon *party;
@@ -1375,6 +1803,10 @@ index 4b4efed49f..9b1182b707 100644
 +                    gSidedexDynamicRequest.replayCount
 +                     && gSidedexDynamicRequest.replay.playerKind == SIDEDEX_DYNAMIC_SWITCH
 +                        ? "post-switch" : "current-state");
++    // The query is taken at the same pre-choice decision point as a boundary,
++    // so the ROM-derived legal player actions are reported here too.
++    SidedexEmitLegalActions(GetBattlerAtPosition(B_POSITION_PLAYER_LEFT),
++                            gBattleResults.battleTurnCounter, FALSE);
 +    for (moveSlot = 0; moveSlot < gBattlersCount; moveSlot++)
 +    {
 +        u32 side = GetBattlerSide(moveSlot);
@@ -1496,7 +1928,7 @@ index 4b4efed49f..9b1182b707 100644
  
  NAKED static void InvokeSingleTestFunctionWithStack(void *results, u32 i, struct BattlePokemon *player, struct BattlePokemon *opponent, SingleBattleTestFunction function, void *stack)
  {
-@@ -353,6 +1140,11 @@ static void BattleTest_Run(void *data)
+@@ -353,6 +1508,11 @@ static void BattleTest_Run(void *data)
  
  u32 RandomUniform(enum RandomTag tag, u32 lo, u32 hi)
  {
@@ -1508,7 +1940,7 @@ index 4b4efed49f..9b1182b707 100644
      const struct BattlerTurn *turn = NULL;
  
      if (gCurrentTurnActionNumber < gBattlersCount)
-@@ -384,7 +1176,9 @@ u32 RandomUniform(enum RandomTag tag, u32 lo, u32 hi)
+@@ -384,7 +1544,9 @@ u32 RandomUniform(enum RandomTag tag, u32 lo, u32 hi)
  }
  
  u32 RandomUniformExcept(enum RandomTag tag, u32 lo, u32 hi, bool32 (*reject)(u32))
@@ -1519,7 +1951,7 @@ index 4b4efed49f..9b1182b707 100644
      const struct BattlerTurn *turn = NULL;
      u32 default_;
  
-@@ -435,7 +1229,9 @@ u32 RandomUniformExcept(enum RandomTag tag, u32 lo, u32 hi, bool32 (*reject)(u32
+@@ -435,7 +1597,9 @@ u32 RandomUniformExcept(enum RandomTag tag, u32 lo, u32 hi, bool32 (*reject)(u32
  }
  
  u32 RandomWeightedArray(enum RandomTag tag, u32 sum, u32 n, const u8 *weights)
@@ -1530,7 +1962,7 @@ index 4b4efed49f..9b1182b707 100644
      const struct BattlerTurn *turn = NULL;
  
      if (sum == 0)
-@@ -501,7 +1297,9 @@ u32 RandomWeightedArray(enum RandomTag tag, u32 sum, u32 n, const u8 *weights)
+@@ -501,7 +1665,9 @@ u32 RandomWeightedArray(enum RandomTag tag, u32 sum, u32 n, const u8 *weights)
  }
  
  const void *RandomElementArray(enum RandomTag tag, const void *array, size_t size, size_t count)
@@ -1541,7 +1973,7 @@ index 4b4efed49f..9b1182b707 100644
      const struct BattlerTurn *turn = NULL;
      u32 index = count-1;
  
-@@ -561,6 +1359,8 @@ static s32 TryAbilityPopUp(s32 i, s32 n, u32 battlerId, u32 ability)
+@@ -561,6 +1727,8 @@ static s32 TryAbilityPopUp(s32 i, s32 n, u32 battlerId, u32 ability)
  
  void TestRunner_Battle_RecordAbilityPopUp(u32 battlerId, u32 ability)
  {
@@ -1550,7 +1982,7 @@ index 4b4efed49f..9b1182b707 100644
      s32 queuedEvent;
      s32 match;
      struct QueuedEvent *event;
-@@ -714,6 +1514,12 @@ static s32 TryHP(s32 i, s32 n, u32 battlerId, u32 oldHP, u32 newHP)
+@@ -714,6 +1882,12 @@ static s32 TryHP(s32 i, s32 n, u32 battlerId, u32 oldHP, u32 newHP)
  
  void TestRunner_Battle_RecordHP(u32 battlerId, u32 oldHP, u32 newHP)
  {
@@ -1563,7 +1995,7 @@ index 4b4efed49f..9b1182b707 100644
      s32 queuedEvent;
      s32 match;
      struct QueuedEvent *event;
-@@ -779,6 +1585,8 @@ static u32 CountAiExpectMoves(struct ExpectedAIAction *expectedAction, u32 battl
+@@ -779,6 +1953,8 @@ static u32 CountAiExpectMoves(struct ExpectedAIAction *expectedAction, u32 battl
  
  void TestRunner_Battle_CheckChosenMove(u32 battlerId, u32 moveId, u32 target)
  {
@@ -1572,7 +2004,7 @@ index 4b4efed49f..9b1182b707 100644
      const char *filename = gTestRunnerState.test->filename;
      u32 id = DATA.trial.aiActionsPlayed[battlerId];
      struct ExpectedAIAction *expectedAction = &DATA.expectedAiActions[battlerId][id];
-@@ -850,6 +1658,8 @@ void TestRunner_Battle_CheckChosenMove(u32 battlerId, u32 moveId, u32 target)
+@@ -850,6 +2026,8 @@ void TestRunner_Battle_CheckChosenMove(u32 battlerId, u32 moveId, u32 target)
  
  void TestRunner_Battle_CheckSwitch(u32 battlerId, u32 partyIndex)
  {
@@ -1581,7 +2013,7 @@ index 4b4efed49f..9b1182b707 100644
      const char *filename = gTestRunnerState.test->filename;
      u32 id = DATA.trial.aiActionsPlayed[battlerId];
      struct ExpectedAIAction *expectedAction = &DATA.expectedAiActions[battlerId][id];
-@@ -870,6 +1680,90 @@ void TestRunner_Battle_CheckSwitch(u32 battlerId, u32 partyIndex)
+@@ -870,6 +2048,105 @@ void TestRunner_Battle_CheckSwitch(u32 battlerId, u32 partyIndex)
      DATA.trial.aiActionsPlayed[battlerId]++;
  }
  
@@ -1594,24 +2026,39 @@ index 4b4efed49f..9b1182b707 100644
 +    SidedexOracleTraceSnapshot("switch-settled");
 +}
 +
++// The ROM's own ruleset refuses a trainer item action in a trainer battle
++// outside easy mode (src/battle_main.c STATE_WAIT_ACTION_CHOSEN). The AI has
++// already *decided* to use an item by then, so the resolved turn cannot
++// reproduce the query's item prediction. Report the refusal instead of
++// silently substituting the fallback move.
++void TestRunner_Battle_RejectTrainerItem(u32 battler, u32 item)
++{
++    if (!SidedexDynamicTraceActive() || sSidedexItemRefused)
++        return;
++    sSidedexItemRefused = TRUE;
++    Test_MgbaPrintf("ROMTRACE|unrepresentable|trainer-item-decision");
++    Test_MgbaPrintf("ROMTRACE|phase|%d|unrepresentable|trainer-item-decision",
++                    gBattleResults.battleTurnCounter);
++    Test_MgbaPrintf("ROMTRACE|phase|%d|item-refused|%d|%d",
++                    gBattleResults.battleTurnCounter, battler, item);
++}
++
 +void TestRunner_Battle_ApplyTrainerItems(void)
 +{
 +    u32 i;
-+    // Trainer items are applied only for the pre-choice query turn. Enabling
-+    // this for a resolved SIMULATE_TURN was tried in v8 and stalls the turn: the
-+    // battle completes action selection (`ROMTRACE|action|0|0|...` and
-+    // `ROMTRACE|action|0|1|...` are emitted) and then makes no further progress
-+    // for at least 1500 frames, with no hp/faint/boundary record. The stall
-+    // reproduces for any item list, including one the AI would not use
-+    // (opponent at 80/155 HP with an unused Potion), so it is the presence of a
-+    // resolved-turn trainer bag that breaks the harness, not the heal decision.
-+    // Reproduce: build the v8 ELF, root the dynamic_sample request with
-+    // `trainer_items={"ITEM_POTION":1}`, then inject a player Tackle.
-+    // Therefore the resolved turn stays item-agnostic (the v7 behaviour) and the
-+    // query carries the item prediction; see README "Trainer items".
++    // Trainer items are copied into the battle history for BOTH the pre-choice
++    // query turn and a resolved SIMULATE_TURN, so the AI makes the real item
++    // decision in either case. A resolved turn cannot *execute* the item: in a
++    // trainer battle outside easy mode the ROM ruleset refuses
++    // B_ACTION_USE_ITEM (src/battle_main.c), and the AI then falls back to a
++    // move. That divergence is reported by TestRunner_Battle_RejectTrainerItem
++    // as `ROMTRACE|unrepresentable|trainer-item-decision` and the turn
++    // completes; it never stalls. (The v8 stall was a separate base-code bug:
++    // RecordedBattle_ClearBattlerAction underflowed the u16 record cursor for a
++    // battler with no recorded actions and wrote sBattleRecords[battler][65535],
++    // corrupting EWRAM. Fixed in src/recorded_battle.c.)
 +    if (!SidedexDynamicTraceActive()
 +     || gSidedexDynamicRequest.version != SIDEDEX_DYNAMIC_VERSION
-+     || gSidedexDynamicRequest.secondPresent != 2
 +     || gSidedexDynamicRequest.trainerItemCount == 0)
 +        return;
 +    for (i = 0; i < MAX_TRAINER_ITEMS; i++)
@@ -1672,7 +2119,7 @@ index 4b4efed49f..9b1182b707 100644
  void TestRunner_Battle_InvalidNoHPMon(u32 battlerId, u32 partyIndex)
  {
      Test_ExitWithResult(TEST_RESULT_INVALID, SourceLine(0), ":L%s: INVALID: %s trying to send out a mon(id: %d) with 0 HP.",
-@@ -1254,6 +2148,8 @@ static s32 TryStatus(s32 i, s32 n, u32 battlerId, u32 status1)
+@@ -1254,6 +2531,8 @@ static s32 TryStatus(s32 i, s32 n, u32 battlerId, u32 status1)
  
  void TestRunner_Battle_RecordStatus1(u32 battlerId, u32 status1)
  {
@@ -1681,7 +2128,7 @@ index 4b4efed49f..9b1182b707 100644
      s32 queuedEvent;
      s32 match;
      struct QueuedEvent *event;
-@@ -1309,7 +2205,34 @@ void TestRunner_Battle_AfterLastTurn(void)
+@@ -1309,7 +2588,36 @@ void TestRunner_Battle_AfterLastTurn(void)
  {
      const struct BattleTest *test = GetBattleTest();
  
@@ -1694,10 +2141,12 @@ index 4b4efed49f..9b1182b707 100644
 +        if (gBattleOutcome != 0 || NoAliveMonsForEitherParty())
 +        {
 +            // Terminal: explicit result and a stop marker so the worker never
-+            // spins to the frame cap (contract 2 rule 5).
-+            TestRunner_Battle_EmitTerminal();
++            // spins to the frame cap (contract 2 rule 5). The terminal marker is
++            // the strongest stop, so it is emitted LAST (same wire-contract rule
++            // as the boundary marker).
 +            gSidedexDynamicRequest.status = SIDEDEX_DYNAMIC_COMPLETE;
 +            Test_MgbaPrintf("ROMTRACE|complete|%d", gBattleResults.battleTurnCounter);
++            TestRunner_Battle_EmitTerminal();
 +        }
 +        else if (SidedexDynamicSimulate())
 +        {

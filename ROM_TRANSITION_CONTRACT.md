@@ -293,3 +293,42 @@ prints `ROMTRACE|invalid|1`.
 | `ROMTRACE|phase|<turn>|boundary\|terminal\|unrepresentable\|...` | compatibility mirror kept by the legacy slim trace filter |
 | `ROMTRACE|phase|<turn>|state|<group>|...` | decoded state export (groups and field counts in `tools/rom_oracle/README.md`) |
 | `ROMTRACE|rng|<turn>|a|b|c|ctr|a2|b2|c2|ctr2` | both RNG streams at the boundary (unchanged v7 marker) |
+
+### Appendix A addendum (A2 revision)
+
+Mailbox layout, `SIDEDEX_DYNAMIC_VERSION` (8) and every byte offset above are
+**unchanged** by A2. The A2 artifact is
+`native/rom_worker/build/mingw/pokeemerald-test-v8b.elf`.
+
+New/changed trace spellings (all additive; canonical spellings unchanged):
+
+| Marker | Meaning |
+| --- | --- |
+| `ROMTRACE|legal|move|<move_id>|<pp>|<target>` | ROM-derived legal player move at a decision point |
+| `ROMTRACE|legal|switch|<slot>|<species>` | ROM-derived legal player switch at a decision point |
+| `ROMTRACE|legal|item|<item_id>` | reserved; never emitted in this build (no player bag, and trainer battles outside easy mode forbid item actions) |
+| `ROMTRACE|phase|<turn>|legal|move\|switch\|item|...` | slim-filter mirror of the above |
+| `ROMTRACE|query|outcomes|<owner>|<move>|<flags>|<chunk>|<chunks>|<denom>|<branches>|<hitsMode>|<minHits>|<maxHits>|<accuracy>|<hp>|<weight>|...` | complete outcome-weight enumeration, <= 8 branches per record, `denom` 1000000, weights sum to `denom` |
+| `ROMTRACE|unrepresentable|trainer-item-decision` | the AI's item decision was refused by the ROM ruleset inside a resolved turn; the transition is `unsupported-mechanic` |
+| `ROMTRACE|phase|<turn>|item-refused|<battler>|<item_id>` | diagnostic detail for the refusal |
+
+`query|outcomes` `flags` bits: 1 multi-hit, 2 Focus Sash folded in, 4 Sturdy
+folded in, 8 accuracy < 100, 16 enumeration refused, 32 internal axis clamp.
+`hitsMode`: 0 standard 2-5, 1 Loaded Dice, 2 Skill Link, 3 Battle Bond, 4 fixed.
+
+**Wire-contract ordering rule (part of the wire protocol):** `ROMTRACE|boundary|`
+and `ROMTRACE|terminal|` must be the LAST records of their emission. The worker's
+`batch_turns` stop treats them as "the turn's evidence is complete" and ends the
+frame loop, so a marker emitted before the state/legal/rng/export group truncates
+it (measured: 4 of 37 records returned before the fix, 37 of 37 after).
+
+`secondPresent` (offset 842) values: 0 plain candidate turn, 1 second scripted
+turn, 2 pre-choice query, 3 forced-switch scenario (`secondSlot` at 840 is the
+recorded compulsory-replacement party index; the ROM holds at the
+`forced-switch-player` boundary and injects the real choice).
+
+A2 also fixes a base-code bug in `src/recorded_battle.c`:
+`RecordedBattle_ClearBattlerAction` decremented a `u16` cursor before testing it,
+so a battler with no recorded actions (the live AI of a non-link recorded battle)
+underflowed to 65535 and wrote `sBattleRecords[battler][65535]`, ~64 KiB out of
+bounds. The guard now runs before the decrement.
