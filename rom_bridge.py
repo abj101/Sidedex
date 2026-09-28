@@ -35,13 +35,11 @@ from rom_identity import (
     WORKER_SHA256,
 )  # noqa: F401  (re-exported)
 
-# Contract Appendix B (v2 execution amendment). The pinned v8 / wire-2 path keeps
-# the rom_identity values above; the v9 ROM hook and the wire-3 compact turn are
-# named here explicitly so neither side ever guesses a layout from a reply.
+# Contract Appendix B (v2 execution amendment). Gate V1 retired wire 2: the
+# pinned worker is wire 3 (rom_identity.PROTOCOL_VERSION). The v9 ROM hook and
+# the compact-turn schemas are named here explicitly so neither side ever
+# guesses a layout from a reply.
 ROM_HOOK_V9 = 9
-LEGACY_PROTOCOL_VERSION = PROTOCOL_VERSION              # 2, pinned wire protocol
-LEGACY_WORKER_VERSION = WORKER_VERSION                 # sidedex-mgba-worker/0.2.0
-WORKER_V3_VERSION = "sidedex-mgba-worker/0.3.0"
 TRANSITION_SCHEMA_V2 = "sidedex-transition-v2"
 DECODE_SCHEMA = "decode-v2"
 
@@ -70,7 +68,6 @@ MAX_BLOB_BASE64_BYTES = 900_000
 STOP_KINDS = ("boundary", "terminal", "turn-complete")
 # 256 bounded trace events (up to 510 bytes each, JSON escaped) fit below 1 MiB.
 MAX_MESSAGE_BYTES = 1_048_576
-V3_PROTOCOL_VERSION = 3
 # Contract C.3: a nonzero SDR2 status carries a tag 11 {reason, source} record.
 V3_RESULT_ERROR_CODES = {(1, 1, 1): "incomplete-state"}
 
@@ -197,7 +194,7 @@ def worker_identity(worker_version: str, pid: int, started_at: float, artifact_s
 class RomWorkerClient:
     """One serialized request stream connected to a persistent mGBA process."""
 
-    # Defaults for the pinned v8 / wire-2 path, so a partially built client
+    # Defaults for the pinned wire-3 path, so a partially built client
     # (object.__new__ in the tests) still validates identity predictably.
     wire_protocol = PROTOCOL_VERSION
     worker_version = WORKER_VERSION
@@ -219,10 +216,10 @@ class RomWorkerClient:
         worker = Path(worker_path).expanduser().resolve()
         rom = Path(rom_path).expanduser().resolve()
         self._timeout = float(timeout)
-        if type(wire_protocol) is not int or wire_protocol not in (LEGACY_PROTOCOL_VERSION, V3_PROTOCOL_VERSION):
-            raise ValueError("wire_protocol must be 2 or 3")
+        if type(wire_protocol) is not int or wire_protocol != PROTOCOL_VERSION:
+            raise ValueError(f"wire_protocol must be {PROTOCOL_VERSION}")
         self.wire_protocol = wire_protocol
-        self.worker_version = WORKER_V3_VERSION if wire_protocol == V3_PROTOCOL_VERSION else WORKER_VERSION
+        self.worker_version = WORKER_VERSION
         self._lock = threading.Lock()
         self._closed = False
         self._stderr_lines: queue.Queue = queue.Queue(maxsize=16)
@@ -360,13 +357,12 @@ class RomWorkerClient:
         for key, expected in required.items():
             if reply.get(key) != expected:
                 raise WorkerProtocolError(f"worker {key} does not match the pinned build")
-        if self.wire_protocol == V3_PROTOCOL_VERSION:
-            if reply.get("supported_wire_protocols") != [V3_PROTOCOL_VERSION]:
-                raise WorkerProtocolError("worker does not advertise wire protocol 3")
-            for key, expected in (("state_schema", STATE_SCHEMA), ("transition_schema", TRANSITION_SCHEMA_V2),
-                                  ("decode_schema", DECODE_SCHEMA)):
-                if reply.get(key) != expected:
-                    raise WorkerProtocolError(f"worker {key} does not match the transition contract")
+        if reply.get("supported_wire_protocols") != [PROTOCOL_VERSION]:
+            raise WorkerProtocolError(f"worker does not advertise wire protocol {PROTOCOL_VERSION}")
+        for key, expected in (("state_schema", STATE_SCHEMA), ("transition_schema", TRANSITION_SCHEMA_V2),
+                              ("decode_schema", DECODE_SCHEMA)):
+            if reply.get(key) != expected:
+                raise WorkerProtocolError(f"worker {key} does not match the transition contract")
         if type(reply.get("rom_bytes")) is not int or reply["rom_bytes"] <= 0:
             raise WorkerProtocolError("worker status has an invalid ROM size")
         if reply["rom_bytes"] != self._rom_size:
@@ -700,9 +696,7 @@ class RomWorkerClient:
         turns = self._validate_batch_reply(reply, len(payloads), max_frames)
         elapsed_ms = (time.monotonic() - started) * 1000
         timed_turns = [turn for turn in turns if "elapsed_ms" in turn and "restore_ms" in turn]
-        # Kept at the v3 literal: this was integration's pinned value for the
-        # batch envelope before the v9/wire-3 work and the current suite pins it.
-        return {"protocol_version": V3_PROTOCOL_VERSION, **expected, "turns": turns,
+        return {"protocol_version": PROTOCOL_VERSION, **expected, "turns": turns,
                 "elapsed_ms": elapsed_ms, "mean_turn_ms": elapsed_ms / len(turns),
                 "ipc_request_bytes": reply["_request_wire_bytes"],
                 "ipc_response_bytes": reply["_wire_bytes"],
@@ -719,8 +713,8 @@ class RomWorkerClient:
         handle: str | None = None, mode: int = 0, critical_policy: int = 0,
     ) -> dict[str, Any]:
         """Run v9 mailboxes and return verified SDR2 results plus immutable children."""
-        if self.wire_protocol != V3_PROTOCOL_VERSION:
-            raise WorkerProtocolError("batch_turns_v3 requires a protocol-3 worker")
+        if self.wire_protocol != PROTOCOL_VERSION:
+            raise WorkerProtocolError("batch_turns_v3 requires a wire-3 worker")
         if handle is not None:
             handle = self._validate_handle(handle)
         elif not self._has_checkpoint:
@@ -826,7 +820,7 @@ class RomWorkerClient:
                 child = {**child, "owner_worker": self.worker_id, "portable": True}
             parsed.append({**turn, "binary": binary, "child": child})
         elapsed_ms = (time.monotonic() - started) * 1000
-        return {"protocol_version": V3_PROTOCOL_VERSION, **expected, "turns": parsed,
+        return {"protocol_version": PROTOCOL_VERSION, **expected, "turns": parsed,
                 "ipc_request_bytes": len(json.dumps({"protocol": 3, "op": "batch_turns_v3", **fields},
                                                      separators=(",", ":")).encode("utf-8")) + 1,
                 "ipc_response_bytes": reply["_wire_bytes"], "elapsed_ms": elapsed_ms,

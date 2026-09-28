@@ -27,6 +27,24 @@ TRACE_ELF_SHA256 = "44BDBE5AA7A071064A1DCA20C411B0E3AB56C8E4D8FCA00857F3B50D56C5
 EXPECTED_TRACE_COUNT = 170
 EXPECTED_TRACE_LINES = ROOT / "tools" / "rom_oracle" / "expected_trace.raw.txt"
 
+# The fake workers below read their status and slot identity from the environment
+# so the values are built from the active pin and a coordinated identity flip
+# cannot leave stale literals behind.
+FAKE_STATUS = json.dumps({
+    "protocol": rom_bridge.PROTOCOL_VERSION, "ok": True, "platform": "gba",
+    "rom_title": "TEST", "rom_code": "TEST", "frame_count": 0,
+    "worker": rom_bridge.WORKER_VERSION, "mgba": rom_bridge.MGBA_VERSION,
+    "supported_wire_protocols": [rom_bridge.PROTOCOL_VERSION],
+    "state_schema": rom_bridge.STATE_SCHEMA,
+    "transition_schema": rom_bridge.TRANSITION_SCHEMA_V2,
+    "decode_schema": rom_bridge.DECODE_SCHEMA,
+})
+FAKE_SLOT_IDENTITY = json.dumps({
+    "worker_version": rom_bridge.WORKER_VERSION, "mgba_version": rom_bridge.MGBA_VERSION,
+    "wire_protocol": rom_bridge.PROTOCOL_VERSION, "save_format": rom_bridge.SAVE_FORMAT_ID,
+})
+FAKE_ENV = {"FAKE_STATUS": FAKE_STATUS, "FAKE_SLOT_IDENTITY": FAKE_SLOT_IDENTITY}
+
 
 class IdentityTests(unittest.TestCase):
     def test_rejects_missing_rom_before_worker_launch(self):
@@ -73,8 +91,8 @@ class ProtocolTests(unittest.TestCase):
         client = object.__new__(rom_bridge.RomWorkerClient)
         client.rom_sha256 = rom_bridge.ROM_SHA256
         client.worker_sha256 = rom_bridge.WORKER_SHA256
-        client.wire_protocol = rom_bridge.V3_PROTOCOL_VERSION
-        client.worker_version = rom_bridge.WORKER_V3_VERSION
+        client.wire_protocol = rom_bridge.PROTOCOL_VERSION
+        client.worker_version = rom_bridge.WORKER_VERSION
         client._worker_id = "worker-v3|pid=1|start=1|artifact=" + rom_bridge.ROM_SHA256.lower()
         client._timeout = 5.0
         client._has_checkpoint = True
@@ -86,10 +104,10 @@ class ProtocolTests(unittest.TestCase):
                 "result": base64.b64encode(self._sdr2(token, boundary=boundary, status=status)).decode("ascii")}
         if child:
             turn["child"] = {"handle": "a" * 32, "bytes": 512, "sha256": "b" * 64,
-                             "identity": {"worker_version": rom_bridge.WORKER_V3_VERSION,
+                             "identity": {"worker_version": rom_bridge.WORKER_VERSION,
                                           "mgba_version": rom_bridge.MGBA_VERSION,
                                           "artifact_sha256": rom_bridge.ROM_SHA256,
-                                          "wire_protocol": rom_bridge.V3_PROTOCOL_VERSION,
+                                          "wire_protocol": rom_bridge.PROTOCOL_VERSION,
                                           "save_format": rom_bridge.SAVE_FORMAT_ID}}
         turn.update(turn_overrides)
         sent = {}
@@ -177,11 +195,13 @@ class ProtocolTests(unittest.TestCase):
 
     def test_worker_error_is_a_typed_error(self):
         with self.assertRaises(rom_bridge.WorkerResponseError) as raised:
-            rom_bridge._parse_reply('{"protocol":2,"ok":false,"error":"invalid-request"}')
+            rom_bridge._parse_reply(json.dumps({"protocol": rom_bridge.PROTOCOL_VERSION,
+                                                "ok": False, "error": "invalid-request"}))
         self.assertEqual(raised.exception.code, "invalid-request")
         for code in ("stale-handle", "identity-mismatch", "deadline-exceeded", "worker-failed"):
             with self.assertRaises(rom_bridge.WorkerResponseError) as raised:
-                rom_bridge._parse_reply(json.dumps({"protocol": 2, "ok": False, "error": code}))
+                rom_bridge._parse_reply(json.dumps(
+                    {"protocol": rom_bridge.PROTOCOL_VERSION, "ok": False, "error": code}))
             self.assertEqual(raised.exception.code, code)
 
     def test_memory_and_frame_arguments_are_validated_before_write(self):
@@ -369,19 +389,15 @@ class ProtocolTests(unittest.TestCase):
             fake_worker = r"""
 import json, os, sys
 rom = sys.argv[-1]
-status = {
-    "protocol": 2, "ok": True,
-    "worker": "sidedex-mgba-worker/0.2.0", "mgba": "0.10.5+26b7884",
-    "platform": "gba", "rom_title": "TEST", "rom_code": "TEST",
-    "rom_bytes": os.path.getsize(rom), "frame_count": 7,
-}
+status = json.loads(os.environ["FAKE_STATUS"])
+status.update({"rom_bytes": os.path.getsize(rom), "frame_count": 7})
 print(json.dumps(status), flush=True)
 request = json.loads(sys.stdin.readline())
 print(json.dumps({**status, "op": request["op"], "address": request["address"], "data": request["data"]}), flush=True)
 sys.stdin.readline()
-print(json.dumps({"protocol": 2, "ok": True}), flush=True)
+print(json.dumps({"protocol": status["protocol"], "ok": True}), flush=True)
 """
-            with patch.object(rom_bridge, "ROM_SHA256", digest):
+            with patch.dict(os.environ, FAKE_ENV), patch.object(rom_bridge, "ROM_SHA256", digest):
                 with rom_bridge.RomWorkerClient(
                     sys.executable,
                     rom,
@@ -405,19 +421,15 @@ print(json.dumps({"protocol": 2, "ok": True}), flush=True)
             lock = temp / "source_lock.json"
             lock.write_text(json.dumps({"commit": rom_bridge.SOURCE_SHA}), encoding="utf-8")
             fake_worker = r"""
-import json, sys, time
+import json, os, sys, time
 rom = sys.argv[-1]
-print(json.dumps({
-    "protocol": 2, "ok": True,
-    "worker": "sidedex-mgba-worker/0.2.0",
-    "mgba": "0.10.5+26b7884", "platform": "gba",
-    "rom_title": "TEST", "rom_code": "TEST",
-    "rom_bytes": __import__("os").path.getsize(rom), "frame_count": 0
-}), flush=True)
+status = json.loads(os.environ["FAKE_STATUS"])
+status["rom_bytes"] = os.path.getsize(rom)
+print(json.dumps(status), flush=True)
 sys.stdin.readline()
 time.sleep(3)
 """
-            with patch.object(rom_bridge, "ROM_SHA256", digest):
+            with patch.dict(os.environ, FAKE_ENV), patch.object(rom_bridge, "ROM_SHA256", digest):
                 client = rom_bridge.RomWorkerClient(
                     sys.executable,
                     rom,
@@ -442,24 +454,26 @@ time.sleep(3)
             fake_worker = r"""
 import json, os, sys
 rom = sys.argv[-1]
-status = {"protocol":2,"ok":True,"worker":"sidedex-mgba-worker/0.2.0","mgba":"0.10.5+26b7884","platform":"gba","rom_title":"TEST","rom_code":"TEST","rom_bytes":os.path.getsize(rom),"frame_count":0}
+status = json.loads(os.environ["FAKE_STATUS"])
+status["rom_bytes"] = os.path.getsize(rom)
+protocol = status["protocol"]
 print(json.dumps(status), flush=True)
 for line in sys.stdin:
     req = json.loads(line)
     if req["op"] == "save_state":
+        identity = json.loads(os.environ["FAKE_SLOT_IDENTITY"])
+        identity["artifact_sha256"] = req["artifact_sha256"]
         slot = {"handle":"a"*32,"name":req.get("name","default"),"bytes":123,"sha256":"b"*64,
-                "identity":{"worker_version":"sidedex-mgba-worker/0.2.0","mgba_version":"0.10.5+26b7884",
-                            "artifact_sha256":req["artifact_sha256"],"wire_protocol":2,
-                            "save_format":"mgba-savestate-savedata-rtc-v1"}}
-        out = {"protocol":2,"ok":True,"slot":slot}
+                "identity":identity}
+        out = {"protocol":protocol,"ok":True,"slot":slot}
     elif req["op"] == "batch_turns":
-        out = {"protocol":2,"ok":True,"request_id":req["request_id"],"source_sha":req["source_sha"],"engine_elf_sha256":req["engine_elf_sha256"],"worker_sha256":req["worker_sha256"],"turns":[{"complete":True,"stop":"boundary","stop_marker":"ROMTRACE|boundary|player-choice|1|4","frames":17,"events":["ROMTRACE|boundary|player-choice|1|4"],"trace_overflow":False} for _ in req["payloads"].split("|")]}
+        out = {"protocol":protocol,"ok":True,"request_id":req["request_id"],"source_sha":req["source_sha"],"engine_elf_sha256":req["engine_elf_sha256"],"worker_sha256":req["worker_sha256"],"turns":[{"complete":True,"stop":"boundary","stop_marker":"ROMTRACE|boundary|player-choice|1|4","frames":17,"events":["ROMTRACE|boundary|player-choice|1|4"],"trace_overflow":False} for _ in req["payloads"].split("|")]}
     else:
-        out = {"protocol":2,"ok":True}
+        out = {"protocol":protocol,"ok":True}
     print(json.dumps(out), flush=True)
     if req["op"] == "quit": break
 """
-            with patch.object(rom_bridge, "ROM_SHA256", digest):
+            with patch.dict(os.environ, FAKE_ENV), patch.object(rom_bridge, "ROM_SHA256", digest):
                 with rom_bridge.RomWorkerClient(
                     sys.executable, rom, source_lock_path=lock,
                     expected_artifact_sha256=digest,
@@ -473,7 +487,7 @@ for line in sys.stdin:
                         deadline_ms=int(__import__("time").monotonic() * 1000) + 5000,
                         request_id="batch-1",
                     )
-                    self.assertEqual(result["protocol_version"], 3)
+                    self.assertEqual(result["protocol_version"], rom_bridge.PROTOCOL_VERSION)
                     self.assertEqual(len(result["turns"]), 2)
                     self.assertEqual([turn["frames"] for turn in result["turns"]], [17, 17])
                     self.assertEqual([turn["stop"] for turn in result["turns"]], ["boundary", "boundary"])
@@ -496,15 +510,17 @@ for line in sys.stdin:
             fake_worker = r"""
 import json, os, sys
 rom = sys.argv[-1]
-print(json.dumps({"protocol":2,"ok":True,"worker":"sidedex-mgba-worker/0.2.0","mgba":"0.10.5+26b7884","platform":"gba","rom_title":"TEST","rom_code":"TEST","rom_bytes":os.path.getsize(rom),"frame_count":0}), flush=True)
+status = json.loads(os.environ["FAKE_STATUS"])
+status["rom_bytes"] = os.path.getsize(rom)
+print(json.dumps(status), flush=True)
 for line in sys.stdin:
     req = json.loads(line)
-    print(json.dumps({"protocol":2,"ok":True,"op":req["op"]}), flush=True)
+    print(json.dumps({"protocol":status["protocol"],"ok":True,"op":req["op"]}), flush=True)
 """
             kwargs = dict(source_lock_path=lock, expected_artifact_sha256=digest,
                           expected_worker_sha256=rom_bridge.sha256_file(sys.executable),
                           worker_args=("-c", fake_worker))
-            with patch.object(rom_bridge, "ROM_SHA256", digest):
+            with patch.dict(os.environ, FAKE_ENV), patch.object(rom_bridge, "ROM_SHA256", digest):
                 with rom_bridge.RomWorkerClient(sys.executable, rom, **kwargs) as first:
                     self.assertEqual(first.worker_id, first.worker_id)
                     self.assertIn(rom_bridge.WORKER_VERSION, first.worker_id)
