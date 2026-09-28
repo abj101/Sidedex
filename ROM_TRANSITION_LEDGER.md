@@ -26,7 +26,7 @@ the older `handoff.md`, and scratch `work/**`. Bring the portraits over only if 
 | Release ROM `pokeemerald.gba` | `0ccaaad0878a9cbfb36fbefff800e9b6dd66055924b7595038ede1e8771ec5a2` |
 | Test ELF headless `pokeemerald-test-headless.elf` | `b26561e3f0590de47167730f93ed11427450dbc835a306272c9b898d39b473db` |
 | mGBA worker `rom_worker.exe` | `9086977abe27597aa67ed8311c82f1e7f5e66a5f0b2fe4f665b7518a1c82fe86` (wire protocol 2, worker version 0.2.0; previous v1 binary retained as `rom_worker-v1-a3f9fca8.exe`) |
-| Test ELF v8 (STAGED, not yet pinned) | `3b34ac36db5b4139cde8a9308e2dba329fe9e87fecc812c046d0ebe31848d818` at `native/rom_worker/build/mingw/pokeemerald-test-v8.elf` (ROM hook protocol 8, mailbox 864 B) |
+| Test ELF v8 (STAGED, not yet pinned) | `3b34ac36db5b4139cde8a9308e2dba329fe9e87fecc812c046d0ebe31848d818` at `pokeemerald-test-v8.elf`; **v8b candidate `9ca90e162dff496fd21406ac7915ff6ba57d17a332c54639663e66fe3a84d393`** at `pokeemerald-test-v8b.elf` (ROM hook protocol 8, mailbox 864 B). v8c in flight from package A3 (RNG-seeding fix + release-neutrality guard) will supersede v8b as the pin candidate |
 
 The WSL checkout `/home/abj1/rom-oracle-checkout` sits on the pinned source commit and its `git diff HEAD`
 content-matches `tools/rom_oracle/dynamic_request.patch`, which applies cleanly to the pinned tree. The
@@ -77,11 +77,21 @@ The product keeps the `compiled-engine` label until H1/H2 and the scenario gates
 | --- | --- | --- |
 | Baseline preserved, pins verified | done | this file |
 | Contract v1 frozen | done | `ROM_TRANSITION_CONTRACT.md` |
-| Phase 1 | partial | A landed (commit `1aa0c82`): v8 ops/mode/policy, choice boundary, state export, RNG injection, real AI + no-leakage verified. Open: trainer items in a resolved turn (blocked, documented in `tools/rom_oracle/README.md`), forced-switch/faint boundary unverified, logic-only is a coarse 4x pump (130 vs 205 frames) not a presentation audit, outcome-weight enumeration not yet in the ROM layer |
-| Phase 2 | open | C starting on the frozen v8 layout |
-| Phase 3 | open | — |
-| Phase 4 | open | fixture matrix defined in `tools/rom_oracle/FIXTURE_MATRIX.md`; release method decided in `RELEASE_HARNESS_PLAN.md` |
+| Phase 1 | partial | A/A2 landed (`1aa0c82`, `8aee054`, `f0fa279`): v8 ops/mode/policy, choice boundary (marker emitted last), complete state export, ROM-derived `legal|` actions, real-AI no-leakage, faint/forced-switch + terminal verified, outcome-weight enumeration, trainer items root-caused (recorded_battle.c u16 cursor underflow) and now fail closed in 205 frames instead of stalling. **Open:** hold-release RNG seeding fix (A3), logic-only reduces frames (205→130) but not wall time (43.5→51.3 ms) and is a coarse 4x pump, `instruction-budget-exceeded` unexercised, voluntary player switch unimplemented |
+| Phase 2 | done (wave 1) | C committed `fde93f5` + `cc3375c`: `QUERY_DAMAGE`/`QUERY_AI_ACTION`/`SIMULATE_TURN` split, v7/v8 encoders selected by the pin, `normal` + `item-ability-only` policies end to end (labels verified, mislabelled traces fail closed), ROM-enumerated `query|outcomes` consumer (the old Python composition was measurably wrong under normal crits), p50 136.7 ms / p95 144.8 ms query latency. Unsupported mechanics fail closed |
+| Phase 3 | partial | D wave 1 (`3dfec57`): `EnginePool.run_jobs` scheduler (deterministic merge, 3 workers per request, worker-exit survival with retry dedupe, deadline partials, ownership/portable routing, limits), `rom_transition.py` adapter with CRN pairing. Live 3-worker demo: 11.5 verified transitions/s, 3-worker vs 1-worker byte-identical event lists. **Open:** rom_eval/calc_service integration (wave 2), stable `owner_worker` id (B2) |
+| Phase 4 | partial | E wave 1 (`49e4918`): harness + 32-row fixture matrix, 8 rows green on both v8 and v8b with 0 diffs, AI-leakage/restore-determinism/identity-rejection/query-immutability checks pass, H4/H5 pass, H1 FAILED (patch not release-neutral - A3 fixing), H3 release half blocked (needs a battle-entry input script), H2 not run. **Open:** full normal-vs-logic-only matrix, release harness |
 | Worker pin flip (protocol 2) | done | `rom_bridge.WORKER_SHA256` = `9086977A…`, `rom_worker.exe` = v2. Verified: focused set 75 passed/2 skipped; full suite `--ignore=work` 289 passed/7 skipped; `app.py --self-check` OK |
+
+## Open items after wave 2 (owner)
+
+1. Hold-release RNG seeding fix + v8c rebuild + pre-patchelf test_elf sha, then the coordinated pin flip (package A3 → orchestrator).
+2. Release neutrality: guard the recorded-player call sites so a `TEST=0` build is byte-identical to `0ccaaad0…` (package A3).
+3. Canonical `ROMTRACE|legal|` in the worker slim allow-list; `worker_id`; per-batch slot selection; v3 worker binary for repinning (package B2).
+4. Pin flip is ONE coordinated step: copy v8c → `pokeemerald-test-headless.elf`, update `pinned_source.json` (`protocol_version` 8, `headless_elf_sha256`, `test_elf_sha256`) and `rom_bridge.ENGINE_ELF_SHA256`, plus the v3 worker sha (orchestrator), then re-run the full suite.
+5. `rom_eval.py` / `calc_service.py` integration on the scheduler + adapter, with cache-key identity extended to the full contract §1 tuple (package D wave 2 — waits for the pin flip).
+6. Release harness wave 2: battle-entry input script, then H2 and the scenario comparisons under the `RELEASE_HARNESS_PLAN.md` gate (package E wave 2).
+7. Logic-only measurement discrepancy to settle on the pinned artifact: A measured 205→130 frames on a mid-battle branch, C measured 754→1086 frames on a root transition; the phase-1 gate needs one agreed measurement set.
 
 ## Baseline limitations to keep visible (not to be papered over)
 

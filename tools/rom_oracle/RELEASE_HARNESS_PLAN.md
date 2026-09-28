@@ -8,7 +8,7 @@ Orchestrator decision record after reconnaissance. Full reconnaissance transcrip
 1. A release-config build of the pinned source exists at `/home/abj1/rom-release-checkout` with
    `pokeemerald.elf` and `pokeemerald.map` (539,735 symbols) from the same build session as the pinned
    `pokeemerald.gba` (`0ccaaad0…`). Symbol addresses are therefore known for the exact pinned release ROM.
-2. Cross-map comparison: 48,223 common symbols between the test-runner map and the release map, **zero
+2. Cross-map comparison first reported 48,223 common symbols with equal RAM addresses; **package E corrected this in wave 1**: only the EWRAM battle pins coincide across builds. IWRAM addresses are build-specific (`gMain` 0x03004210 release / 0x030055C4 v8 / 0x03006504 v8b; `gRngValue` 0x0300627C / 0x030062A8 / 0x030071E8) — use the release map's own values for the release ROM and never carry an ELF address across builds. EWRAM pins that do coincide:
    differing addresses in RAM** (`0x02000000-0x0203FFFF`, `0x03000000-0x03007FFF`). Key pins:
    `gBattleMons 0x02000360`, `gBattleStruct 0x02000830`, `gBattleResources 0x0200083c`,
    `gPlayerParty 0x020375f8`, `gEnemyParty 0x02037850`, `gBattleWeather 0x02000754`,
@@ -50,18 +50,19 @@ pair only; the release side is a projection).
 
 ## Required verification before any label change
 
-- **H1**: the patch is release-neutral — a scratch `TEST=0` build of the patched source hashes to
+- **H1 — FAILED (package E wave 1), fix in flight.** A scratch `TEST=0` build of the pinned source plus the patch hashed to `f8746c7bd825…`, not the pinned `0ccaaad0…`: 22 bytes differed at ROM offsets 0x5C092-0x5C0C4 inside `SetControllerToRecordedPlayer` (unguarded recorded-player injection call sites). The patch was therefore NOT release-neutral as delivered; package A is guarding those call sites. No release-parity claim is possible until this passes. (Original hypothesis:) the patch is release-neutral — a scratch `TEST=0` build of the patched source hashes to
   `0ccaaad0…`. If not, attribute the difference before any comparison claim.
 - **H2** (crux): a release battle resolves identically to the test ELF from the equivalent injected state
   (poke RNG + party, resolve one turn, compare HP delta and both RNG streams). Failure means stop at
   "compiled-engine".
-- **H3**: the pre-choice boundary is host-detectable by polling `gMain.callback2` / `gBattleCommunication`
+- **H3 — partial (package E wave 1).** On the test ELF the boundary IS host-detectable: 1-frame polling reaches it at frame 751, `gBattleCommunication[0:8]` flips `0000000000010000` -> `0000000000000000` exactly at the hold, while `gMain.callback2` stays constant (`BattleMainCB2`). On the RELEASE ROM the boundary is **blocked**: no battle-entry script/savestate exists yet and cross-ROM blobs are rejected `identity-mismatch`. (Original hypothesis:) the pre-choice boundary is host-detectable by polling `gMain.callback2` / `gBattleCommunication`
   with 1-4 frame steps.
 - **H4**: offline blob patching round-trips (patch one EWRAM byte at blob offset `0x21000`, reload,
   read back).
 - **H5**: worker IWRAM writes are safe (reads already work).
 - Mapping self-check: after patch+reload every injected field reads back identical, which separates a
   mapping bug from a genuine engine difference.
+- **RNG injection caveat (package E wave 1)**: the v8 hold-release path does NOT re-seed `gRngValue`/`gRng2Value` from the mailbox (two different mailbox pairs give identical results), which violates contract §6. Package A is fixing the ROM. Until then the harness injects through the worker's IWRAM write op — an accepted alternative for release-side work.
 - Candidate byte offsets are patchable; document the volatile-byte exclude list explicitly and fail on
   artifacts/hash mismatches instead of passing.
 
