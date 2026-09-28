@@ -1622,10 +1622,14 @@ def evaluate(snapshot, game_data, deadline, cancelled=None, publish=None):
                   and len(scores[_action_key(action)]) >= required]
         if not usable:
             have_any = any(outcomes.values())
-            reason = "timeout" if failure and not have_any else "insufficient-samples"
-            detail = (str(failure) if reason == "timeout" else
-                      f"No action has {required} complete samples; received "
-                      f"{max((len(rows) for rows in outcomes.values()), default=0)}.")
+            if not have_any and failure in ("deadline-exceeded", "timeout"):
+                reason, detail = "timeout", str(failure)
+            elif not have_any and failure:
+                reason, detail = "engine-error", str(failure)
+            else:
+                reason = "insufficient-samples"
+                detail = (f"No action has {required} complete samples; received "
+                          f"{max((len(rows) for rows in outcomes.values()), default=0)}.")
             card = _unavailable(reason, detail)
             partial = {kind: card for kind in _CARDS}
             if query_cards:
@@ -1653,7 +1657,8 @@ def evaluate(snapshot, game_data, deadline, cancelled=None, publish=None):
                 continue
             if summary[kind].get("status") != status:
                 summary[kind] = _unavailable(
-                    "timeout" if failure else "insufficient-samples",
+                    "timeout" if failure in ("deadline-exceeded", "timeout")
+                    else ("engine-error" if failure else "insufficient-samples"),
                     str(failure) if failure else
                     f"Fewer than {required} complete paired samples were returned.")
         # Resolved turns do not simulate trainer item use, so any entered bag

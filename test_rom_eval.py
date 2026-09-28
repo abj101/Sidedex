@@ -1080,6 +1080,36 @@ class PooledDispatch(unittest.TestCase):
             self.assertEqual(len(outcomes[key]), 1)
             self.assertEqual(len(paired[key]), 1)
         self.assertGreater(len(envelope["failures"]), 0)
+    def test_query_cards_still_publish_when_every_transition_fails(self):
+        snapshot, actions, seeds, party_sizes = self._cases()
+        prepared = self._prepared(snapshot, actions, seeds[0])
+        cards = {"player_moves": {"status": "engine-exact", "critical_policy": "item-ability-only",
+                                 "moves": [{"move_id": actions[0]["move_id"]}]},
+                 "enemy_moves": {"status": "engine-exact", "critical_policy": "item-ability-only",
+                                 "moves": []},
+                 "ai_actions": {"status": "engine-exact", "critical_policy": "item-ability-only",
+                                "actions": []}}
+        prepared["query_cards"] = cards
+
+        def execute(client, mailbox, node, payloads, *, deadline, request_id, max_frames):
+            raise rom_bridge.WorkerExitedError("simulated worker death")
+
+        created = []
+        pool = self._pool(execute, created)
+        try:
+            with mock.patch.object(rom_eval, "_prepare", lambda *a, **k: prepared), \
+                 mock.patch.object(rom_eval, "_runner", lambda: pool), \
+                 mock.patch.object(rom_eval, "_executor", lambda: execute):
+                result = rom_eval.evaluate(snapshot, DATA, time.monotonic() + 10.0)
+        finally:
+            pool.close()
+        self.assertEqual(result["status"], "unavailable")
+        # a transition failure never withholds the query cards the ROM did answer
+        self.assertEqual(result["player_moves"]["moves"], cards["player_moves"]["moves"])
+        self.assertEqual(result["player_moves"]["status"], "engine-exact")
+        self.assertEqual(result["recommendation"]["reason"], "engine-error")
+        self.assertEqual(result["ai_actions"]["status"], "engine-exact")
+        self.assertTrue(result["ai_actions"]["preview"])
 
 
 if __name__ == "__main__":
