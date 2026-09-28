@@ -29,10 +29,10 @@ pytestmark = pytest.mark.skipif(
     reason="release ROM or rom_worker.exe is missing")
 
 
-def _client():
+def _client(rom=ROM):
     import rom_bridge as rb
     return rb.RomWorkerClient(
-        rom_path=ROM, expected_artifact_sha256=r.sha256_file(ROM),
+        rom_path=rom, expected_artifact_sha256=r.sha256_file(rom),
         worker_path=WORKER, expected_worker_sha256=r.sha256_file(WORKER), timeout=180.0)
 
 
@@ -49,16 +49,26 @@ def test_h4_h5_ram_patch_and_iwram_write():
         raw = base64.b64decode(client.export_state(slot["handle"])["blob"], validate=True)
         header, payload = r.header_payload(raw)
         e_addr, e_val = 0x02030000, 0xABCD1234
-        i_addr, i_val = r.RELEASE_MAP["gRngValue"], 0x55667788
-        writes = {e_addr: e_val, i_addr: i_val}
+        main_rng = (0x55667788, 0x01020304, 0xAABBCCDD, 0x11223344)
+        secondary_rng = (0xDEADBEEF, 0x10203040, 0x55667799, 0x88776655)
+        i_addr, i_addr2 = r.RELEASE_MAP["gRngValue"], r.RELEASE_MAP["gRng2Value"]
+        writes = {e_addr: e_val}
+        writes.update({i_addr + 4 * i: value for i, value in enumerate(main_rng)})
+        writes.update({i_addr2 + 4 * i: value for i, value in enumerate(secondary_rng)})
         blob = r.make_blob(raw, r.patch_payload(payload, writes))
         imported = client.import_state(base64.b64encode(blob).decode(), name="release-h4-patched")
         client.restore_state(imported["handle"])
         assert int.from_bytes(client.read_memory_block(e_addr, 4), "little") == e_val
-        assert int.from_bytes(client.read_memory_block(i_addr, 4), "little") == i_val
+        assert client.read_memory_block(i_addr, 16) == b"".join(
+            value.to_bytes(4, "little") for value in main_rng)
+        assert client.read_memory_block(i_addr2, 16) == b"".join(
+            value.to_bytes(4, "little") for value in secondary_rng)
         # H5: direct IWRAM write through the worker op.
-        client.write_memory(i_addr, (0x0A0B0C0D).to_bytes(4, "little"))
-        assert int.from_bytes(client.read_memory_block(i_addr, 4), "little") == 0x0A0B0C0D
+        direct_main, direct_secondary = bytes(range(16)), bytes(range(16, 32))
+        client.write_memory(i_addr, direct_main)
+        client.write_memory(i_addr2, direct_secondary)
+        assert client.read_memory_block(i_addr, 16) == direct_main
+        assert client.read_memory_block(i_addr2, 16) == direct_secondary
         # the source slot is untouched by the patch round-trip.
         again = base64.b64decode(client.export_state(slot["handle"])["blob"], validate=True)
         assert again == raw
@@ -92,19 +102,32 @@ def test_battlemon_struct_offsets_match_the_test_elf():
         session.close()
 
 
-def test_release_root_capture_reaches_a_battle():
-    """The phase-4 crux precondition.  A battle-entry script does not exist yet, so this
-    fails closed with the exact blocker instead of fabricating a root."""
+def test_release_cold_boot_enters_a_battle():
+    """Check cold-boot battle entry; this does not establish a choice boundary."""
     script = r.load_input_script()
     with _client() as client:
         try:
             frames = r.run_input_script(client, script, progress=lambda f, s: None)
         except r.ReleaseRootUnavailable as exc:
             pytest.skip(f"release root capture blocked: {exc}")
-        slot = client.save_checkpoint("release-root")
+        slot = client.save_checkpoint("release-entry-candidate")
         projection = r.read_projection(client)
         assert frames > 0
         assert projection["mons"][0]["species"] != 0
-        # Pin the root identity (the blob itself is never committed).
+        # Keep the candidate blob out of Git; a battle-entry save is not an H3 root.
         raw = base64.b64decode(client.export_state(slot["handle"])["blob"], validate=True)
         assert hashlib.sha256(raw).hexdigest()
+
+
+def test_release_state_identity_is_rejected_by_test_elf():
+    """A release save blob must fail closed when presented to the test ELF."""
+    if not ELF.is_file():
+        pytest.skip("test ELF is missing")
+    import rom_bridge as rb
+    with _client(ROM) as release:
+        release.run_frames(600)
+        slot = release.save_checkpoint("release-identity")
+        blob = release.export_state(slot["handle"])["blob"]
+    with _client(ELF) as test_elf:
+        with pytest.raises((rb.WorkerProtocolError, rb.WorkerResponseError), match="identity"):
+            test_elf.import_state(blob, name="reject-release-identity")

@@ -18,21 +18,28 @@
     "full-state byte comparison"
   ],
   "scenarios": [
-    {"id": "R-P1", "fixture": "P1", "release_ready": true, "note": "physical damage, neutral"},
-    {"id": "R-P2", "fixture": "P2", "release_ready": true, "note": "special damage, neutral"},
-    {"id": "R-P3", "fixture": "P3", "release_ready": true, "note": "physical resisted"},
-    {"id": "R-P4", "fixture": "P4", "release_ready": true, "note": "special super effective"},
-    {"id": "R-P5", "fixture": "P5", "release_ready": true, "note": "accuracy miss"},
-    {"id": "R-P6", "fixture": "P6", "release_ready": true, "note": "normal crit"},
-    {"id": "R-P10", "fixture": "P10", "release_ready": true, "note": "paralysis skip"},
-    {"id": "R-P11", "fixture": "P11", "release_ready": true, "note": "sleep wake"},
-    {"id": "R-P14", "fixture": "P14", "release_ready": true, "note": "damage ability"},
-    {"id": "R-P15", "fixture": "P15", "release_ready": true, "note": "immunity ability"},
-    {"id": "R-P16", "fixture": "P16", "release_ready": true, "note": "held item damage"},
-    {"id": "R-P17", "fixture": "P17", "release_ready": true, "note": "Focus Sash"},
-    {"id": "R-P18", "fixture": "P18", "release_ready": true, "note": "Sturdy"},
-    {"id": "R-P26", "fixture": "P26", "release_ready": true, "note": "faint / forced replacement"},
-    {"id": "R-P27", "fixture": "P27", "release_ready": true, "note": "terminal win"},
-    {"id": "R-P28", "fixture": "P28", "release_ready": true, "note": "terminal loss"}
-  ]
+    {"id": "R-P1", "fixture": "P1", "release_ready": false, "note": "physical damage, neutral"},
+    {"id": "R-P2", "fixture": "P2", "release_ready": false, "note": "special damage, neutral"},
+    {"id": "R-P3", "fixture": "P3", "release_ready": false, "note": "physical resisted"},
+    {"id": "R-P4", "fixture": "P4", "release_ready": false, "note": "special super effective"},
+    {"id": "R-P5", "fixture": "P5", "release_ready": false, "note": "accuracy miss"},
+    {"id": "R-P6", "fixture": "P6", "release_ready": false, "note": "normal crit"},
+    {"id": "R-P10", "fixture": "P10", "release_ready": false, "note": "paralysis skip"},
+    {"id": "R-P11", "fixture": "P11", "release_ready": false, "note": "sleep wake"},
+    {"id": "R-P14", "fixture": "P14", "release_ready": false, "note": "damage ability"},
+    {"id": "R-P15", "fixture": "P15", "release_ready": false, "note": "immunity ability"},
+    {"id": "R-P16", "fixture": "P16", "release_ready": false, "note": "held item damage"},
+    {"id": "R-P17", "fixture": "P17", "release_ready": false, "note": "Focus Sash"},
+    {"id": "R-P18", "fixture": "P18", "release_ready": false, "note": "Sturdy"},
+    {"id": "R-P26", "fixture": "P26", "release_ready": false, "note": "faint / forced replacement"},
+    {"id": "R-P27", "fixture": "P27", "release_ready": false, "note": "terminal win"},
+    {"id": "R-P28", "fixture": "P28", "release_ready": false, "note": "terminal loss"}
+  ],
+  "status": {
+    "h2": "blocked",
+    "blocker": "root-capture-unavailable",
+    "root_sha256": null,
+    "scenarios_run": [],
+    "label": "compiled-engine"
+  }
 }

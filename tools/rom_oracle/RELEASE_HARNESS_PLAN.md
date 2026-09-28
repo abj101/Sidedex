@@ -74,3 +74,22 @@ pair only; the release side is a projection).
 `test_rom_release_live.py` (skips without artifacts). `pinned_source.json` gains a `release_evidence`
 block; no binaries in Git. Live release tests must skip cleanly when artifacts are absent and must not
 change the production path.
+
+## Wave 1 C result (2026-09-28)
+
+The pinned ROM (`0ccaaad0…`) and worker (`0601297e…`) identities were verified
+before live probing. The script now drives the worker through `set_keys`, but
+the cold-boot route is still blocked. The reproducible script reaches
+`CB2_NamingScreen` (`0x081855a5`, frame 5096), then `CB2_MainMenu`
+(`0x0816ead9`, frame 6098), and ends at `CB2_Overworld` (`0x08188e15`, frame
+15528). At the end, `gBattleTypeFlags=0`, `gBattleCommunication=0`,
+`gPlayerPartyCount=0`, player position is `(2, 2)`, saved warp bytes are
+`19 28 ff 00 ff ff` (group 25/map 40), and `gMapHeader.mapLayoutId=0x00ed`.
+This is not a battle root and cannot be used for a release comparison.
+
+No compatible release `.sav` or mGBA state was found in the repository,
+worktrees, or pinned release/source checkouts. The pinned source notes contain
+no alternate save recipe. The root SHA is therefore unset; every release
+scenario remains `release_ready: false`, H2 remains `blocked`, and the runtime
+label remains `compiled-engine`. H3 release boundary detection also remains
+blocked because no battle can be entered. No H2 turn comparison was run.

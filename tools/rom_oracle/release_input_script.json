@@ -25,6 +25,27 @@
     "note": "The script above is what was actually verified through wave 2; it reaches the gender/naming callback loop (0x08188e15 <-> 0x0815b181) and does not enter a battle. The remaining steps (name entry confirm, starter choice, Route 101 walk, wild encounter) are NOT yet scripted.",
     "observed_callback_loop": ["0x08188e15", "0x0815b181"],
     "observed_probe": "work/w2_rel_drive.log (200k frames of scripted input, gBattleTypeFlags stayed 0)"
-  },  "status": "incomplete",
-  "blocker": "root-capture-unavailable"
+  },
+  "status": "incomplete",
+  "blocker": "root-capture-unavailable",
+  "release_evidence": {
+    "artifact_identity": "pinned release ROM and worker hashes verified",
+    "cold_boot_reproducible": true,
+    "root_sha256": null,
+    "h2_claimed": false,
+    "observed_callbacks": [
+      {"frame": 5096, "callback2": "0x081855a5", "symbol": "CB2_NamingScreen"},
+      {"frame": 6098, "callback2": "0x0816ead9", "symbol": "CB2_MainMenu"},
+      {"frame": 15528, "callback2": "0x08188e15", "symbol": "CB2_Overworld"}
+    ],
+    "last_state": {
+      "gBattleTypeFlags": "0x0",
+      "gBattleCommunication": "0x0",
+      "player_party_count": 0,
+      "player_position": [2, 2],
+      "saved_warp_bytes": [25, 40, 255, 0, 255, 255],
+      "map_layout_id": "0x00ed"
+    },
+    "detail": "The 15,528-frame cold-boot input sequence did not reach a battle. The naming callback appears, but subsequent A presses return to the main-menu callback and the full sequence ends in CB2_Overworld with no party or battle flags. The saved warp bytes encode group 25/map 40; no battle-root state was captured. No compatible release save or savestate is present in the local repository, worktrees, or pinned source checkouts."
+  }
 }

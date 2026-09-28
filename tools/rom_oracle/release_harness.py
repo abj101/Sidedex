@@ -54,10 +54,13 @@ RELEASE_MAP = {
     "gBattleStruct": 0x02000830,
     "gBattleTypeFlags": 0x020002C0,
     "gChosenMove": 0x020004E8,
+    "gMapHeader": 0x0200ABD8,
     "gMain": 0x03004210,
     "gRngValue": 0x0300627C,
     "gRng2Value": 0x0300628C,
     "gTasks": 0x030063BC,
+    "gSaveBlock1Ptr": 0x03006210,
+    "gPlayerPartyCount": 0x020375F5,
 }
 
 # struct BattlePokemon (include/pokemon.h) -- source-defined, identical across builds.
@@ -99,8 +102,33 @@ class ReleaseRootUnavailable(ReleaseHarnessError):
         super().__init__(
             f"release root capture did not reach a battle after {frames} frames "
             f"(last cb2={last_state.get('callback2')!r}, "
-            f"gBattleTypeFlags={last_state.get('battle_type_flags')!r}); "
+            f"gBattleTypeFlags={last_state.get('battle_type_flags')!r}, "
+            f"state={last_state!r}); "
             f"input script {script!r} is incomplete")
+
+
+def _capture_diagnostics(client) -> dict:
+    """Read release-only progress fields for a bounded root-capture report."""
+    last = {
+        "callback2": hex(client.read_memory(RELEASE_MAP["gMain"] + 4, 4)),
+        "battle_type_flags": hex(client.read_memory(RELEASE_MAP["gBattleTypeFlags"], 2)),
+        "battle_communication": hex(client.read_memory(RELEASE_MAP["gBattleCommunication"], 4)),
+        "map_layout_id": hex(client.read_memory(RELEASE_MAP["gMapHeader"] + 0x12, 2)),
+    }
+    try:
+        last["player_party_count"] = client.read_memory(RELEASE_MAP["gPlayerPartyCount"], 1)
+        ptr = int.from_bytes(client.read_memory_block(RELEASE_MAP["gSaveBlock1Ptr"], 4), "little")
+        if 0x02000000 <= ptr < 0x02040000:
+            block = client.read_memory_block(ptr, 10)
+            last["player_position"] = [
+                int.from_bytes(block[0:2], "little", signed=True),
+                int.from_bytes(block[2:4], "little", signed=True),
+            ]
+            last["saved_warp"] = list(block[4:10])
+    except (AttributeError, ValueError):
+        # Small test doubles need not model all release RAM.
+        pass
+    return last
 
 
 def sha256_file(path) -> str:
@@ -126,14 +154,12 @@ def load_scenarios(path=SCENARIOS_PATH) -> dict:
 def run_input_script(client, script, *, poll_every=4, progress=None):
     """Run the key timeline; return the frame count when a battle is entered.
 
-    ``client`` must expose ``run_frames(frames, keys=...)`` and
-    ``read_memory(address, width)`` (the real ``rom_bridge.RomWorkerClient`` or a
-    test double).  Raises :class:`ReleaseRootUnavailable` when the timeline ends
+    ``client`` exposes the worker's ``set_keys`` / ``run_frames`` operations and
+    memory reads. Test doubles can use the older ``run_frames(..., keys=...)``
+    shortcut. Raises :class:`ReleaseRootUnavailable` when the timeline ends
     without ``gBattleTypeFlags != 0``.
     """
     flags_addr = int(script["detect"]["gBattleTypeFlags"], 16)
-    comm_addr = int(script["detect"]["gBattleCommunication"], 16)
-    cb2_addr = RELEASE_MAP["gMain"] + 4
     frames = 0
     steps = []
     for step in script["steps"]:
@@ -144,16 +170,19 @@ def run_input_script(client, script, *, poll_every=4, progress=None):
     for step in steps:
         remaining = int(step["frames"])
         keys = int(step["keys"])
+        if hasattr(client, "set_keys"):
+            client.set_keys(keys)
         while remaining > 0:
             chunk = min(remaining, poll_every)
-            client.run_frames(chunk, keys=keys)
+            if hasattr(client, "set_keys"):
+                client.run_frames(chunk)
+            else:
+                client.run_frames(chunk, keys=keys)
             frames += chunk
             remaining -= chunk
             if client.read_memory(flags_addr, 2):
                 return frames
-    last = {"callback2": hex(client.read_memory(cb2_addr, 4)),
-            "battle_type_flags": hex(client.read_memory(flags_addr, 2)),
-            "battle_communication": hex(client.read_memory(comm_addr, 4))}
+    last = _capture_diagnostics(client)
     if progress is not None:
         progress(frames, last)
     raise ReleaseRootUnavailable(frames, last, script.get("name", "?"))

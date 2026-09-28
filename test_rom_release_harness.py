@@ -42,9 +42,12 @@ def test_scenarios_are_pinned_and_narrow():
     data = r.load_scenarios()
     assert data["release_rom_sha256"].upper() == r.PINNED_ROM_SHA256
     assert data["elf_sha256"] == r.PINNED_ELF_SHA256
+    assert data["status"]["h2"] == "blocked"
+    assert data["status"]["root_sha256"] is None
     assert len(data["scenarios"]) >= 10
     assert "query mode" in data["not_claimed"]
     for scenario in data["scenarios"]:
+        assert scenario["release_ready"] is False
         assert (ROOT / "tools" / "rom_oracle" / "fixtures").glob(f"*_{scenario['fixture'][1:].lower()}*")
 
 
@@ -94,10 +97,16 @@ class FakeClient:
         self.frames = 0
         self.battle_at = battle_at
         self.keys = 0
+        self.key_calls = []
 
-    def run_frames(self, frames, keys=0):
-        self.frames += frames
+    def set_keys(self, keys):
         self.keys = keys
+        self.key_calls.append(keys)
+
+    def run_frames(self, frames, keys=None):
+        self.frames += frames
+        if keys is not None:
+            self.keys = keys
         return {"trace_events": []}
 
     def read_memory(self, address, width):
@@ -109,6 +118,13 @@ class FakeClient:
             return 0
         return 0
 
+    def read_memory_block(self, address, length):
+        if address == r.RELEASE_MAP["gSaveBlock1Ptr"]:
+            return (0x02000000).to_bytes(4, "little")
+        if address == 0x02000000:
+            return b"\x02\x00\x02\x00\x19\x28\xff\x00\xff\xff"[:length]
+        return bytes(length)
+
 
 def test_run_input_script_returns_on_battle_entry():
     script = r.load_input_script()
@@ -116,6 +132,7 @@ def test_run_input_script_returns_on_battle_entry():
     frames = r.run_input_script(client, script)
     assert 700 <= frames <= 716, frames
     assert client.keys == 8  # still holding START when the battle was detected
+    assert client.key_calls[:2] == [0, 8]
 
 
 def test_run_input_script_fails_closed_with_the_last_state():
@@ -124,6 +141,9 @@ def test_run_input_script_fails_closed_with_the_last_state():
         r.run_input_script(FakeClient(), script, progress=lambda *a: None)
     message = str(excinfo.value)
     assert "0x8188e15" in message
+    assert "player_party_count" in message
+    assert "player_position" in message
+    assert "map_layout_id" in message
     assert "root-capture-unavailable" not in message  # the error names the script instead
     assert excinfo.value.frames == sum(
         s["frames"] * s.get("repeat", 1) for s in script["steps"]
