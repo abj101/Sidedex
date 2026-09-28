@@ -308,6 +308,45 @@ class V9RequestTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     run_dynamic.encode_v9_request({**self.request, banned: 0x02000000}, self.ready)
 
+    def test_flags_carry_the_compact_bit_and_the_difficulty_override(self):
+        for difficulty, bits in ((0, 0), (1, 1), (2, 2)):
+            with self.subTest(difficulty=difficulty):
+                payload = run_dynamic.encode_v9_request(self.request, self.ready, difficulty=difficulty)
+                flags = struct.unpack_from("<H", payload, 874)[0]
+                self.assertEqual(flags, run_dynamic.V9_FLAG_COMPACT | (bits << 1))
+                self.assertEqual(flags & ~0x7, 0, "reserved flag bits must stay zero")
+
+    def test_difficulty_labels_match_the_contract_numbers(self):
+        self.assertEqual(run_dynamic.v9_difficulty("keep"), run_dynamic.V9_DIFFICULTY_KEEP)
+        self.assertEqual(run_dynamic.v9_difficulty("easy"), run_dynamic.V9_DIFFICULTY_EASY)
+        self.assertEqual(run_dynamic.v9_difficulty("normal"), run_dynamic.V9_DIFFICULTY_NORMAL)
+        flags = struct.unpack_from("<H", run_dynamic.encode_v9_request(
+            self.request, self.ready, difficulty="easy"), 874)[0]
+        self.assertEqual(flags, run_dynamic.V9_FLAG_COMPACT | (1 << 1))
+
+    def test_trace_mode_clears_the_compact_bit(self):
+        compact = run_dynamic.encode_v9_request(self.request, self.ready)
+        trace = run_dynamic.encode_v9_trace_request(self.request, self.ready)
+        self.assertEqual(len(trace), 876)
+        self.assertEqual(struct.unpack_from("<H", trace, 874)[0], 0)
+        # Only the flags word differs: the body and the announced result tail match.
+        self.assertEqual(trace[:864], compact[:864])
+        self.assertEqual(trace[864:874], compact[864:874])
+        self.assertNotEqual(trace[874:], compact[874:])
+
+    def test_the_reserved_difficulty_is_refused_client_side(self):
+        with self.assertRaises(ValueError):
+            run_dynamic.v9_flags(difficulty=run_dynamic.V9_DIFFICULTY_RESERVED)
+        with self.assertRaises(ValueError):
+            run_dynamic.encode_v9_request(self.request, self.ready, difficulty=3)
+        with self.assertRaises(ValueError):
+            run_dynamic.encode_v9_trace_request(self.request, self.ready, difficulty="reserved")
+        for bad in (4, -1, "hard", None, 1.0):
+            with self.subTest(difficulty=bad), self.assertRaises(ValueError):
+                run_dynamic.v9_difficulty(bad)
+        with self.assertRaises(ValueError):
+            run_dynamic.v9_flags(compact=1)  # must be a boolean, not a truthy int
+
     def test_v9_requires_the_roms_announcement(self):
         with self.assertRaises(ValueError):
             run_dynamic.encode_v9_request(self.request, None)

@@ -43,6 +43,16 @@ V9_EXTENSION_OFFSET = 864
 V9_MAILBOX_BYTES = 876
 V9_RESULT_VERSION = 1
 V9_FLAG_COMPACT = 0x0001
+# Contract C.6 flags: bit 0 compact result, bits 1-2 battle difficulty override,
+# every other bit zero. The tree defines only easy and normal, so 3 is reserved.
+V9_DIFFICULTY_SHIFT = 1
+V9_DIFFICULTY_MASK = 0x0006
+V9_DIFFICULTY_KEEP = 0
+V9_DIFFICULTY_EASY = 1
+V9_DIFFICULTY_NORMAL = 2
+V9_DIFFICULTY_RESERVED = 3
+V9_DIFFICULTY_LABELS = {"keep": V9_DIFFICULTY_KEEP, "easy": V9_DIFFICULTY_EASY,
+                        "normal": V9_DIFFICULTY_NORMAL}
 # Versions `encode_request` speaks. v9 shares the v8 body but adds a mandatory
 # ROM-announced result buffer, so it has its own entry point (encode_v9_request).
 SUPPORTED_PROTOCOL_VERSIONS = (7, 8)
@@ -250,17 +260,43 @@ def encode_request(request: dict, protocol_version: int | None = None) -> bytes:
     return payload
 
 
-def encode_v9_request(request: dict, result_buffer: dict) -> bytes:
+def v9_difficulty(value: int | str) -> int:
+    """Contract C.6 battle difficulty override: 0 keep, 1 easy, 2 normal.
+
+    include/constants/game_settings.h defines only the normal and easy modes, so
+    the reserved value 3 is refused here rather than announced to the ROM.
+    """
+    if isinstance(value, str):
+        if value not in V9_DIFFICULTY_LABELS:
+            raise ValueError(f"invalid-request: unknown difficulty {value!r}")
+        return V9_DIFFICULTY_LABELS[value]
+    if type(value) is not int or not V9_DIFFICULTY_KEEP <= value <= V9_DIFFICULTY_RESERVED:
+        raise ValueError(f"invalid-request: difficulty override {value!r} is not a C.6 value")
+    if value == V9_DIFFICULTY_RESERVED:
+        raise ValueError("unsupported-mechanic: difficulty 3 is reserved; the tree has no such mode")
+    return value
+
+
+def v9_flags(*, compact: bool = True, difficulty: int | str = V9_DIFFICULTY_KEEP) -> int:
+    """Contract C.6 request flags: bit 0 compact result, bits 1-2 difficulty."""
+    if type(compact) is not bool:
+        raise ValueError("invalid-request: compact must be a boolean")
+    return (V9_FLAG_COMPACT if compact else 0) | (v9_difficulty(difficulty) << V9_DIFFICULTY_SHIFT)
+
+
+def encode_v9_request(request: dict, result_buffer: dict, *,
+                      difficulty: int | str = V9_DIFFICULTY_KEEP, compact: bool = True) -> bytes:
     """Encode the 876-byte v9 request (contract Appendix B).
 
     The v9 request is the v8 request with those four little-endian fields
     appended: resultAddress:u32 at 864, resultCapacity:u32 at 868,
-    resultVersion:u16 = 1 at 872 and flags:u16 at 874 (bit 0 = compact result,
-    remaining bits zero).
+    resultVersion:u16 = 1 at 872 and flags:u16 at 874 (contract C.6: bit 0 = a
+    compact result, bits 1-2 = the difficulty override, all other bits zero).
 
     `result_buffer` must be the `rom_bridge.parse_v9_ready` record for the ROM's
     own `ROMTRACE|ready|` announcement, so the address is never the caller's:
-    a request carrying one is refused rather than encoded.
+    a request carrying one is refused rather than encoded. `compact=False` asks
+    for ROMTRACE records instead of an SDR2 result (encode_v9_trace_request).
     """
     if not isinstance(result_buffer, dict):
         raise ValueError(
@@ -268,14 +304,28 @@ def encode_v9_request(request: dict, result_buffer: dict) -> bytes:
     for banned in ("result_address", "result_capacity", "result_version", "resultVersion"):
         if banned in request:
             raise ValueError(f"invalid-state: {banned} comes from the ROM announcement, not the caller")
+    flags = v9_flags(compact=compact, difficulty=difficulty)
     payload = encode_request(request, protocol_version=8)
     # v9 shares the v8 body and extension; only the layout version in the header
     # (u16 at offset 4) and the appended result tail differ.
     payload = payload[:4] + struct.pack("<H", 9) + payload[6:]
     payload += struct.pack("<IIHH", result_buffer["result_address"],
-                           result_buffer["result_capacity"], V9_RESULT_VERSION, V9_FLAG_COMPACT)
+                           result_buffer["result_capacity"], V9_RESULT_VERSION, flags)
     assert len(payload) == V9_MAILBOX_BYTES
     return payload
+
+
+def encode_v9_trace_request(request: dict, result_buffer: dict, *,
+                            difficulty: int | str = V9_DIFFICULTY_KEEP) -> bytes:
+    """A v9 request with the compact bit clear (contract C.6 flags without bit 0).
+
+    The hook answers with ROMTRACE records rather than an SDR2 result, which is
+    how the verifier cross-checks a compact turn against the decoded projection
+    and how package D drives queries through the same v9 mailbox. The announced
+    result buffer is still required: the ROM validates that range on every v9
+    request, compact or not.
+    """
+    return encode_v9_request(request, result_buffer, difficulty=difficulty, compact=False)
 
 
 def _encode_mon(mon: dict) -> bytes:
@@ -343,7 +393,8 @@ def _trace(reply: dict) -> list[str]:
 
 
 def run_v9_turn(elf: Path, sha256: str, request: dict, *, worker_path: Path | None = None,
-                worker_sha256: str | None = None, request_id: str = "dynamic-oracle-v9") -> dict:
+                worker_sha256: str | None = None, request_id: str = "dynamic-oracle-v9",
+                difficulty: int | str = V9_DIFFICULTY_KEEP) -> dict:
     """Drive one v9 compact turn and return the decoded SDR2 turns.
 
     Needs the A1 candidate ELF. The result address and capacity are read from the
@@ -366,7 +417,7 @@ def run_v9_turn(elf: Path, sha256: str, request: dict, *, worker_path: Path | No
                 break
         if announced is None:
             raise TimeoutError("battle harness did not announce a v9 mailbox")
-        payload = encode_v9_request(request, announced)
+        payload = encode_v9_request(request, announced, difficulty=difficulty)
         worker.save_state()
         result = worker.batch_turns_v3(
             announced["address"], announced["result_address"], announced["result_capacity"],
