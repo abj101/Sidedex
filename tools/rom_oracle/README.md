@@ -71,9 +71,22 @@ address so the worker never guesses its location.
 
 The reserved result buffer is transport storage, not a decoded state or a
 replacement savestate. A transition result uses `SDR2`, format version 1 and a
-64-byte header; records use the contract Appendix B tags 1–11. Compact result
-serialization and the final `binary-ready` marker are still incomplete, so the
-v9 path must remain fail-closed until both are present.
+64-byte header: `magic` 0, `format:u16=1` 4, `header_bytes:u16=64` 6,
+`total_bytes:u32` 8, `crc32:u32` 12, `request_id:u16` 16, `status:u16` 18,
+`boundary:u16` 20, `mode:u16` 22, `critical_policy:u16` 24, `record_count:u16`
+26, `turn:u32` 28, `rng_main:u32[4]` 32 and `rng_secondary:u32[4]` 48. Records
+follow as `tag:u16, payload_bytes:u16, payload`, zero-padded to four bytes;
+`payload_bytes` excludes the padding. The CRC is the zlib CRC-32 of
+`buffer[12:total_bytes]` with the CRC field zeroed.
+
+At each held boundary the hook completes the projection, commits the header and
+CRC, emits `ROMTRACE|boundary|...`, and ends with
+`ROMTRACE|binary-ready|<addr>|<len>` (which stays last). The commit precedes the
+boundary marker so the worker's batch stop on `ROMTRACE|boundary|` can never
+observe a half-written result. A nonzero status carries exactly one tag 11
+`reason:u16, source:u16` record and nothing else (contract C.3); the exporter
+fails closed with `reason=3 source=6` (unsupported-mechanic / non-singles
+battle) and `reason=2 source=5` (unrepresentable-state / trainer item use).
 
 #### v9 compact result record schema
 
@@ -82,10 +95,10 @@ Typed records use `entry_count:u16, words_per_entry:u16` followed by little-endi
 
 | Tag | Count and field order |
 |---|---|
-| 1 party | 12 × 32: side, slot, species, level, HP, max HP, status1, item, ability number, form, nature, moves 1–4, PP 1–4, six IVs, six EVs, present bit |
-| 2 active | two × 33 for singles: battler, party slot, species, HP, max HP, status1/status2/status3, ability, item, form, three types, seven stat stages, four moves, four PP, volatile flags, disable/protect/special-status fields, substitute HP, encore and taunt timers |
-| 3 field | one × 6: weather/timer, terrain/timer, trick-room/timer |
-| 4 side | two × 12: side, screens, hazards/layers, conditions, reflect, light screen, aurora veil, mist, safeguard, tailwind, follow-me timers |
+| 1 party | 12 × 32: side, slot, species, level, HP, max HP, status1, item, ability number, form, nature, moves 1–4, PP 1–4, six IVs (hp/atk/def/spe/spa/spd), six EVs, present bit |
+| 2 active | two × 37 for singles: battler, party slot, species, HP, max HP, status1/status2/status3, ability, item, form, three types, seven stat stages, four moves, four PP, volatile flags, disabled move, disable timer, protect flags, special-status flags, substitute HP, encore timer, taunt timer |
+| 3 field | one × 6: weather, weather timer, terrain, terrain timer, trick room, trick-room timer |
+| 4 side | two × 12: side, screens, hazards, hazard layers, conditions, reflect, light screen, aurora veil, mist, safeguard, tailwind, follow-me timers |
 | 5 battle | one × 10: turn, outcome, battle type flags, battler count, trainer AI flags, item count, four trainer item IDs |
 | 6 RNG | one × 8: main and secondary four-word streams; duplicates the header pair |
 | 7 legal | N × 4: `kind,id,pp_or_species,target_or_slot`; kind 0 move, 1 switch, 2 item |
@@ -94,10 +107,57 @@ Typed records use `entry_count:u16, words_per_entry:u16` followed by little-endi
 | 10 terminal | one × 2: result and reason code |
 | 11 unsupported | one × 2: reason code and source code |
 
-Tags 1–7 are required for a successful nonterminal result. The current test hook
-only emits a nonzero status with tag 11 reason 1 (`incomplete-state`) and source
-1 (export coverage), with no child token. The compact header and error record are
-CRC checked; typed successful projections are still unimplemented.
+Tags 1–9 are required for a successful nonterminal result and tags 1–6, 8, 9,
+10 for terminal success (no tag 7 at terminal). Tag 9 may be empty.
+
+#### v9 flag words and field sources
+
+Every word is read from a named C source at the boundary; nothing is zero-filled.
+Unreadable values fail the transition with tag 11 instead.
+
+| Word (active/side index) | Bit meaning and source |
+|---|---|
+| `volatile_flags` (active 29) | `struct DisableStruct` one-bit persistent trackers (`gDisableStructs[]`, `include/battle.h`): 0 `truantCounter`, 1 `truantSwitchInHack`, 2 `noRetreat`, 3 `tarShot`, 4 `octolock`, 5 `cudChew`, 6 `spikesDone`, 7 `toxicSpikesDone`, 8 `stickyWebDone`, 9 `stealthRockDone`, 10 `syrupBombIsShiny`, 11 `steelSurgeDone`, 12 `weatherAbilityDone`, 13 `terrainAbilityDone`, 14 `usedProteanLibero` |
+| `protect_flags` (active 32) | low 32-bit bitfield of `struct ProtectStruct` (`gProtectStructs[]`) in declaration order: 0 `protected`, 1 `spikyShielded`, 2 `kingsShielded`, 3 `banefulBunkered`, 4 `obstructed`, 5 `endured`, 6 `noValidMoves`, 7 `helpingHand`, 8 `bounceMove`, 9 `stealMove`, 10 `prlzImmobility`, 11 `confusionSelfDmg`, 12 `targetAffected`, 13 `chargingTurn`, 14–15 `fleeType`, 16 `usedImprisonedMove`, 17 `loveImmobility`, 18 `usedDisabledMove`, 19 `usedTauntedMove`, 20 `flag2Unknown`, 21 `flinchImmobility`, 22 `notFirstStrike`, 23 `palaceUnableToUseMove`, 24 `usedHealBlockedMove`, 25 `usedGravityPreventedMove`, 26 `powderSelfDmg`, 27 `usedThroatChopPreventedMove`, 28 `statRaised`, 29 `usedCustapBerry`, 30 `touchedProtectLike`. The secondary `u16` bitfield (`disableEjectPack`..`padding`) is not carried in this word. |
+| `special_status_flags` (active 33) | the four flag bytes of `struct SpecialStatus` (`gSpecialStatuses[]`): 0 `statLowered`, 1 `lightningRodRedirected`, 2 `restoredBattlerSprite`, 3 `faintedHasReplacement`, 4 `focusBanded`, 5 `focusSashed`, 8 `sturdied`, 9 `stormDrainRedirected`, 10 `switchInAbilityDone`, 11 `switchInItemDone`, 12–14 `instructedChosenTarget`, 15 `berryReduced`, 16 `gemBoost`, 17 `rototillerAffected`, 18–19 `parentalBondState`, 20 `multiHitOn`, 21 `announceNeutralizingGas`, 22 `neutralizingGasRemoved`, 23 `affectionEndured`, 24–27 `damagedMons`, 28 `dancerUsedMove`, 29–31 `dancerOriginalTarget`. The trailing byte (`emergencyExited`, `afterYou`, `preventLifeOrbDamage`, `oraoraoraoraState`, `distortedTypeMatchups`) is not carried in this word. |
+| `screens` (side 1) | `gSideStatuses[side] & SIDE_STATUS_SCREEN_ANY`: 0 reflect, 1 light screen, 11 aurora veil (`include/constants/battle.h`) |
+| `hazards` (side 2) | `gSideStatuses[side] & SIDE_STATUS_HAZARDS_ANY`: 2 sticky web, 4 spikes, 13 toxic spikes, 14 stealth rock, 22 steel surge |
+| `hazard_layers` (side 3) | nibble-packed `struct SideTimer` counts (`gSideTimers[]`): 0–3 `spikesAmount`, 4–7 `toxicSpikesAmount`, 8–11 `stealthRockAmount`, 12–15 `stickyWebAmount`, 16–19 `steelsurgeAmount` |
+| `conditions` (side 4) | the full `gSideStatuses[side]` word |
+
+| Field | Source |
+|---|---|
+| party species/level/HP/max HP/status1/item/ability/nature/moves/PP/IVs/EVs | `GetMonData` on `gPlayerParty`/`gEnemyParty`; `GetNature`; `present = species != SPECIES_NONE` |
+| party and active `form` | `GetFormIdFromFormSpeciesId(species)` (`include/pokemon.h`) |
+| active HP/max HP/status1/status2/ability/item/types/stat stages/moves/PP | `struct BattlePokemon gBattleMons[]` |
+| active `status3` | `gStatuses3[battler]` |
+| active disabled move, disable/encore/taunt timers, substitute HP | `struct DisableStruct gDisableStructs[]` |
+| field `weather` | `gBattleWeather` |
+| field `weather_timer` | `gWishFutureKnock.weatherDuration` |
+| field terrain/timers, trick room/timer | `gFieldStatuses` masks and `gFieldTimers` |
+| side timers | `struct SideTimer gSideTimers[]` |
+| battle turn/outcome/type flags/battler count | `gBattleResults.battleTurnCounter`, `gBattleOutcome`, `gBattleTypeFlags`, `gBattlersCount` |
+| battle `ai_flags` | `AI_THINKING_STRUCT->aiFlags[opponent battler]` |
+| battle item count/items | `gBattleResources->battleHistory->itemsNo` / `trainerItems[]` |
+| `rng` | `gRngValue` and `gRng2Value` (must equal the header pair) |
+| `legal` | the ROM's own move/switch enumeration, the same source as the v8 `ROMTRACE|legal|` lines |
+| `trainer action` | the AI side's most recently chosen action captured in `TestRunner_Battle_CheckChosenMove` / `CheckSwitch` |
+| `events` | tagged from `RecordHP`/`RecordStatus1`/`RecordAbilityPopUp`/`CheckChosenMove`/`CheckSwitch`/`TraceChosenItem` |
+
+Event kinds emitted: 1 move used, 2 damage, 3 heal, 6 faint, 8 switch in, 11
+ability activated, 12 item used/consumed. The other C.3 kinds have no ROM
+callback wired yet and are omitted rather than invented.
+
+#### Compact-vs-`ROMTRACE` diagnostic equality
+
+Unless the request sets compact-result bit 0, the hook mirrors every compact
+record word-for-word to ROMTRACE as
+`ROMTRACE|phase|<turn>|state|c<tag>|<base index>|<up to 16 words>` with names
+`cparty`, `cactive`, `cfield`, `cside`, `cbattle`, `crng`, `clegal`, `ctrainer`
+and `cterminal`. `test_rom_oracle_dynamic.py` reassembles the chunks and asserts
+that binary tags 1–8 and 10 equal their textual counterparts for P1, P26, P27,
+P28 and P29's first move. In compact mode the state records (and the v8
+`state|` diagnostic lines) are suppressed to measure the printing cost.
 ## Dynamic battle request v8
 
 The mailbox layout below is unchanged by the A2/A3 revisions (the A2 artifact
