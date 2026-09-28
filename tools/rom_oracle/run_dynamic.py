@@ -334,7 +334,10 @@ def _encode_mon(mon: dict) -> bytes:
             numeric_id("natures", mon["nature"]), mon["hp"], mon["max_hp"], 0]
     if type(mon["hp"]) is not int or type(mon["max_hp"]) is not int or not 0 < mon["hp"] <= mon["max_hp"] <= 0xFFFF:
         raise ValueError("incomplete-state: HP and MaxHP must be valid positive values")
-    status = numeric_id("statuses", mon["status1"])
+    # A raw int is a status1 word (1..7 = sleep turns left, which no name maps
+    # to); names go through the pinned ID map.
+    raw = mon["status1"]
+    status = raw if type(raw) is int else numeric_id("statuses", raw)
     if status not in _STATUS1_VALUES:
         raise ValueError("invalid-id: status1 must be a selectable battle status")
     moves = _ints([numeric_id("moves", move_id) for move_id in mon["moves"]], 4, 0xFFFF)

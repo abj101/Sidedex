@@ -705,5 +705,30 @@ class BoundaryLegalTraceLiveTests(unittest.TestCase):
         self.assertTrue(any(record.startswith("ROMTRACE|legal|switch|") for record in legal), events)
 
 
+class Status1EncodingTest(unittest.TestCase):
+    """run_dynamic accepts named statuses and raw selectable status1 words
+    (fixture P11 uses sleep counter 1) and still rejects everything else."""
+
+    def encode(self, status1):
+        from tools.rom_oracle import run_dynamic
+
+        request = json.loads((ROOT / "tools" / "rom_oracle" / "fixtures" / "p11_sleep_wake.json")
+                             .read_text(encoding="utf-8"))["root"]
+        request["player_party"][0]["status1"] = status1
+        return run_dynamic.encode_request(request, protocol_version=8)
+
+    def test_numeric_and_named_statuses_encode_to_the_same_word(self):
+        import struct
+
+        for value in (0, 1, 7, 8, 64, 4096):
+            self.assertEqual(struct.unpack_from("<I", self.encode(value), 72)[0], value)
+        self.assertEqual(self.encode("STATUS1_SLEEP")[72:76], (7).to_bytes(4, "little"))
+
+    def test_invalid_statuses_are_rejected(self):
+        for bad in (9, 3840, -1, "STATUS1_TOXIC_COUNTER", "garbage", 1.0, True):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                self.encode(bad)
+
+
 if __name__ == "__main__":
     unittest.main()
