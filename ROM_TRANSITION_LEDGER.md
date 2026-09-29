@@ -116,9 +116,9 @@ this ledger, the plan, `rom_identity.py`, `pinned_source.json`, `sdr2_vectors/`,
 | C1/C2/C3 release root, H3, comparison plumbing | done | `codex/rom-release-c` `329d92f`; readable release fields: party 30/32, active 32/37, battle 5/10, field 6/6, side 11/12, rng 8/8 |
 | B, B2, B3 | done | `codex/rom-worker-b` `67c7351`, worker f7b1c1e3 reproducible |
 | Gate V2 verifier (`codex/rom-gate-v2` `513f4aa`, 44 tests) | FAILING: 21 pass / 23 fail | findings R1 terminal tag rule (worker), R2 chaining from a child (ROM hook), R3 v9a differs from v8c on 19 green rows (ROM hook), R4 P11 encoder, O1 boundary enum. Not merged to integration (would turn the suite red) |
-| R1+R4+O1 fixes | dispatched (Sonnet, `codex/rom-worker-b`) | new candidate worker to be re-pinned |
-| R2 chaining fix | dispatched (Sonnet, WSL `sidedex/a1-fix-r2`) | |
-| R3 divergence fix | dispatched (Sonnet, WSL `sidedex/a1-fix-r3`) | |
+| R1+R4+O1 fixes | done, merged | worker `dd6f1dd6` pinned (`bc04762`); suite 448 passed / 12 skipped |
+| R2 chaining fix | fixed (agent-reported), NOT yet verified or pinned | WSL `sidedex/a1-fix-r2` `72953cc330` (includes R3), ELF `5e2c8689...`, Windows `codex/rom-hook-a1fix-r2` `867ae86`; root cause: exhausted recorded-battle record, not hold order |
+| R3 divergence fix | fixed (root cause: lost v8c hold-release RNG re-seed), contained in the R2 branch | WSL `sidedex/a1-fix-r3` `b7a80eed15`; 19/19 green rows equal v8c |
 | A2 mechanics | in progress, must rebase onto the R2/R3 hook fixes | `pkg-a1` |
 | D (Sonnet Agent), Gate F (single ELF flip: v9b + D), E, final | not started | D starts once V2 is green |
 
