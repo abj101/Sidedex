@@ -9,7 +9,7 @@ identical SDR2 and identical child-state sha256, which hashes the whole
 snapshot). Negative controls: a different RNG seed must change the native SDR2,
 and one flipped byte must fail the comparison.
 
-usage: python tools/rom_oracle/native_gate_n1.py [--runs 60]
+usage: python tools/rom_oracle/native_gate_n1.py [--runs 60] [--oracle-elf PATH]
 """
 from __future__ import annotations
 
@@ -123,11 +123,13 @@ def run_p1(engine: Engine, seed_delta: int = 0) -> tuple[bytes, bytes, str, dict
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--runs", type=int, default=60)
+    parser.add_argument("--oracle-elf", type=Path, default=ORACLE_ELF)
     args = parser.parse_args()
-    oracle_sha, native_sha = sha256(ORACLE_ELF), sha256(NATIVE_BIN_WIN)
+    oracle_elf = args.oracle_elf
+    oracle_sha, native_sha = sha256(oracle_elf), sha256(NATIVE_BIN_WIN)
     print(f"oracle ELF {oracle_sha}\nnative bin {native_sha}")
 
-    oracle = Engine([str(ORACLE_WORKER), "--rom", str(ORACLE_ELF)], oracle_sha)
+    oracle = Engine([str(ORACLE_WORKER), "--rom", str(oracle_elf)], oracle_sha)
     try:
         o_root, o_branch, _, _ = run_p1(oracle)
     finally:
