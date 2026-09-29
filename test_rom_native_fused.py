@@ -63,3 +63,15 @@ def test_fused_equals_reference(one_v_one, n, turns):
     finally:
         ref_client.close()
         nat_client.close()
+
+
+def test_engine_auto_falls_back_to_mgba_unless_the_pin_matches(monkeypatch, tmp_path):
+    monkeypatch.delenv("SIDEDEX_ENGINE", raising=False)
+    monkeypatch.setenv("SIDEDEX_NATIVE_BIN", str(tmp_path / "missing"))
+    assert rr.engine() == "mgba" and rr.native_command() is None
+    wrong = tmp_path / "wrong"
+    wrong.write_bytes(b"x")
+    monkeypatch.setenv("SIDEDEX_NATIVE_BIN", str(wrong))
+    assert rr.engine() == "mgba"
+    monkeypatch.setenv("SIDEDEX_ENGINE", "native")
+    assert rr.engine() == "native"

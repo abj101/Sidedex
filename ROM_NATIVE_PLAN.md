@@ -113,3 +113,27 @@ Agents: Claude Code `Agent` subagents in the background, with explicit worktree/
 - **WSL IPC latency:** amortized by the rollout op (one call per iteration).
 - **Snapshot size/memory:** only root snapshots are stored. Add a delta-vs-root store only if measured necessary.
 - **The real game advances RNG per frame in battle** (`main.c:407` without TESTING), so "RNG known" only holds for the injected-seed model. This is the same limitation as today; it is documented, not solved.
+
+## 7. Results
+
+Native engine `sidedex-native/0.1.0` (sha256 `62860586...`) is the default when reachable and pin-matched;
+`RomWorkerClient` accepts its status (worker `sidedex-native/0.1.0`, core `native-i386`, the binary is the artifact).
+`PoolRollout` uses the fused `rollout` op; `test_rom_native_fused.py` (live) checks it equals the Python
+reference drive on the mGBA oracle ELF (`2186323F...`): outcome, turns, prefix_consumed, legal_at_prefix_end and
+leaf equal on 36 items (24 six-mon items with prefixes/illegal words/cap 0, 12 one-v-one items to terminal),
+with a shifted-seed negative control that breaks equality. Native leaf is rounded to 6 decimals; its alive counts
+are turned into fractions with the request party sizes.
+
+`python bench.py` (12 logical cores, mGBA 3 workers, native 10 workers, WSL2):
+
+| metric | mGBA | native |
+| --- | --- | --- |
+| pool rollouts/s (P1, cap 60) | 4 | 1521 |
+| pool turns/s | 46 | 17633 |
+| transition p50 / p95 (ms) | 40.2 / 46.4 | 2.8 / 3.2 |
+| P1 first publish / done (s) | 11.7 / 11.7 | 0.026 / 0.074 |
+| P29 first publish / done (s) | 11.7 / 11.7 | 0.056 / 0.106 |
+
+mGBA never got past its first batch inside the 3 s budget; native resolved to a tie at 24 seeds.
+End to end (`rom_eval.evaluate`, TRAINER_HALEY_1 battle-start snapshot, native): warm first recommendation publish
+about 1.0 s (query cards ~0.9 s of that), done about 1.0 s; cold (pool booting) 4.7 s. mGBA: 3.0 s / 10.0 s.

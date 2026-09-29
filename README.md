@@ -101,7 +101,8 @@ flowchart TD
 Python port of the battle formulas (`battle_engine.py`). It stayed exact only
 for a narrow slice and each new mechanic needed a hand port. The current path
 builds the pinned game source's headless battle-test ELF with a small hook
-patch, then runs it under an embedded mGBA core. Damage, accuracy, abilities,
+patch and runs it on an embedded mGBA core or, by default, on a native i386 build of the same
+code (`sidedex-native`, verified byte-equal to the mGBA test ELF, see `ROM_NATIVE_PLAN.md` section 7). Damage, accuracy, abilities,
 items, and the trainer AI all come from the compiled game code. Python only
 builds requests, parses traces, and does statistics.
 
@@ -372,8 +373,12 @@ Current constraints:
 
 The recommendation card is `planner.plan` (open-loop UCT) over `rom_rollout.py`, which needs a v9 hook ELF:
 `SIDEDEX_V9_ELF` (default: the pinned ELF path). `SIDEDEX_ENGINE=mgba` (default) rolls out on mGBA;
-`SIDEDEX_ENGINE=native` launches `SIDEDEX_NATIVE_CMD` (default `wsl.exe -e sidedex-native`) instead.
-`SIDEDEX_WORKERS` sets the rollout pool size (mgba 3, native cores - 2).
+`SIDEDEX_ENGINE` unset picks `native` when the native i386 engine (`rom_native.NATIVE_BIN`, WSL
+`/home/abj1/rom-n1/sidedex-native`, sha256 pinned as `rom_identity.NATIVE_ENGINE_SHA256`) is reachable and matches
+the pin, else `mgba` with a logged reason. Set `native` or `mgba` to force one. Query cards and the recommendation
+both run on the chosen engine; native uses the fused `rollout` op (one call per worker per batch).
+`SIDEDEX_NATIVE_CMD` overrides the launch command, `SIDEDEX_NATIVE_BIN` the Windows-visible binary path.
+`SIDEDEX_WORKERS` sets the rollout pool size (mgba 3, native `max(1, cores - 2)`). `python bench.py` compares engines.
 
 Set `SIDEDEX_ROM_PATH` only for the real-ROM checks. When a new ELF or worker is
 built, update the pins in `rom_bridge.py` and `pinned_source.json` before

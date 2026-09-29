@@ -275,7 +275,7 @@ class Rollout:
         self.runner = runner
 
     def __call__(self, root, items, deadline=None):
-        if self.runner.native:
+        if getattr(self.runner, "native", False):
             return self.runner.rollout(root, items, int((deadline or time.monotonic() + 60) * 1000))
         return [rollout_item(self.runner, root, item) for item in items]
 
