@@ -13,7 +13,7 @@ import json
 import subprocess
 import time
 
-NATIVE_BIN = "/home/abj1/rom-n1/sidedex-native"
+NATIVE_BIN = "/home/abj1/sidedex-native/sidedex-native"
 NATIVE_BIN_WIN = r"\\wsl.localhost\Ubuntu" + NATIVE_BIN
 SOURCE_SHA = "0" * 40
 WORKER_SHA = "0" * 64

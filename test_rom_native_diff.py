@@ -94,7 +94,7 @@ def crash_info() -> str:
     import subprocess
     script = (rf"a=$(grep -o '\[0x[0-9a-f]*\]' {ERRFILE} | tr -d '[]' | head -8 | tr '\n' ' '); "
               rf"grep -m1 signal {ERRFILE}; [ -n \"$a\" ] && addr2line -f -C -e {n1.NATIVE_BIN} $a "
-              "| paste - - | sed 's#/home/abj1/rom-n1/##'")
+              "| paste - - | sed 's#/home/abj1/sidedex-native/##'")
     out = subprocess.run(["wsl.exe", "-e", "sh", "-c", script], capture_output=True, text=True).stdout
     return out.strip()
 

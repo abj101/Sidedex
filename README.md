@@ -374,7 +374,7 @@ Current constraints:
 The recommendation card is `planner.plan` (open-loop UCT) over `rom_rollout.py`, which needs a v9 hook ELF:
 `SIDEDEX_V9_ELF` (default: the pinned ELF path). `SIDEDEX_ENGINE=mgba` (default) rolls out on mGBA;
 `SIDEDEX_ENGINE` unset picks `native` when the native i386 engine (`rom_native.NATIVE_BIN`, WSL
-`/home/abj1/rom-n1/sidedex-native`, sha256 pinned as `rom_identity.NATIVE_ENGINE_SHA256`) is reachable and matches
+`/home/abj1/sidedex-native/sidedex-native`, sha256 pinned as `rom_identity.NATIVE_ENGINE_SHA256`) is reachable and matches
 the pin, else `mgba` with a logged reason. Set `native` or `mgba` to force one. Query cards and the recommendation
 both run on the chosen engine; native uses the fused `rollout` op (one call per worker per batch).
 `SIDEDEX_NATIVE_CMD` overrides the launch command, `SIDEDEX_NATIVE_BIN` the Windows-visible binary path.

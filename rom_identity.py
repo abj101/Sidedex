@@ -13,7 +13,7 @@ SOURCE_SHA = "2576d0f3f4c861c760f0c55198e37e6d7b91683e"
 ROM_SHA256 = "0CCAAAD0878A9CBFB36FBEFFF800E9B6DD66055924B7595038EDE1E8771EC5A2"
 ENGINE_ELF_SHA256 = "2186323F7FB9F6279E6868F96DC76942EC8ECB1E425538052651DAAC20CA5CB7"
 WORKER_SHA256 = "DD6F1DD646D1B1AABCCA9EDB7F3C5CFF3100A90FB8AAF0DAA538264A953AAE60"
-# Native i386 engine (WSL /home/abj1/rom-n1/sidedex-native, worker sidedex-native/0.1.0), SHA-256; cache key native-v1.
+# Native i386 engine (WSL /home/abj1/sidedex-native/sidedex-native, worker sidedex-native/0.1.0), SHA-256; cache key native-v1.
 NATIVE_ENGINE_SHA256 = "628605865E696CA5B3672DC1AB6487D60D7EC9A9BAE23CBC14A6E0AF0887F9A4"
 NATIVE_WORKER_VERSION, NATIVE_CORE = "sidedex-native/0.1.0", "native-i386"  # status `worker` / `mgba`
 # The native engine claims byte equality with ENGINE_ELF_SHA256 (Gate N2); its status reports its own binary as the ROM.
