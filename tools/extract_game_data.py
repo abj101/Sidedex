@@ -194,6 +194,20 @@ def macro_aliases(path, prefix):
             if not re.fullmatch(r"\d+", value.strip())}
 
 
+def item_aliases(source):
+    """Pre-Gen VI item names (#define ITEM_NEVERMELTICE ITEM_NEVER_MELT_ICE) mapped to their current IDs."""
+    aliases = {name: value for name, value in macro_aliases(source / "include/constants/items.h", "ITEM_").items()
+               if re.fullmatch(r"ITEM_\w+", value)}
+    resolved = {}
+    for name, target in aliases.items():
+        seen = {name}
+        while target in aliases and target not in seen:
+            seen.add(target)
+            target = aliases[target]
+        resolved[name] = target
+    return resolved
+
+
 def resolve_types(raw, aliases):
     if not raw:
         return None
@@ -546,6 +560,7 @@ def extract(source):
     species_aliases = macro_aliases(species_header, "SPECIES_")
     move_ids = constants(source / "include/constants/moves.h", "MOVE_")
     move_aliases = macro_aliases(source / "include/constants/moves.h", "MOVE_")
+    old_item_names = item_aliases(source)
     type_ids = constants(source / "include/constants/pokemon.h", "TYPE_")
     type_labels = {name: name.removeprefix("TYPE_").title() for name in type_ids}
 
@@ -602,7 +617,7 @@ def extract(source):
                     "raw_level": raw_level,
                     "level": level if level is None or level < 200 else None,
                     "moves": moves or None,
-                    "item": mf.get("heldItem") or "ITEM_NONE",
+                    "item": old_item_names.get(mf.get("heldItem"), mf.get("heldItem")) or "ITEM_NONE",
                     "nature": mf.get("nature") or "NATURE_HARDY",
                     "ability": mf.get("ability"),
                     # src/battle_main.c:2100 sets the packed .iv unconditionally and the struct
@@ -648,7 +663,7 @@ def extract(source):
             "flags": [flag for flag in re.findall(r"AI_FLAG_\w+", row.get("aiFlags", ""))],
             "ai_flags": ai_flags,
             "party_size": party_size,
-            "items": re.findall(r"ITEM_\w+", row.get("items", "")),
+            "items": [old_item_names.get(item, item) for item in re.findall(r"ITEM_\w+", row.get("items", ""))],
             "double_battle": row.get("doubleBattle"),
             "is_boss": row.get("isBossTrainer") == "TRUE",
             "conditional_party": bool(context_required),
@@ -962,6 +977,10 @@ def self_check(data, source):
     assert trainers["TRAINER_ROXANNE_1"]["party"][0]["species"] == "SPECIES_RHYHORN"
     assert trainers["TRAINER_ROXANNE_1"]["party"][0]["moves"] == ["MOVE_ROCK_TOMB", "MOVE_HORN_ATTACK", "MOVE_BULLDOZE", "MOVE_ROCK_SMASH"]
     assert trainers["TRAINER_ROXANNE_1"]["party"][0]["item"] == "ITEM_RINDO_BERRY"
+    assert trainers["TRAINER_TRENT_1"]["party"][0]["item"] == "ITEM_NEVER_MELT_ICE", "source spells it ITEM_NEVERMELTICE"
+    old_item_names = item_aliases(Path(source))
+    assert not any(item in old_item_names for t in data["trainers"]
+                   for item in [p["item"] for p in t["party"]] + t["items"])
     assert trainers["TRAINER_ROXANNE_1"]["party"][0]["nature"] == "NATURE_ADAMANT"
     assert trainers["TRAINER_ROXANNE_1"]["party"][0]["ability"] == "ABILITY_LIGHTNING_ROD"
     assert "AI_FLAG_OMNISCIENT" in trainers["TRAINER_ROXANNE_1"]["flags"]

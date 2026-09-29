@@ -65493,7 +65493,7 @@
             "MOVE_ROCK_SLIDE",
             "MOVE_ICE_SHARD"
           ],
-          "item": "ITEM_NEVERMELTICE",
+          "item": "ITEM_NEVER_MELT_ICE",
           "nature": "NATURE_IMPISH",
           "ability": "ABILITY_STURDY",
           "ivs": {
@@ -66762,7 +66762,7 @@
             "MOVE_ROCK_SLIDE",
             "MOVE_ICE_SHARD"
           ],
-          "item": "ITEM_NEVERMELTICE",
+          "item": "ITEM_NEVER_MELT_ICE",
           "nature": "NATURE_IMPISH",
           "ability": "ABILITY_STURDY",
           "ivs": {
@@ -66925,7 +66925,7 @@
             "MOVE_ROCK_SLIDE",
             "MOVE_ICE_SHARD"
           ],
-          "item": "ITEM_NEVERMELTICE",
+          "item": "ITEM_NEVER_MELT_ICE",
           "nature": "NATURE_IMPISH",
           "ability": "ABILITY_STURDY",
           "ivs": {
@@ -67088,7 +67088,7 @@
             "MOVE_ROCK_SLIDE",
             "MOVE_ICE_SHARD"
           ],
-          "item": "ITEM_NEVERMELTICE",
+          "item": "ITEM_NEVER_MELT_ICE",
           "nature": "NATURE_IMPISH",
           "ability": "ABILITY_STURDY",
           "ivs": {
@@ -67251,7 +67251,7 @@
             "MOVE_ROCK_SLIDE",
             "MOVE_ICE_SHARD"
           ],
-          "item": "ITEM_NEVERMELTICE",
+          "item": "ITEM_NEVER_MELT_ICE",
           "nature": "NATURE_IMPISH",
           "ability": "ABILITY_STURDY",
           "ivs": {
