@@ -13,6 +13,7 @@ from pathlib import Path
 
 import planner
 import rom_bridge
+import rom_identity
 import rom_pool
 import rom_query
 import rom_rollout
@@ -286,6 +287,8 @@ def _scenario(snapshot):
 
 
 def _engine_paths():
+    if rom_rollout.engine() == "native":
+        return rom_rollout.engine_paths()
     elf = Path(os.environ.get(
         "SIDEDEX_ENGINE_ELF_PATH",
         Path(__file__).parent / "native" / "rom_worker" / "build" / "mingw" /
@@ -307,7 +310,7 @@ def _boot_engine(deadline, elf, worker_path, command=None):
     client = rom_bridge.RomWorkerClient(
         worker_path=worker_path, rom_path=elf,
         timeout=max(0.1, deadline - time.monotonic()),
-        expected_artifact_sha256=rom_bridge.ENGINE_ELF_SHA256,
+        expected_artifact_sha256=(rom_identity.NATIVE_ENGINE_SHA256 if command else rom_bridge.ENGINE_ELF_SHA256),
         expected_worker_sha256=rom_bridge.WORKER_SHA256, command=command,
     )
     try:
