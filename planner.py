@@ -117,8 +117,9 @@ def plan(rollout, root, root_actions, rng=None, budget_s=3.0, max_turns=60, poli
                     nd.sum += v
         n = len(vals[acts[0]])
         snap = _snapshot(acts, vals, wins, tree, z, min_seeds, False, None)
-        if len(snap["leading"]) == 1:
-            reason = "resolved"
+        best_vals = vals[snap["best"]]
+        if len(snap["leading"]) == 1 or (n >= min_seeds and all(vals[o] == best_vals for o in snap["leading"])):
+            reason = "resolved"  # separated, or leaders identical on every paired seed (e.g. all win 100%)
         elif n >= max_seeds:
             reason = "max_seeds"
         elif clock() - t0 + 2 * last > budget_s:  # next (doubled) batch would overrun
