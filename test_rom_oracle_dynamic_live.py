@@ -45,7 +45,7 @@ def _v8_request(moves=None, pp=None, opponent_hp=None):
 
 
 class _QuerySession:
-    """One v8 worker booted to the pre-choice checkpoint, exposing a token."""
+    """One worker booted to the pre-choice checkpoint, exposing a token."""
 
     def __init__(self, elf, sha, version):
         self.version = version
@@ -58,11 +58,11 @@ class _QuerySession:
             trace.extend(run_dynamic._trace(self.client.run_frames(60)))
             ready = [line for line in trace if line.startswith("ROMTRACE|ready|")]
             if ready:
-                self.mailbox = int(ready[-1].split("|")[2])
+                self.mailbox = rom_bridge.parse_v9_ready(ready)  # the ROM-announced buffers
                 break
         if self.mailbox is None:
             self.client.__exit__(None, None, None)
-            raise RuntimeError("v8 ELF never announced its mailbox")
+            raise RuntimeError("ELF never announced its mailbox")
 
     def token(self, request):
         slot = self.client.save_checkpoint()
@@ -364,7 +364,8 @@ def _transition_frames(elf, sha, version, mode):
             trace.extend(run_dynamic._trace(client.run_frames(60)))
             ready = [line for line in trace if line.startswith("ROMTRACE|ready|")]
             if ready:
-                address = int(ready[-1].split("|")[2])
+                announced = rom_bridge.parse_v9_ready(ready)
+                address = announced["address"]
                 break
         assert address is not None
         client.save_state()
@@ -373,7 +374,7 @@ def _transition_frames(elf, sha, version, mode):
         request["operation"] = "simulate-turn"
         request["request_id"] = 1
         request["mode"] = mode
-        payload = run_dynamic.encode_request(request, protocol_version=version)
+        payload = run_dynamic.encode_request(request, protocol_version=version, result_buffer=announced)
         assert struct.unpack_from("<H", payload, run_dynamic.V8_EXTENSION_OFFSET + 2)[0] == (
             run_dynamic.MODE_LOGIC_ONLY if mode == "logic-only" else run_dynamic.MODE_NORMAL)
         result = client.batch_turns(

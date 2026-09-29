@@ -527,7 +527,7 @@ def snapshot_from_request(request):
             "enemy": {"party": request["opponent_party"]}}
 
 
-def _query_request(token, operation_name, protocol_version):
+def _query_request(token, operation_name, protocol_version, mailbox):
     if token.request is None:
         raise ValueError("incomplete-state: token carries no mailbox envelope")
     request = dict(token.request)
@@ -537,7 +537,7 @@ def _query_request(token, operation_name, protocol_version):
     request["rng_main"] = list(token.rng["main"])
     request["rng_secondary"] = list(token.rng["secondary"])
     request["critical_policy"] = run_dynamic.critical_policy_label(request)
-    payload = run_dynamic.encode_request(request, protocol_version=protocol_version)
+    payload = run_dynamic.encode_request(request, protocol_version=protocol_version, result_buffer=mailbox)
     return request, payload
 
 
@@ -568,7 +568,7 @@ def _run_query(client, mailbox, token, payload, protocol_version, deadline_ms):
         raise ValueError("identity-mismatch: worker state slot does not match the token")
     fingerprint = token.fingerprint()
     client.restore_state(token.handle)
-    client.write_memory(mailbox, payload)
+    client.write_memory(mailbox["address"], payload)
     started = time.monotonic()
     events = []
     frames = 0
@@ -590,7 +590,7 @@ def query_damage(client, mailbox, token, *, game_data, protocol_version=None,
                  move_ids=None, deadline_ms=QUERY_DEADLINE_MS) -> dict:
     """Run QUERY_DAMAGE from `token` without resolving a turn."""
     version = run_dynamic._protocol_version(protocol_version)
-    request, payload = _query_request(token, "query-damage", version)
+    request, payload = _query_request(token, "query-damage", version, mailbox)
     events, latency_ms = _run_query(client, mailbox, token, payload, version, deadline_ms)
     result = parse_damage(events, token.decoded or snapshot_from_request(request), game_data,
                           token=token, move_ids=move_ids,
@@ -603,7 +603,7 @@ def query_ai_action(client, mailbox, token, *, game_data, protocol_version=None,
                     deadline_ms=QUERY_DEADLINE_MS) -> dict:
     """Run QUERY_AI_ACTION once from `token` without resolving a turn."""
     version = run_dynamic._protocol_version(protocol_version)
-    request, payload = _query_request(token, "query-ai-action", version)
+    request, payload = _query_request(token, "query-ai-action", version, mailbox)
     events, latency_ms = _run_query(client, mailbox, token, payload, version, deadline_ms)
     result = parse_ai_action(events, game_data, token=token,
                              expected_policy=request["critical_policy"])

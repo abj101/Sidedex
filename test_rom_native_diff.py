@@ -35,8 +35,8 @@ from tools.rom_oracle import native_gate_n1 as n1  # noqa: E402
 from tools.rom_oracle import run_dynamic, sdr2  # noqa: E402
 
 GATE = os.environ.get("SIDEDEX_GATE") == "1"
-ORACLE_ELF = Path(os.environ.get(
-    "SIDEDEX_ORACLE_ELF", r"C:\Users\Abj1\.codex\artifacts\H\14177d962d\pokeemerald-test-headless.elf"))
+ORACLE_ELF = Path(os.environ.get(  # the active pin (rom_identity.ENGINE_ELF_SHA256)
+    "SIDEDEX_ORACLE_ELF", ROOT / "native/rom_worker/build/mingw/pokeemerald-test-headless.elf"))
 BATTLES = int(os.environ.get("SIDEDEX_DIFF_BATTLES", 300 if GATE else 20))
 MAX_TURNS = int(os.environ.get("SIDEDEX_DIFF_MAX_TURNS", 40))
 ONLY = os.environ.get("SIDEDEX_DIFF_ONLY")

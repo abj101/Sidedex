@@ -42,8 +42,9 @@ FIXTURES_DIR = TOOLS / "fixtures"
 ID_MAP_PATH = TOOLS / "numeric_id_map.json"
 
 MINGW = ROOT / "native" / "rom_worker" / "build" / "mingw"
-# Pinned wave-2 artifact (protocol 8, v8c). Older ELFs stay on disk as history and are
-# exercised only when SIDEDEX_DIFF_HISTORICAL=1 selects them.
+# Active artifact (hook protocol 9, trace path: request flags bit0 clear). The v8c ELF
+# stays on disk as pokeemerald-test-v8c-headless.elf; older ELFs are exercised only
+# when SIDEDEX_DIFF_HISTORICAL=1 selects them.
 HEADLESS_ELF = MINGW / "pokeemerald-test-headless.elf"
 DEFAULT_V8_ELF = HEADLESS_ELF
 HISTORICAL_V8_ELF = MINGW / "pokeemerald-test-v8.elf"
@@ -55,13 +56,12 @@ DEFAULT_WORKER = MINGW / "rom_worker.exe"
 
 # Active pin (contract section 1): the harness and its RawWorker refuse to run
 # when the on-disk artifacts or the wire protocol do not match rom_identity.
-# Gate V1 flipped the worker to wire 3; the ELF is still the v8c pin (hook 8)
-# until the Gate F flip.
+# The ELF flip made hook 9 the active protocol.
 PINNED_SOURCE_SHA = "2576d0f3f4c861c760f0c55198e37e6d7b91683e"
 ELF_SHA256 = ENGINE_ELF_SHA256.lower()
 WORKER_SHA256 = ACTIVE_WORKER_SHA256.lower()
 WIRE_PROTOCOL = PROTOCOL_VERSION
-ROM_HOOK_PROTOCOL = 8
+ROM_HOOK_PROTOCOL = 9
 STATE_SCHEMA = "sidedex-state-v1"
 
 # Frozen provenance: the wave-2 ``gate`` block every fixture JSON was recorded
@@ -69,7 +69,7 @@ STATE_SCHEMA = "sidedex-state-v1"
 # deliberately do not follow the active pin.
 FIXTURE_GATE_IDENTITY = {
     "source_sha": PINNED_SOURCE_SHA,
-    "elf_sha256": ELF_SHA256,
+    "elf_sha256": "422ade3e159916f9cc8bc1350ad274201b6af6cb9b9d38c14d073f85e982bc77",  # v8c
     "worker_sha256": "0601297e8bed7ca1319dc9be86a547aa01b16624ce0de5431093e6b59d7e5122",
     "wire_protocol": 2,
     "rom_hook_protocol": 8,
@@ -83,6 +83,7 @@ VERSION_V8 = 8
 SUBMITTED = 1
 V7_BYTES = 856
 MAILBOX_BYTES = 864
+V9_MAILBOX_BYTES = 876  # v8 body + resultAddress u32, resultCapacity u32, resultVersion u16, flags u16
 
 OPERATIONS = {"simulate-turn": 0, "query-damage": 1, "query-ai-action": 2}
 MODES = {"normal": 0, "logic-only": 1}
@@ -246,8 +247,9 @@ def _validate_clear_field(field):
 
 
 def encode_request(request, *, operation="simulate-turn", mode="normal",
-                   policy="normal", request_id=0):
-    """Encode the v8 864-byte mailbox document (contract Appendix A)."""
+                   policy="normal", request_id=0, result_buffer=None):
+    """Encode the v8 864-byte mailbox document (contract Appendix A); with the ROM-announced
+    `result_buffer` (rom_bridge.parse_v9_ready) the 876-byte v9 trace request (flags 0)."""
     if operation not in OPERATIONS:
         raise ValueError(f"invalid-id: unknown operation {operation!r}")
     if mode not in MODES:
@@ -305,6 +307,9 @@ def encode_request(request, *, operation="simulate-turn", mode="normal",
     payload += struct.pack("<4H", OPERATIONS[operation], MODES[mode], POLICIES[policy], request_id)
     if len(payload) != MAILBOX_BYTES:
         raise HarnessError(f"encoder produced {len(payload)} bytes, expected {MAILBOX_BYTES}")
+    if result_buffer is not None:
+        payload = payload[:4] + struct.pack("<H", 9) + payload[6:] + struct.pack(
+            "<IIHH", result_buffer["result_address"], result_buffer["result_capacity"], 1, 0)
     return payload
 
 
@@ -339,8 +344,8 @@ class DiffSession:
         self._rid = 0
         ev, self.ready_frames = self._run_until(["ROMTRACE|ready|"], step=60, max_frames=20_000)
         ready = [e for e in ev if "ROMTRACE|ready|" in e][-1]
-        self.address = int(ready.split("|")[2])
-        self.mailbox_bytes = int(ready.split("|")[3])
+        self.ann = rb.parse_v9_ready([ready])
+        self.address, self.mailbox_bytes = self.ann["address"], self.ann["mailbox_bytes"]
 
     @classmethod
     def open(cls, **kwargs):
@@ -354,8 +359,9 @@ class DiffSession:
         self.rng_address = None
         self.rng2_address = None
         ev, frames = self._run_until(["ROMTRACE|ready|"], step=60, max_frames=20_000)
-        ready = [e for e in ev if "ROMTRACE|ready|" in e][-1]
-        self.address = int(ready.split("|")[2])
+        import rom_bridge as rb
+        self.ann = rb.parse_v9_ready([e for e in ev if "ROMTRACE|ready|" in e])
+        self.address = self.ann["address"]
         return frames
 
     def close(self):
@@ -385,7 +391,7 @@ class DiffSession:
                 max_frames=MAX_FRAMES):
         self._rid += 1
         payload = encode_request(request, operation=operation, mode=mode, policy=policy,
-                                 request_id=self._rid)
+                                 request_id=self._rid, result_buffer=self.ann)
         self.client.write_memory(self.address, payload)
         started = time.monotonic()
         records, frames = self._run_until(want, final=final, step=step, max_frames=max_frames)
@@ -504,10 +510,10 @@ def _blob_payload(blob_b64):
 def _mask_mailbox(payload, mailbox_address):
     offset = SAVESTATE_EWRAM_OFFSET + (mailbox_address - EWRAM_START)
     masked = bytearray(payload)
-    end = offset + MAILBOX_BYTES
+    end = offset + V9_MAILBOX_BYTES
     if end > len(masked):
         raise HarnessError("mailbox range falls outside the savestate payload")
-    masked[offset:end] = b"\0" * MAILBOX_BYTES
+    masked[offset:end] = b"\0" * V9_MAILBOX_BYTES
     return bytes(masked)
 
 

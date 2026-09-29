@@ -17,11 +17,13 @@ SPEC = importlib.util.spec_from_file_location(
 RUNNER = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(RUNNER)
+# The ROM's own ready announcement (contract C.4): v9 requests take their result buffer from it.
+BUF = RUNNER.parse_v9_ready(["ROMTRACE|ready|33554688|876|9|3|33558528|8192"])
 
 
 def test_source_ids_encode_to_the_pinned_mailbox():
     request = json.loads((ROOT / "tools/rom_oracle/dynamic_sample.json").read_text(encoding="utf-8"))
-    payload = RUNNER.encode_request(request)
+    payload = RUNNER.encode_request(request, result_buffer=BUF)
     assert len(payload) == RUNNER.MAILBOX_BYTES == RUNNER.mailbox_bytes(RUNNER.PINNED_PROTOCOL_VERSION)
     assert RUNNER.numeric_id("species", "SPECIES_BULBASAUR") == 1
     assert RUNNER.numeric_id("moves", "MOVE_TACKLE") == 33
@@ -45,8 +47,20 @@ def test_v7_and_v8_layouts_are_selected_by_protocol_version():
         RUNNER.CRITICAL_POLICY_ITEM_ABILITY_ONLY, 7)
     # v7 offsets are preserved: the only header difference is the version field.
     assert v8[:4] == v7[:4] and v8[6:856] == v7[6:856]
+    # v9 (the pin) is the v8 body plus the announced result buffer, flags bit0 clear (trace path).
+    v9 = RUNNER.encode_request(request, protocol_version=9, result_buffer=BUF)
+    assert len(v9) == 876 and struct.unpack_from("<H", v9, 4)[0] == 9
+    assert v9[6:864] == v8[6:864]
+    assert struct.unpack_from("<IIHH", v9, 864) == (BUF["result_address"], BUF["result_capacity"], 1, 0)
+    for bad in (None, 33558528):
+        try:
+            RUNNER.encode_request(request, protocol_version=9, result_buffer=bad)
+        except ValueError as error:
+            assert "invalid-state" in str(error)
+        else:
+            raise AssertionError("a v9 request without the ROM-announced result buffer was accepted")
     try:
-        RUNNER.encode_request(request, protocol_version=9)
+        RUNNER.encode_request(request, protocol_version=10)
     except ValueError as error:
         assert "unsupported-protocol-version" in str(error)
     else:
@@ -65,7 +79,7 @@ def test_query_operations_set_the_explicit_op_field():
     request.pop("operation")
     request["query"] = True
     assert RUNNER.is_query(request)
-    assert struct.unpack_from("<H", RUNNER.encode_request(request), RUNNER.SECOND_PRESENT_OFFSET)[0] == 2
+    assert struct.unpack_from("<H", RUNNER.encode_request(request, result_buffer=BUF), RUNNER.SECOND_PRESENT_OFFSET)[0] == 2
     assert struct.unpack_from(
         "<H", RUNNER.encode_request(request, protocol_version=8), RUNNER.V8_EXTENSION_OFFSET)[0] == RUNNER.OP_QUERY_DAMAGE
 
@@ -102,12 +116,12 @@ def test_battle_statuses_encode_as_status1_words():
     }
     for status, value in expected.items():
         request["player_party"][0]["status1"] = status
-        payload = RUNNER.encode_request(request)
+        payload = RUNNER.encode_request(request, result_buffer=BUF)
         assert struct.unpack_from("<I", payload, 56 + 16)[0] == value
 
     request["player_party"][0]["status1"] = "STATUS1_TOXIC_COUNTER"
     try:
-        RUNNER.encode_request(request)
+        RUNNER.encode_request(request, result_buffer=BUF)
     except ValueError as error:
         assert "selectable battle status" in str(error)
     else:
@@ -121,21 +135,21 @@ def test_switch_and_one_replayed_turn_are_encoded():
         "player_action": {"kind": "move", "move_id": "MOVE_TACKLE"},
         "enemy_action": {"kind": "move", "move_id": "MOVE_TACKLE"},
     }]
-    payload = RUNNER.encode_request(request)
+    payload = RUNNER.encode_request(request, result_buffer=BUF)
     assert len(payload) == RUNNER.MAILBOX_BYTES
 
 
 def test_second_candidate_turn_is_encoded():
     request = json.loads((ROOT / "tools/rom_oracle/dynamic_sample.json").read_text(encoding="utf-8"))
     request["second_action"] = {"kind": "move", "move_id": "MOVE_TACKLE"}
-    payload = RUNNER.encode_request(request)
+    payload = RUNNER.encode_request(request, result_buffer=BUF)
     assert len(payload) == RUNNER.MAILBOX_BYTES
     kind, move, _slot, present = struct.unpack_from("<4H", payload, RUNNER.SECOND_ACTION_OFFSET)
     assert present == 1 and kind == 0 and move == RUNNER.numeric_id("moves", "MOVE_TACKLE")
 
     request["second_action"] = {"kind": "move", "move_id": "MOVE_NOT_IN_PINNED_SOURCE"}
     try:
-        RUNNER.encode_request(request)
+        RUNNER.encode_request(request, result_buffer=BUF)
     except ValueError as error:
         assert "invalid-id" in str(error)
     else:
@@ -153,7 +167,7 @@ def test_item_enablement_stages_and_post_switch_query_encoding():
         "enemy_action": {"kind": "move", "move_id": "MOVE_TACKLE"},
     }]
     request["post_switch_query"] = True
-    payload = RUNNER.encode_request(request)
+    payload = RUNNER.encode_request(request, result_buffer=BUF)
     assert len(payload) == RUNNER.MAILBOX_BYTES
     # Party slot 0 starts after the 56-byte request header; each encoded mon is 64 bytes.
     assert payload[56 + 56] == 0
@@ -163,7 +177,7 @@ def test_item_enablement_stages_and_post_switch_query_encoding():
 
     mon["held_item_enabled"] = 1
     try:
-        RUNNER.encode_request(request)
+        RUNNER.encode_request(request, result_buffer=BUF)
     except ValueError as error:
         assert "boolean" in str(error)
     else:
@@ -183,7 +197,7 @@ def test_invalid_state_fails_closed():
     request = json.loads((ROOT / "tools/rom_oracle/dynamic_sample.json").read_text(encoding="utf-8"))
     request["player_party"][0]["evs"] = [252, 252, 252, 0, 0, 0]
     try:
-        RUNNER.encode_request(request)
+        RUNNER.encode_request(request, result_buffer=BUF)
     except ValueError as error:
         assert "EV total" in str(error)
     else:
@@ -192,7 +206,7 @@ def test_invalid_state_fails_closed():
     request = json.loads((ROOT / "tools/rom_oracle/dynamic_sample.json").read_text(encoding="utf-8"))
     request["opponent_active_index"] = 1
     try:
-        RUNNER.encode_request(request)
+        RUNNER.encode_request(request, result_buffer=BUF)
     except ValueError as error:
         assert "active index" in str(error)
     else:
@@ -203,7 +217,7 @@ def test_unknown_field_and_unsupported_history_fail_closed():
     request = json.loads((ROOT / "tools/rom_oracle/dynamic_sample.json").read_text(encoding="utf-8"))
     request["field"]["weather"] = "WEATHER_RAIN"
     try:
-        RUNNER.encode_request(request)
+        RUNNER.encode_request(request, result_buffer=BUF)
     except ValueError as error:
         assert "field" in str(error)
     else:
@@ -212,7 +226,7 @@ def test_unknown_field_and_unsupported_history_fail_closed():
     request = json.loads((ROOT / "tools/rom_oracle/dynamic_sample.json").read_text(encoding="utf-8"))
     request["replay_turns"] = [{"player_action": {"kind": "move", "move_id": "MOVE_TACKLE"}}]
     try:
-        RUNNER.encode_request(request)
+        RUNNER.encode_request(request, result_buffer=BUF)
     except ValueError as error:
         assert "both recorded actions" in str(error)
     else:
