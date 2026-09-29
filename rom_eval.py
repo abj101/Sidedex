@@ -79,8 +79,12 @@ def _unsupported(snapshot, game_data):
     if not isinstance(turns, list) or len(turns) > 1:
         return "incomplete-state", "The current engine can replay at most one observed turn.", ["history.turns"]
     field = snapshot.get("field") or {}
+    weather = field.get("weather")
+    if weather not in (None, "WEATHER_NONE") and (
+            rom_rollout.engine() != "native" or weather not in run_dynamic.WEATHER_CODES):
+        return "incomplete-state", "Weather needs the native engine and a rain, sun, sandstorm, hail or snow value.", ["field.weather"]
     if any(field.get(key) not in (None, [], False) for key in
-           ("weather", "terrain", "trick_room", "player_screens", "enemy_screens",
+           ("terrain", "trick_room", "player_screens", "enemy_screens",
             "player_hazards", "enemy_hazards")):
         return "incomplete-state", "The current engine request cannot encode this field state.", ["field"]
     for side_name, side in (("player", player), ("enemy", enemy)):
@@ -101,6 +105,9 @@ def _unsupported(snapshot, game_data):
                 return "incomplete-state", "Current and maximum HP are required by the engine request.", [f"{side_name}.party[{index}].hp", f"{side_name}.party[{index}].max_hp"]
             if not 0 <= mon["hp"] <= mon["max_hp"]:
                 return "incomplete-state", "A party member has invalid current HP.", [f"{side_name}.party[{index}].hp"]
+            if not any(move != "MOVE_NONE" for move in mon.get("moves") or []):
+                name = (game_data.get("species", {}).get(mon.get("species")) or {}).get("name") or mon.get("species")
+                return "missing-input", f"{name} has no moves. Add at least one move.", [f"{side_name}.party[{index}].moves"]
     if not isinstance(enemy.get("ai_flags"), list) or "AI_FLAG_UNKNOWN" in enemy["ai_flags"]:
         return "incomplete-state", "The trainer AI flags are not resolved.", ["enemy.ai_flags"]
     if len(turns) and any(not isinstance(turn.get(key), dict) for turn in turns
@@ -111,7 +118,7 @@ def _unsupported(snapshot, game_data):
 
 def _field(snapshot):
     # Empty/unknown effects are the clear battle-start state represented by the hook.
-    return {"weather": "WEATHER_NONE", "terrain": "TERRAIN_NONE", "trick_room": False,
+    return {"weather": (snapshot.get("field") or {}).get("weather") or "WEATHER_NONE", "terrain": "TERRAIN_NONE", "trick_room": False,
             "player_screens": 0, "enemy_screens": 0,
             "player_hazards": 0, "enemy_hazards": 0}
 
@@ -188,7 +195,7 @@ def _request(snapshot, game_data, action, seed, *, second=None, replay_turns=Non
 def _run_batch(client, mailbox, payloads, deadline, request_id):
     return client.batch_turns(
         mailbox["address"], payloads, mailbox_bytes=run_dynamic.MAILBOX_BYTES,
-        engine_elf_sha256=rom_bridge.ENGINE_ELF_SHA256,
+        engine_elf_sha256=client.rom_sha256,
         deadline_ms=int(deadline * 1000), request_id=request_id, max_frames=24_000)
 
 
@@ -262,13 +269,18 @@ def _prepare_snapshot(snapshot):
     return prepared
 
 
-def _canonical_moves(snapshot, game_data):
+def _canonical_ids(snapshot, game_data):
+    # Some extracted alias links point from a pinned name to its alias; never rewrite a pinned name.
+    pinned_species = run_dynamic.ID_MAP["ids"]["species"]
+    species_aliases = {species_id: row["alias_of"] for species_id, row in game_data.get("species", {}).items()
+                       if isinstance(row, dict) and row.get("alias_of") in pinned_species
+                       and species_id not in pinned_species}
     aliases = {move_id: row["alias_of"] for move_id, row in game_data.get("moves", {}).items()
                if isinstance(row, dict) and row.get("alias_of")}
-    if not aliases:
-        return snapshot
     for side_name in ("player", "enemy"):
         for mon in (snapshot.get(side_name) or {}).get("party") or []:
+            if mon.get("species") in species_aliases:
+                mon["species"] = species_aliases[mon["species"]]
             mon["moves"] = [aliases.get(move_id, move_id) for move_id in mon.get("moves") or []]
             if isinstance(mon.get("pp"), dict):
                 mon["pp"] = {aliases.get(move_id, move_id): value for move_id, value in mon["pp"].items()}
@@ -425,7 +437,8 @@ def _card(snap, game_data, snapshot, known):
     """One planner snapshot -> the recommendation card (actions best first)."""
     leading = snap["leading"]
     rows = [{**_word_row(word, game_data, snapshot), "p_win": s["p_win"], "score": {"mean": s["mean"]},
-             "half_width": s["half_width"], "samples": s["samples"], "top_option": word in leading,
+             "hp_left": s["hp_left"], "faints": s["faints"], "half_width": s["half_width"], "samples": s["samples"],
+             "top_option": word in leading,
              "uniquely_recommended": snap["done"] and leading == [word]}
             for word, s in sorted(snap["actions"].items(), key=lambda item: -item[1]["mean"])]
     return {"status": "engine-fixed-seed" if known else "estimated", "critical_policy": ROLLOUT_POLICY,
@@ -466,7 +479,7 @@ def evaluate(snapshot, game_data, deadline, cancelled=None, publish=None):
     """Query cards plus the planner recommendation; `deadline` is an absolute monotonic time."""
     source = snapshot.get("source_sha") if isinstance(snapshot, dict) else None
     if isinstance(snapshot, dict):
-        snapshot = _canonical_moves(_prepare_snapshot(snapshot), game_data)
+        snapshot = _canonical_ids(_prepare_snapshot(snapshot), game_data)
     issue = _unsupported(snapshot, game_data) if isinstance(snapshot, dict) else (
         "incomplete-state", "The battle snapshot is invalid.", ["snapshot"])
     if issue:

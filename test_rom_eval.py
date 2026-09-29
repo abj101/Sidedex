@@ -265,7 +265,8 @@ class Recommendation(unittest.TestCase):
         for reason, mutate in (
                 ("incomplete-state", lambda snap: snap["player"].__setitem__("active_index", 1)),
                 ("invalid-id", lambda snap: snap["player"]["party"][0].__setitem__("status", "STATUS1_BOGUS")),
-                ("source-mismatch", lambda snap: snap.__setitem__("source_sha", "0" * 40))):
+                ("source-mismatch", lambda snap: snap.__setitem__("source_sha", "0" * 40)),
+                ("missing-input", lambda snap: snap["player"]["party"][0].__setitem__("moves", []))):
             snapshot = self._base()
             mutate(snapshot)
             result = evaluate(snapshot)
@@ -285,10 +286,18 @@ class Snapshots(unittest.TestCase):
         mon["moves"][0] = "MOVE_VICE_GRIP"
         mon["pp"] = {"MOVE_VICE_GRIP": 20}
         snapshot["planned_action"]["move_id"] = "MOVE_VICE_GRIP"
-        prepared = rom_eval._canonical_moves(rom_eval._prepare_snapshot(snapshot), DATA)
+        prepared = rom_eval._canonical_ids(rom_eval._prepare_snapshot(snapshot), DATA)
         self.assertEqual(prepared["player"]["party"][0]["moves"][0], "MOVE_VISE_GRIP")
         self.assertEqual(prepared["planned_action"]["move_id"], "MOVE_VISE_GRIP")
         self.assertEqual(prepared["player"]["party"][0]["pp"]["MOVE_VISE_GRIP"], 20)
+
+    def test_species_alias_from_game_data_is_canonicalized_for_mailbox(self):
+        snapshot = snapshot_v2('TRAINER_HALEY_1', rng={'main': KNOWN_MAIN, 'secondary': KNOWN_SECONDARY})
+        snapshot["enemy"]["party"][0]["species"] = "SPECIES_ALCREMIE"
+        snapshot["player"]["party"][0]["species"] = "SPECIES_GRENINJA_BATTLE_BOND"
+        prepared = rom_eval._canonical_ids(rom_eval._prepare_snapshot(snapshot), DATA)
+        self.assertEqual(prepared["enemy"]["party"][0]["species"], "SPECIES_ALCREMIE_STRAWBERRY_VANILLA_CREAM")
+        self.assertEqual(prepared["player"]["party"][0]["species"], "SPECIES_GRENINJA_BATTLE_BOND")
 
     def test_assumed_lead_remaps_history_switch_slots(self):
         snapshot = snapshot_v2("TRAINER_HALEY_1",

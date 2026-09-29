@@ -191,7 +191,7 @@ def encode_request(request: dict, protocol_version: int | None = None, result_bu
     if isinstance(ai_flags, list):
         ai_flags = _ai_flags(ai_flags)
     ai_flags = _ints([ai_flags], 1, 0xFFFFFFFF)[0]
-    _validate_clear_field(request.get("field"))
+    weather = _validate_clear_field(request.get("field"))
     player_action = request["candidate_action"]
     kind, move, slot = _action(player_action, allow_ai=True)
     replay = request.get("replay_turns", [])
@@ -257,7 +257,7 @@ def encode_request(request: dict, protocol_version: int | None = None, result_bu
     if len(item_ids) > 4:
         raise ValueError("incomplete-state: a trainer can use at most four item slots")
     item_ids += [0] * (4 - len(item_ids))
-    payload += struct.pack("<6H", *item_ids, sum(1 for value in item_ids if value), 0)
+    payload += struct.pack("<6H", *item_ids, sum(1 for value in item_ids if value), weather)
     if version >= 8:
         payload += struct.pack("<4H", op, mode, policy, request_id)
     assert len(payload) == mailbox_bytes(version)
@@ -358,12 +358,20 @@ def _encode_mon(mon: dict) -> bytes:
                        int(held_item_enabled), *stages)
 
 
-def _validate_clear_field(field: dict | None) -> None:
-    expected = {"weather": "WEATHER_NONE", "terrain": "TERRAIN_NONE",
-                "trick_room": False, "player_screens": 0, "enemy_screens": 0,
-                "player_hazards": 0, "enemy_hazards": 0}
-    if field != expected:
-        raise ValueError("incomplete-state: only a verified clear battle-start field is supported")
+# Battle-start weather the native hook can set (TestRunner_Battle_ApplyWeather; trainerReserved).
+WEATHER_CODES = {"WEATHER_NONE": 0, "WEATHER_RAIN": 1, "WEATHER_SUN": 2,
+                 "WEATHER_SANDSTORM": 3, "WEATHER_HAIL": 4, "WEATHER_SNOW": 5}
+
+
+def _validate_clear_field(field: dict | None) -> int:
+    """Return the weather code; everything else in the field must be clear."""
+    field = dict(field or {})
+    code = WEATHER_CODES.get(field.pop("weather", None))
+    if code is None or field != {"terrain": "TERRAIN_NONE",
+                                 "trick_room": False, "player_screens": 0, "enemy_screens": 0,
+                                 "player_hazards": 0, "enemy_hazards": 0}:
+        raise ValueError("incomplete-state: only a clear battle-start field or battle-start weather is supported")
+    return code
 
 
 def _ai_flags(names: list[str]) -> int:
