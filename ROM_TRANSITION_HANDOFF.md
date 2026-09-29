@@ -1,5 +1,7 @@
 # ROM transition finish: orchestrator handoff (written 2026-09-28)
 
+> **2026-09-28: superseded by `ROM_NATIVE_PLAN.md`** (native i386 compile of the same source + hook; mGBA becomes the byte-equality oracle). Sections below remain accurate as state/history.
+
 You are taking over as orchestrator "O" for the Sidedex ROM combat-emulation finish (phases 1-4). The previous orchestrator was a Claude Code session; it ran out of session length, not out of ideas. Read this whole file, then `ROM_TRANSITION_FINISH_PLAN.md` (esp. **section 9, audit amendments**, which supersede earlier sections), `ROM_TRANSITION_CONTRACT.md` Appendix B, C (C.1-C.6), and `ROM_TRANSITION_LEDGER.md` (gate table). Everything below was verified against git/files at handoff time unless marked *(agent claim, unverified)*.
 
 ## 0. Ground rules (from the user and the repo)
