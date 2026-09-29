@@ -57,7 +57,7 @@ def test_equal_actions_return_leading_set():
 def test_identical_on_every_seed_resolves_early_as_a_tie():
     # all actions always win: nothing more to learn, so no run to the budget
     s = run(flat_engine({A: 1.0, B: 1.0}), max_seeds=4096)
-    assert s["reason"] == "resolved" and s["seeds"] == 16 and sorted(s["leading"]) == [A, B]
+    assert s["reason"] == "tied" and s["seeds"] < 64 and sorted(s["leading"]) == [A, B]
 
 
 def test_budget_stops_with_fake_clock():

@@ -78,7 +78,7 @@ def plan(rollout, root, root_actions, rng=None, budget_s=3.0, max_turns=60, poli
     """Generator: yields a snapshot after every seed batch (8, 16, 32, ... seeds; every root action per seed).
 
     Snapshot: {"actions": {a: {mean, p_win, half_width, samples}}, "best", "leading", "seeds", "done",
-    "reason" (None|"resolved"|"budget"|"max_seeds"), "tree"}. `mean` is the mean value (= P(win) without caps).
+    "reason" (None|"resolved"|"tied"|"budget"|"max_seeds"), "tree"}. `mean` is the mean value (= P(win) without caps).
     The last snapshot has done=True. The whole batch goes to one rollout call so a pool can split it.
     """
     acts = list(root_actions)
@@ -118,8 +118,10 @@ def plan(rollout, root, root_actions, rng=None, budget_s=3.0, max_turns=60, poli
         n = len(vals[acts[0]])
         snap = _snapshot(acts, vals, wins, tree, z, min_seeds, False, None)
         best_vals = vals[snap["best"]]
-        if len(snap["leading"]) == 1 or (n >= min_seeds and all(vals[o] == best_vals for o in snap["leading"])):
-            reason = "resolved"  # separated, or leaders identical on every paired seed (e.g. all win 100%)
+        if len(snap["leading"]) == 1:
+            reason = "resolved"
+        elif n >= min_seeds and all(vals[o] == best_vals for o in snap["leading"]):
+            reason = "tied"  # leaders identical on every paired seed (e.g. all win 100%): sampling cannot separate them
         elif n >= max_seeds:
             reason = "max_seeds"
         elif clock() - t0 + 2 * last > budget_s:  # next (doubled) batch would overrun
