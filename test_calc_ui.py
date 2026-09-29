@@ -567,74 +567,32 @@ class CardTest(unittest.TestCase):
         self.assertIn("Trainer action preview", preview_markup)
         self.assertNotIn("50%", preview_markup)
 
-    def test_recommendation_shows_only_actionable_leaders(self):
-        recommendation = {"status": "estimated", "actions": [
-            {"id": "MOVE_TACKLE", "kind": "move", "label": "Tackle", "top_option": True,
-             "death_risk": {"num": 1, "den": 10, "interval_95": {"low": 0.02, "high": 0.2}},
-             "first_turn_death_risk": {"num": 1, "den": 10, "interval_95": {"low": 0.02, "high": 0.2}},
-             "followup_death_risk": {"estimate": 0.2, "basis": "measured damage before estimated KO",
-                                     "range": {"low": 0.1, "high": 0.3}},
-             "ranking_death_risk": {"estimate": 0.3, "basis": "sampled first turn plus modeled follow-up",
-                                   "range": {"low": 0.12, "high": 0.5}},
-             "ko_before_faint": {"num": 8, "den": 10}, "turns_to_ko": {"estimate": 1, "basis": "sampled"}},
-            {"id": "MOVE_GROWL", "kind": "move", "label": "Growl", "top_option": True,
-             "death_risk": {"num": 1, "den": 10, "interval_95": {"low": 0.02, "high": 0.2}},
-             "ko_before_faint": {"num": 3, "den": 10}, "turns_to_ko": None,
-             "matchup_estimate": "stable"},
-            {"id": 1, "kind": "switch", "label": "Switch to party slot 2", "top_option": True,
-             "followup_viability": 0, "matchup_estimate": "unavailable"},
-            {"id": "MOVE_SPLASH", "kind": "move", "label": "Splash"}],
-            "ranking_uncertain": True, "critical_policy": "item-ability-only",
-            "effective_samples": 12,
-            "ranking_basis": "first-turn samples plus modeled follow-up"}
-        markup = calc_result_card("Recommendation", "recommendation", recommendation)
-        self.assertNotIn("sd-calc-recommended", markup)
-        self.assertIn("Tackle", markup)
-        self.assertIn("70% est. survival", markup)
-        self.assertIn("Growl", markup)
-        self.assertNotIn("Choice uncertain", markup)
+    def test_recommendation_lists_every_action_with_win_probability_ci_and_samples(self):
+        actions = [{"id": "MOVE_TACKLE", "kind": "move", "label": "Tackle", "p_win": 0.62,
+                    "half_width": 0.07, "samples": 32, "top_option": True},
+                   {"id": 1, "kind": "switch", "label": "Switch to party slot 2", "p_win": 0.58,
+                    "half_width": 0.08, "samples": 32, "top_option": True},
+                   {"id": "MOVE_GROWL", "kind": "move", "label": "Growl", "p_win": 0.2,
+                    "half_width": 0.06, "samples": 32}]
+        markup = calc_result_card("Recommendation", "recommendation", {
+            "status": "estimated", "ranking_uncertain": True, "actions": actions})
         self.assertIn("Player action options", markup)
-        self.assertIn("Switch to party slot 2", markup)
-        self.assertNotIn("Splash", markup)
-        for fluff in ("interval", "samples", "death risk", "Ranking basis", "critical hits",
-                      "Matchup", "KO before faint", "turns to KO"):
-            self.assertNotIn(fluff, markup)
-        extended = {"status": "estimated", "ranking_uncertain": True, "actions": [
-            {"id": f"MOVE_{index}", "kind": "move", "label": f"Move {index}", "top_option": index < 5}
-            for index in range(8)]}
-        extended_markup = calc_result_card("Recommendation", "recommendation", extended)
-        for index in range(5):
-            self.assertIn(f"Move {index}", extended_markup)
-        self.assertNotIn("Move 5", extended_markup)
+        for text in ("Tackle", "62% ±7 (n=32)", "Switch to party slot 2", "58% ±8 (n=32)", "Growl"):
+            self.assertIn(text, markup)
+        self.assertEqual(markup.count("sd-calc-top"), 2)
+        self.assertNotIn("sd-calc-recommended", markup)
+        resolved = calc_result_card("Recommendation", "recommendation", {
+            "status": "estimated", "ranking_uncertain": False, "actions": actions})
+        self.assertEqual(resolved.count("sd-calc-recommended"), 1)
+        self.assertNotIn("Player action options", resolved)
 
     def test_seeded_recommendation_is_an_action_preview_without_probabilities(self):
         card = calc_result_card("Recommendation", "recommendation", {
-            "status": "engine-fixed-seed", "actions": [{"id": "MOVE_TACKLE", "label": "Tackle",
-                "death_risk": {"num": 0, "den": 1}, "ko_before_faint": {"num": 1, "den": 1}}]})
+            "status": "engine-fixed-seed", "deterministic": True, "actions": [
+                {"id": "MOVE_TACKLE", "label": "Tackle", "p_win": 1.0, "half_width": 0.0, "samples": 8}]})
         self.assertIn("Player action preview", card)
         self.assertIn("Tackle", card)
         self.assertNotIn("%", card)
-
-    def test_proven_switch_is_shown_as_an_action(self):
-        markup = calc_result_card("Recommendation", "recommendation", {
-            "status": "estimated", "recommended_action": 2,
-            "actions": [{"id": 2, "kind": "switch", "label": "Switch to party slot 3",
-                         "top_option": True, "uniquely_recommended": True,
-                         "followup_viability": 0.8, "matchup_estimate": "estimated-stable"},
-                        {"id": "MOVE_TACKLE", "kind": "move", "label": "Tackle"}]})
-        self.assertIn("Switch to party slot 3", markup)
-        self.assertNotIn("Tackle", markup)
-
-    def test_recommendation_uses_first_turn_survival_when_followup_is_unknown(self):
-        action = {"id": "MOVE_TACKLE", "kind": "move", "label": "Tackle",
-                  "top_option": True, "first_turn_death_risk": {"num": 1, "den": 4},
-                  "ranking_death_risk": {"estimate": None}}
-        markup = calc_result_card("Recommendation", "recommendation", {
-            "status": "estimated", "actions": [action]})
-        self.assertIn("75% est. turn survival", markup)
-        preview = calc_result_card("Recommendation", "recommendation", {
-            "status": "engine-fixed-seed", "actions": [action]})
-        self.assertNotIn("75%", preview)
 
     def test_trainer_bag_items_block_recommendation_with_short_warning(self):
         markup = calc_result_card("Recommendation", "recommendation", {

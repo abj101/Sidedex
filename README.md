@@ -370,6 +370,11 @@ Current constraints:
    `rom_bridge.WORKER_SHA256`; set `SIDEDEX_ROM_WORKER_EXE` to use another
    path.
 
+The recommendation card is `planner.plan` (open-loop UCT) over `rom_rollout.py`, which needs a v9 hook ELF:
+`SIDEDEX_V9_ELF` (default: the pinned ELF path). `SIDEDEX_ENGINE=mgba` (default) rolls out on mGBA;
+`SIDEDEX_ENGINE=native` launches `SIDEDEX_NATIVE_CMD` (default `wsl.exe -e sidedex-native`) instead.
+`SIDEDEX_WORKERS` sets the rollout pool size (mgba 3, native cores - 2).
+
 Set `SIDEDEX_ROM_PATH` only for the real-ROM checks. When a new ELF or worker is
 built, update the pins in `rom_bridge.py` and `pinned_source.json` before
 copying it into place. See `tools/rom_oracle/README.md` and `CALC_CONTRACT.md`.
