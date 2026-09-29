@@ -112,11 +112,28 @@ def test_cap_leaf_value():
     assert leaf_value(cap(p_alive=1, o_alive=0.5, p_hp=1, o_hp=0.5)) == 0.75
     assert leaf_value(cap(p_alive=0, o_alive=1, p_hp=0, o_hp=1)) == 0.0
     assert leaf_value({"outcome": "win"}) == 1.0 and leaf_value({"outcome": "loss"}) == 0.0
+    assert leaf_value({"outcome": "win", "leaf": {**LEAF, "p_hp": 0.5}}) == 0.9
     # end to end: cap outcomes decide on hp, and beat a certain loss but not a win
     def rollout(root, items):
         return [{"outcome": "cap", "turns": 60, "prefix_consumed": 1, "legal_at_prefix_end": [],
                  "leaf": {**LEAF, "p_hp": 0.9 if it["prefix"][0] == A else 0.1}} for it in items]
     assert run(rollout)["best"] == A
+
+
+def test_all_wins_rank_by_team_hp_left():
+    def rollout(root, items):
+        return [{**res(True, 1), "leaf": {**LEAF, "p_hp": 0.9 if it["prefix"][0] == A else 0.2}} for it in items]
+    s = run(rollout)
+    assert s["best"] == A and s["leading"] == [A] and s["actions"][A]["p_win"] == s["actions"][B]["p_win"] == 1.0
+    assert abs(s["actions"][A]["hp_left"] - 0.9) < 1e-9 and abs(s["actions"][B]["hp_left"] - 0.2) < 1e-9
+
+
+def test_faints_average_player_fainted_count():
+    def rollout(root, items):
+        return [{**res(True, 1), "leaf": {**LEAF, "p_fainted": 0 if it["prefix"][0] == A else 2}} for it in items]
+    s = run(rollout)
+    assert s["actions"][A]["faints"] == 0 and s["actions"][B]["faints"] == 2
+    assert run(flat_engine({A: 1.0, B: 1.0}))["actions"][A]["faints"] == 0  # leaf without p_fainted
 
 
 def test_generator_first_update_after_one_batch_and_batch_sizes():

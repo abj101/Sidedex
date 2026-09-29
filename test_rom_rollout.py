@@ -70,7 +70,7 @@ def test_ai_plays_to_terminal_carries_rng_and_keeps_one_child():
     runner = FakeRunner()
     res = run(runner)
     assert res == {"outcome": "win", "turns": 3, "prefix_consumed": 0, "legal_at_prefix_end": [(0, 1), (1, 1)],
-                   "leaf": {"p_alive": 1.0, "o_alive": 0.0, "p_hp": 0.5, "o_hp": 0.0}}
+                   "leaf": {"p_alive": 1.0, "o_alive": 0.0, "p_hp": 0.5, "o_hp": 0.0, "p_fainted": 0}}
     assert [s[1] for s in runner.seen] == [7, 8, 9]  # rng1 injected first, then each result's carry
     assert [s[2] is None for s in runner.seen] == [True, False, False]
     assert runner.client.live == set() and runner.client.peak == 2  # never leaks; worker slots: default + two children

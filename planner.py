@@ -5,7 +5,7 @@ The engine is an injected callable matching the native `rollout` op:
     item   = {"rng1": (4 u32), "rng2": (4 u32), "prefix": [action, ...], "max_turns": int[, "policy": ...]}
     result = {"outcome": "win"|"loss"|"cap", "turns": int, "prefix_consumed": int,
               "legal_at_prefix_end": [action, ...],
-              "leaf": {"p_alive", "o_alive", "p_hp", "o_hp"}}   # fractions 0..1
+              "leaf": {"p_alive", "o_alive", "p_hp", "o_hp", "p_fainted"}}   # fractions 0..1; p_fainted a count
 """
 import math
 import random
@@ -23,8 +23,8 @@ class Node:
 
 
 def leaf_value(res):
-    if res["outcome"] == "win":
-        return 1.0
+    if res["outcome"] == "win":  # a win always beats a loss; team HP left separates easy wins from close ones
+        return 0.8 + 0.2 * res["leaf"]["p_hp"] if res.get("leaf") else 1.0
     if res["outcome"] == "loss":
         return 0.0
     lf = res["leaf"]
@@ -56,9 +56,9 @@ def _select(node, action, rng, c):
     return prefix, path
 
 
-def _snapshot(acts, vals, wins, tree, z, min_seeds, done, reason):
+def _snapshot(acts, vals, wins, hp, faints, tree, z, min_seeds, done, reason):
     n = len(vals[acts[0]])
-    stats = {a: {"mean": fmean(vals[a]), "p_win": wins[a] / n,
+    stats = {a: {"mean": fmean(vals[a]), "p_win": wins[a] / n, "hp_left": hp[a] / n, "faints": faints[a] / n,
                  "half_width": z * stdev(vals[a]) / math.sqrt(n) if n > 1 else 1.0, "samples": n} for a in acts}
     best = max(acts, key=lambda a: stats[a]["mean"])
     lead = [best]
@@ -77,8 +77,9 @@ def plan(rollout, root, root_actions, rng=None, budget_s=3.0, max_turns=60, poli
          clock=time.monotonic, max_seeds=4096, min_seeds=16, c=1.0, z=1.96):
     """Generator: yields a snapshot after every seed batch (8, 16, 32, ... seeds; every root action per seed).
 
-    Snapshot: {"actions": {a: {mean, p_win, half_width, samples}}, "best", "leading", "seeds", "done",
-    "reason" (None|"resolved"|"tied"|"budget"|"max_seeds"), "tree"}. `mean` is the mean value (= P(win) without caps).
+    Snapshot: {"actions": {a: {mean, p_win, hp_left, faints, half_width, samples}}, "best", "leading", "seeds",
+    "done", "reason" (None|"resolved"|"tied"|"budget"|"max_seeds"), "tree"}. `mean` is the mean leaf_value;
+    `hp_left` the mean final player team HP fraction; `faints` the mean number of fainted player Pokémon.
     The last snapshot has done=True. The whole batch goes to one rollout call so a pool can split it.
     """
     acts = list(root_actions)
@@ -88,6 +89,8 @@ def plan(rollout, root, root_actions, rng=None, budget_s=3.0, max_turns=60, poli
     tree = {a: Node() for a in acts}
     vals = {a: [] for a in acts}
     wins = dict.fromkeys(acts, 0)
+    hp = dict.fromkeys(acts, 0.0)
+    faints = dict.fromkeys(acts, 0)
     t0, size, last = clock(), 8, 0.0
     while True:
         sel, items = [], []
@@ -107,6 +110,8 @@ def plan(rollout, root, root_actions, rng=None, budget_s=3.0, max_turns=60, poli
             v = leaf_value(r)
             vals[a].append(v)
             wins[a] += r["outcome"] == "win"
+            hp[a] += (r.get("leaf") or {}).get("p_hp", 0.0)
+            faints[a] += (r.get("leaf") or {}).get("p_fainted", 0)
             k = min(r["prefix_consumed"], len(it["prefix"]))  # illegal in this sample: back up consumed part only
             if k:
                 path[k - 1].legal.update(dict.fromkeys(r["legal_at_prefix_end"]))
@@ -116,7 +121,7 @@ def plan(rollout, root, root_actions, rng=None, budget_s=3.0, max_turns=60, poli
                     nd.n += 1
                     nd.sum += v
         n = len(vals[acts[0]])
-        snap = _snapshot(acts, vals, wins, tree, z, min_seeds, False, None)
+        snap = _snapshot(acts, vals, wins, hp, faints, tree, z, min_seeds, False, None)
         best_vals = vals[snap["best"]]
         if len(snap["leading"]) == 1:
             reason = "resolved"

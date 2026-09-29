@@ -59,7 +59,7 @@ def _leaf(records):
     frac = lambda a, b: a / b if b else 0.0  # noqa: E731
     p, o = tot[0], tot[1]
     return {"p_alive": frac(p[1], p[0]), "o_alive": frac(o[1], o[0]),
-            "p_hp": frac(p[2], p[3]), "o_hp": frac(o[2], o[3])}
+            "p_hp": frac(p[2], p[3]), "o_hp": frac(o[2], o[3]), "p_fainted": p[0] - p[1]}
 
 
 class Runner:
@@ -98,7 +98,8 @@ class Runner:
                 raise RuntimeError(f"engine-error: {r.get('error')}")
             out.append({"outcome": r["outcome"] if r["outcome"] in ("win", "loss") else "cap", "turns": r["turns"],
                         "prefix_consumed": r["prefix_consumed"], "leaf": r["leaf"] and {
-                            **r["leaf"], "p_alive": r["leaf"]["p_alive"] / size[0], "o_alive": r["leaf"]["o_alive"] / size[1]},
+                            **r["leaf"], "p_alive": r["leaf"]["p_alive"] / size[0], "o_alive": r["leaf"]["o_alive"] / size[1],
+                            "p_fainted": size[0] - r["leaf"]["p_alive"]},
                         "legal_at_prefix_end": [(0, x[1]) if x[0] == 0 else (1, x[3]) for x in r["legal_at_prefix_end"]
                                                 if x[0] in (0, 1)]})
         return out
