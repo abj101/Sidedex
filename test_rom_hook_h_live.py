@@ -30,6 +30,8 @@ BUILD = ROOT / "native/rom_worker/build/mingw"
 ELF = Path(os.environ.get("SIDEDEX_H_ELF", BUILD / "pokeemerald-test-h-headless.elf"))
 WORKER = Path(os.environ.get("SIDEDEX_ROM_WORKER_EXE", BUILD / "rom_worker.exe"))
 BASE_ELF = Path(os.environ.get("SIDEDEX_H_BASE_ELF", BUILD / "pokeemerald-test-base-headless.elf"))
+# Hook ELF from before the level-capped exp update fix (negative control of the 2v2 rollout).
+OLD_ELF = Path(os.environ.get("SIDEDEX_H_OLD_ELF", BUILD / "pokeemerald-test-h-headless.elf"))
 FIXTURES = ROOT / "tools/rom_oracle/fixtures"
 STATE_KEYS = ("party", "active", "field", "side", "battle", "rng", "legal")
 
@@ -323,6 +325,41 @@ def test_player_ai_window_does_not_leak_into_injected_turns(sess):
     sess.client.drop_state(ai["child"]["handle"])
     assert state(after_ai) == state(twin)
     assert player_moves(after_ai) == [33]
+
+
+def ai_rollout(session, root, cap=40):
+    """Drive the AI player turn by turn (RNG carried); returns the boundary of every turn."""
+    _, node, q = session.probe(root)
+    boundaries = []
+    for _ in range(cap):
+        turn = session.act(node, root, AI, q, drop_node=True)
+        boundary = turn["binary"]["header"]["boundary"]
+        boundaries.append(boundary)
+        if boundary == 3:
+            break
+        node, q = turn["child"]["handle"], rng_of(turn)
+    if turn.get("child"):
+        session.client.drop_state(turn["child"]["handle"])
+    return boundaries
+
+
+@pytest.mark.parametrize("fixture", ["p01_physical_neutral.json", "p29_multiturn_branch.json"])
+def test_ai_rollout_survives_the_opponents_first_faint_in_a_2v2(sess, fixture):
+    # The opponent's first faint runs the player's exp update; its level-cap exit used
+    # to install the interactive controller, so the next AI turn hung (incomplete-state).
+    boundaries = ai_rollout(sess, fixture_root(fixture))
+    assert boundaries[-1] == 3 and len(boundaries) > 8, boundaries
+
+
+@pytest.mark.skipif(not OLD_ELF.is_file() or OLD_ELF.read_bytes() == ELF.read_bytes(),
+                    reason="no distinct pre-fix hook ELF staged")
+def test_pre_fix_hook_elf_hangs_after_the_opponents_first_faint():
+    old = Sess(OLD_ELF)
+    try:
+        with pytest.raises(rom_bridge.WorkerResponseError, match="incomplete-state"):
+            ai_rollout(old, fixture_root("p01_physical_neutral.json"))
+    finally:
+        old.close()
 
 
 # --------------------------------------------------------------------------- #
