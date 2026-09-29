@@ -224,7 +224,7 @@ v8 fields are appended at 856.
 | 4 | 2 | u16 | `version` | must be 8 |
 | 6 | 2 | u16 | `status` | 0 WAITING, 1 SUBMITTED, 2 RUNNING, 3 COMPLETE, 4 INVALID |
 | 8 | 4 | u32 | `aiFlags` | source-mapped trainer AI flags |
-| 12 | 2 | u16 | `candidateKind` | 0 MOVE, 1 SWITCH |
+| 12 | 2 | u16 | `candidateKind` | 0 MOVE, 1 SWITCH, 2 AI (Appendix C.7) |
 | 14 | 2 | u16 | `playerMove` | move id for a MOVE candidate |
 | 16 | 2 | u16 | `playerSlot` | party slot for a SWITCH candidate |
 | 18 | 2 | u16 | `replayCount` | 0 or 1 (root construction only) |
@@ -551,3 +551,22 @@ committed); the worker stops and saves the child at binary-ready, never at the
 earlier boundary/terminal marker, and a missing binary-ready within the frame
 bound is a fail-closed error. Wire protocol 2 is retired: worker 0.3.0 speaks
 wire 3 only.
+
+### C.7 Player-action code `SIDEDEX_DYNAMIC_AI` (2026-09-28, package H)
+
+`candidateKind` (offset 12) value **2** (`SIDEDEX_DYNAMIC_AI`, `include/test/sidedex_dynamic.h`)
+released at any player boundary (choice or forced switch) lets the pokeemerald-expansion
+trainer AI choose the PLAYER battler's action instead of an injected move/switch:
+move and target, a voluntary switch (`AI_TrySwitchOrUseItem`), or the KO / forced
+replacement (`GetMostSuitableMonToSwitchInto`, same decision tree as
+`OpponentHandleChoosePokemon`). `playerMove` and `playerSlot` are ignored.
+AI flags for the player battler = the opponent's AI flags | `AI_FLAG_SMART_SWITCHING`
+| `AI_FLAG_SMART_MON_CHOICES`. `B_FLAG_AI_VS_AI_BATTLE` stays 0 and is not used: the player
+counts as an AI battler (`BattlerHasAi`) only inside its own AI computation, so the
+opponent's AI sees the player exactly as for an injected action. The player has no
+item action (the opponent's trainer items are hidden from the player AI) and no
+gimmick channel. The AI consumes RNG in the released turn like any other decision, so
+determinism still comes from the injected RNG pair. `candidateKind` 2 is rejected
+with `secondPresent == 1` and is not valid in replay turns. The request layout, size
+and SDR2 result are unchanged (TESTING only; the TEST=0 release ROM is unaffected).
+Python: `run_dynamic.encode_request` accepts `{"kind": "ai"}` as `candidate_action`.

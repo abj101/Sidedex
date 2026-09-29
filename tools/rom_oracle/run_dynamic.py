@@ -189,7 +189,7 @@ def encode_request(request: dict, protocol_version: int | None = None) -> bytes:
     ai_flags = _ints([ai_flags], 1, 0xFFFFFFFF)[0]
     _validate_clear_field(request.get("field"))
     player_action = request["candidate_action"]
-    kind, move, slot = _action(player_action)
+    kind, move, slot = _action(player_action, allow_ai=True)
     replay = request.get("replay_turns", [])
     if not isinstance(replay, list) or len(replay) > 1:
         raise ValueError("incomplete-state: oracle supports at most one replayed turn")
@@ -375,9 +375,16 @@ def _ai_flags(names: list[str]) -> int:
     return result
 
 
-def _action(action: dict | None) -> tuple[int, int, int]:
+ACTION_KIND_AI = 2  # SIDEDEX_DYNAMIC_AI: the ROM's trainer AI picks the player action
+
+
+def _action(action: dict | None, allow_ai: bool = False) -> tuple[int, int, int]:
     if not isinstance(action, dict):
         raise ValueError("invalid-state: expected an action object")
+    if action.get("kind") == "ai":
+        if not allow_ai:
+            raise ValueError("invalid-state: the ai action is only valid as the candidate action")
+        return ACTION_KIND_AI, 0, 0
     if action.get("kind") == "move":
         return 0, numeric_id("moves", action["move_id"]), 0
     if action.get("kind") == "switch":
