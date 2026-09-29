@@ -1,6 +1,85 @@
 # Calc interface contract
 
+## v5 risk-first local compiled-engine contract (2026-09-27)
+
+Schema-v2 snapshots remain the saved UI format. Move cards use the pinned
+compiled engine query and label KO odds with the custom critical policy:
+ordinary critical hits are excluded, while critical effects caused by enabled
+held items or abilities are retained. Accuracy and normal damage rolls remain
+part of KO and faint risk.
+
+The recommendation evaluates each legal move and switch, including switch-entry
+damage, then selects a best follow-up. Longer matchup estimates are reported
+only for stable matchups. Ranking is lexicographic: probability of keeping the
+whole party alive, KO before faint, turns to KO, then remaining HP fraction.
+Each action may carry `death_risk` and `ko_before_faint` as
+`{num, den, interval_95}`, `turns_to_ko` as an estimate or null, and
+`matchup_estimate`. `first_turn_death_risk` is the measured sample risk;
+`followup_death_risk` and `ranking_death_risk` are modeled estimates with
+`range` bounds and an explanatory `basis`. The modeled ranges are not
+confidence intervals. `ranking_basis` states how measured first-turn and
+modeled follow-up risk contribute to ordering. Overlapping combined ranking-risk
+ranges, uncertain follow-up matchups, or an unproven switch path can set
+`ranking_uncertain: true` and preserve leading options. The UI names a
+specific uncertainty reason when the evaluator supplies one. Unknown-seed
+estimates require at least three
+complete paired samples; a known seed produces a deterministic preview and is
+never described as a probability estimate. Recommendation work has a
+ten-second ceiling.
+
+AI action rows show per-action probabilities, any available intervals, sample
+count, and the conditioning state. If a trainer has bag items, Calc does not
+publish an item-agnostic recommendation. A fixed-seed AI action preview may be
+shown as a deterministic preview. Player bag actions are outside the action
+set. Held-item toggles apply independently to both active Pokémon, and the
+active pair's editable stat stages are included in snapshots. Full snapshot
+contents and artifact identities key cached results, so edits invalidate stale
+results. A release-ROM comparison remains required before any result can be
+called ROM verified.
+
+The worker returns one bounded `TurnOutcome` per candidate and seed. Three
+long-lived workers each keep a ready checkpoint in memory. Partial results
+carry `_meta: {refining, phase, completed_samples, target_samples}`. The
+pinned headless ELF hash is recorded in `tools/rom_oracle/pinned_source.json`
+and `rom_bridge.py`.
+
+## v4 local compiled-engine contract (2026-09-27)
+
+Historical contract; the v5 section above governs current UI and evaluator behavior.
+
+The current move cards use a pre-choice engine query. Each supported move has
+`status: engine-exact`, `probability: {num, den}`, and
+`damage_range: {min, max}` for a single hit against the current active target.
+The fraction enumerates 16 damage rolls with critical-hit weights and accuracy
+misses; full-HP Focus Sash and Sturdy prevent a one-hit KO. For a standard
+multi-hit move the engine also emits its hit-count weights and per-hit rolls,
+and the host composes the exact KO fraction (`method:
+engine-enumerated-multi-hit`); the card keeps the engine's total damage bounds.
+Other multi-hit effects and nonstandard fixed-damage
+moves are unavailable per entry. Trainer items entered on the snapshot are
+encoded into the request, and a `B_ACTION_USE_ITEM` trainer choice is reported
+as an `ai_actions` entry with `kind: item`. Resolved sampling turns stay
+item-agnostic (this harness cannot safely re-run the AI item decision mid-turn),
+so when the query predicts an item the sampling-derived `recommendation` is
+`unavailable` (`unsupported-mechanic`) while `player_moves` and `enemy_moves`
+remain the exact query cards. This query does not
+predict a resolved turn with switches, priority, or later effects. The trainer
+action query gives a single fixed-seed preview; completed paired turn samples
+refine `ai_actions` and `recommendation`. Partial results carry
+`_meta: {refining, phase, completed_samples, target_samples}` and retain the
+exact move cards while the turns run. Three long-lived workers each keep a
+ready checkpoint in memory. Sampling runs for up to ten seconds and stops
+early once paired score intervals separate. The last two completed
+scenario results are cached on disk by full snapshot and artifact identity.
+The pinned headless ELF hash is recorded in
+`tools/rom_oracle/pinned_source.json` and `rom_bridge.py`.
+The current UI derives the active pair from the focused Pokémon, defaults
+status to none, and evaluates every legal player action without a planned-action
+control. It ignores hidden advanced values from older saved configs.
+
 ## v3 local compiled-engine contract (2026-09-26)
+
+Historical contract; v5 governs current UI and evaluator behavior.
 
 The UI may keep its schema-v2 `BattleSnapshot`; v3 is the validated evaluator
 request and result, not a new saved-config format. `source_sha` identifies the
@@ -12,9 +91,8 @@ No executable or ROM is committed to this repository.
 `BattleRequest` has `protocol_version: 3`, `request_id`, all three identities,
 `battle_start` (difficulty, milestone ID, trainer singles, both complete parties,
 focused active indices, full editable HP, PP/status, field, items and AI flags),
-ordered `replay_turns`, one `candidate_action` (legal move or switch), an
-optional `second_action` (the player's follow-up move on the next resolved
-turn), `rng_main` and `rng_secondary` (four unsigned 32-bit words each), and
+ordered `replay_turns`, one `candidate_action` (legal move or switch),
+`rng_main` and `rng_secondary` (four unsigned 32-bit words each), and
 an absolute monotonic `deadline_ms`. Source string IDs are converted through a
 pinned extracted numeric-ID map; unknown IDs fail with `invalid-id`. The first
 supported state is a fresh trainer single. A replayed state is supported only
@@ -37,10 +115,14 @@ The four cards (`player_moves`, `enemy_moves`, `ai_actions`,
 fixed-seed release-ROM comparison for that state. The UI calls the general
 case “compiled game engine”. An `estimated` card names its sampler and actual
 sample count and gives a reproducible 95% interval; overlapping recommendation
-scores say “ranking uncertain”. The `recommendation` scores two resolved turns:
-the candidate action and the best legal follow-up move for the monster active
-after it. Second-turn switches are not scored, and a candidate falls back to
-its one-turn score when the player's active cannot act again. Required unavailable codes are
+scores say “ranking uncertain”. The `recommendation` scores one resolved turn:
+the candidate action's resulting HP and survivor state. Setup moves (Dragon
+Dance, Swords Dance, and similar) will essentially never be recommended because
+only one turn is scored. Calc reorders each side so the focused Pokémon is
+slot 0 (`assumed_lead`) and accepts edited HP, status, and PP at battle start
+as `edited-start`. Unknown-RNG cards require at least three complete paired
+samples before `estimated`; fewer samples return `insufficient-samples`.
+Required unavailable codes are
 `missing-artifact`, `artifact-mismatch`, `invalid-id`, `incomplete-state`,
 `insufficient-samples`, `timeout`, `source-mismatch`, and `engine-error`.
 Errors are per-card where possible. A snapshot edit invalidates older work;

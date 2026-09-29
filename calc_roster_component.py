@@ -62,6 +62,67 @@ export default function (component) {
     trigger.dataset.slot = String(index);
     trigger.disabled = !canEdit;
 
+    let suppressClick = false;
+    if (slotData && data.editable_empty) {
+      let drag = null;
+      const dropAt = (x, y) => {
+        const node = document.elementFromPoint(x, y);
+        const card = node?.closest(".st-key-calc-own-roster .sd-calc-slot-card");
+        if (card) return {el: card, kind: "party"};
+        const tile = node?.closest(".sd-pc-tile");
+        return tile ? {el: tile, kind: "box"} : null;
+      };
+      trigger.addEventListener("pointerdown", event => {
+        if (event.button !== 0) return;
+        drag = {x: event.clientX, y: event.clientY, started: false};
+        trigger.setPointerCapture(event.pointerId);
+      });
+      trigger.addEventListener("pointermove", event => {
+        if (!drag) return;
+        if (!drag.started && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 6) return;
+        if (!drag.started) {
+          const source = trigger.querySelector(".sd-calc-slot-icon");
+          const rect = (source || trigger).getBoundingClientRect();
+          drag.size = source ? rect.width : 34;
+          drag.ghost = document.createElement("img");
+          drag.ghost.className = "sd-calc-dragging";
+          drag.ghost.src = slotData.icon_url || "";
+          drag.ghost.alt = "";
+          drag.ghost.style.width = `${drag.size}px`;
+          drag.ghost.style.height = `${drag.size}px`;
+          drag.ghost.style.left = `${event.clientX - drag.size / 2}px`;
+          drag.ghost.style.top = `${event.clientY - drag.size / 2}px`;
+          document.body.append(drag.ghost);
+          drag.started = true;
+        }
+        drag.ghost.style.left = `${event.clientX - drag.size / 2}px`;
+        drag.ghost.style.top = `${event.clientY - drag.size / 2}px`;
+      });
+      const finish = event => {
+        if (!drag) return;
+        const current = drag;
+        drag = null;
+        if (!current.started) return;
+        suppressClick = true;
+        setTimeout(() => { suppressClick = false; }, 0);
+        current.ghost.remove();
+        const hit = dropAt(event.clientX, event.clientY);
+        if (!hit) return;
+        if (hit.kind === "party") {
+          const target = Number(hit.el.dataset.slot);
+          if (target !== index) emit("move", {to: "party", from: index, slot: target});
+        } else {
+          emit("move", {to: "box", id: slotData.id, box_no: Number(hit.el.dataset.box),
+                        slot: Number(hit.el.dataset.slot)});
+        }
+      };
+      trigger.addEventListener("pointerup", finish);
+      trigger.addEventListener("pointercancel", () => {
+        if (drag?.ghost) drag.ghost.remove();
+        drag = null;
+      });
+    }
+
     if (slotData) {
       icon(trigger, slotData.icon_url, "", "sd-calc-slot-icon");
       const info = document.createElement("span");
@@ -141,7 +202,7 @@ export default function (component) {
       search.focus();
     };
     if (slotData) {
-      trigger.onclick = () => emit("focus", {slot: index});
+      trigger.onclick = () => { if (!suppressClick) emit("focus", {slot: index}); };
       if (data.editable_empty) {
         const change = document.createElement("button");
         change.type = "button";
@@ -185,7 +246,7 @@ _ROSTER = st.components.v2.component(
 
 
 def calc_roster(*, slots, options, key, editable_empty=True):
-    """Render six roster slots; return events as ``result.focus`` and ``result.replace``."""
+    """Render six roster slots; return events as ``result.focus``, ``result.replace`` and ``result.move``."""
     if len(slots) != 6:
         raise ValueError("calc_roster requires exactly six slots")
     return _ROSTER(
@@ -197,4 +258,5 @@ def calc_roster(*, slots, options, key, editable_empty=True):
         },
         on_focus_change=lambda: None,
         on_replace_change=lambda: None,
+        on_move_change=lambda: None,
     )

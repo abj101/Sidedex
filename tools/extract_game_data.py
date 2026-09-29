@@ -801,6 +801,12 @@ def extract(source):
     symbols, functions = constant_symbols(source)
     flag_names = move_flag_names(source)
     move_text = resolve_preprocessor(strip_comments(read(source / "src/data/moves_info.h")), symbols, functions)
+    shared_descriptions = {
+        name: clean_c_strings(value)
+        for name, value in re.findall(
+            r'(?:static\s+)?const\s+u8\s+(\w+)\[\]\s*=\s*_\s*\(\s*((?:"(?:\\.|[^"\\])*"\s*)+)\);',
+            move_text, re.S)
+    }
     moves = {}
     for key, body in blocks(move_text, r"\[\s*(MOVE_\w+)\s*\]\s*=\s*\{"):
         if key not in move_ids:
@@ -838,7 +844,9 @@ def extract(source):
                       "power": c_eval(f.get("power"), symbols, functions),
                       "accuracy": c_eval(f.get("accuracy"), symbols, functions),
                       "pp": c_eval(f.get("pp"), symbols, functions),
-                      "description": clean_c_strings(f.get("description")),
+                      "description": (shared_descriptions.get(f.get("description"))
+                                      if f.get("description") in shared_descriptions
+                                      else clean_c_strings(f.get("description"))),
                       "category": category,
                       "effect": effect,
                       "effect_argument": effect_argument,
@@ -856,6 +864,9 @@ def extract(source):
                                  "reason": "move field is not statically resolved"})
         if not flags_resolved:
             warnings.append({"move": key, "field": "flags", "reason": "a move flag expression is not statically resolved"})
+        if moves[key]["description"] is None:
+            warnings.append({"move": key, "field": "description", "raw": f.get("description"),
+                             "reason": "move description is not statically resolved"})
     for alias, target_name in move_aliases.items():
         if target_name in moves and alias not in moves:
             moves[alias] = {**moves[target_name], "alias_of": target_name}
@@ -986,6 +997,9 @@ def self_check(data, source):
     assert data["moves"]["MOVE_TAKE_DOWN"]["recoil"] == 25
     assert data["moves"]["MOVE_QUICK_ATTACK"]["recoil"] == 0
     assert data["moves"]["MOVE_PROTECT"]["category"] == "status"
+    assert data["moves"]["MOVE_HYPER_BEAM"]["description"] == "Powerful, but leaves the\nuser immobile the next turn."
+    assert data["moves"]["MOVE_PSYSHOCK"]["description"] == "Attacks with a psychic wave\nthat does physical damage."
+    assert data["moves"]["MOVE_PSYCHIC"]["description"] == "A powerful psychic attack\nthat may lower Sp. Def."
     assert data["level_caps"][0] == {"id": "CAP_1", "flag": "FLAG_BADGE01_GET", "level": 15, "label": "Badge01 Get"}
     assert data["level_caps"][-1]["id"] == "CAP_MAX" and data["level_caps"][-1]["level"] == 100
     assert data["level_cap_type"] == "LEVEL_CAP_FLAG_LIST"

@@ -84,12 +84,21 @@ export default function (component) {
       list.replaceChildren();
       const currentMove = card.dataset.moveId;
       const available = data.moves.filter(choice => !data.known_moves.includes(choice.value) || choice.value === currentMove);
-      for (const choice of available.filter(choice => choice.label.toLowerCase().includes(query))) {
+      for (const choice of available.filter(choice =>
+        [choice.label, choice.type, choice.power, choice.accuracy, choice.pp, choice.description]
+          .some(value => String(value ?? "").toLowerCase().includes(query)))) {
         const button = document.createElement("button");
         button.type = "button";
-        button.className = "sd-picker-option";
+        button.className = "sd-picker-option sd-move-option";
         button.setAttribute("role", "option");
-        button.textContent = choice.label;
+        const name = document.createElement("strong");
+        name.textContent = choice.label;
+        const values = document.createElement("small");
+        values.textContent = [choice.type, `Power ${choice.power ?? "—"}`,
+          `Accuracy ${choice.accuracy ?? "—"}`, `${choice.pp ?? "—"} PP`].join(" · ");
+        const description = document.createElement("span");
+        description.textContent = choice.description || "Description unavailable.";
+        button.append(name, values, description);
         button.onclick = () => { closeMenus(); emit(add ? "move_add" : "move_replace", choice.value, slot); };
         list.append(button);
       }

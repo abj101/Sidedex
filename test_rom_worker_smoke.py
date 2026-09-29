@@ -60,7 +60,7 @@ class RomWorkerSmokeTest(unittest.TestCase):
         (initial, status, rejected, memory, after_run, saved, after_more,
          restored, reset, write, written_memory,
          out_of_range, crosses_boundary, odd_hex, uppercase_hex, oversized, quit_reply) = replies
-        self.assertEqual(initial["worker"], "sidedex-mgba-worker/0.1.2")
+        self.assertEqual(initial["worker"], "sidedex-mgba-worker/0.1.3")
         self.assertEqual(initial["mgba"], "0.10.5+26b7884")
         self.assertEqual(initial["platform"], "gba")
         self.assertGreater(initial["rom_bytes"], 0)

@@ -10,6 +10,7 @@ from app import (
     connect,
     delete_team_config,
     list_team_configs,
+    move_party_to_box,
     save_entry,
     save_team_config,
 )
@@ -47,7 +48,7 @@ class StorageTest(unittest.TestCase):
         self.assertEqual((rows[first]["in_party"], rows[first]["party_slot"]), (0, None))
         self.assertEqual((rows[first]["box_no"], rows[first]["box_slot"]), (1, 0))
 
-    def test_invalid_or_unavailable_party_choices_leave_state_unchanged(self):
+    def test_invalid_party_choices_leave_state_unchanged(self):
         member = self.add("MEMBER", in_party=True)
         unavailable = self.add("UNAVAILABLE")
         self.db.execute("UPDATE owned SET status='dead' WHERE id=?", (unavailable,))
@@ -55,10 +56,42 @@ class StorageTest(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             apply_party_slots(self.db, [member, member, None, None, None, None])
-        with self.assertRaises(ValueError):
-            apply_party_slots(self.db, [unavailable, None, None, None, None, None])
         row = self.db.execute("SELECT in_party,party_slot FROM owned WHERE id=?", (member,)).fetchone()
         self.assertEqual(tuple(row), (1, 0))
+
+    def test_party_accepts_fainted_member_and_heals_outgoing_in_box(self):
+        member = self.add("MEMBER", in_party=True)
+        unavailable = self.add("UNAVAILABLE")
+        self.db.execute("UPDATE owned SET status='dead' WHERE id=?", (member,))
+        self.db.commit()
+
+        apply_party_slots(self.db, [unavailable, None, None, None, None, None])
+
+        rows = {row["id"]: row for row in self.db.execute("SELECT * FROM owned")}
+        self.assertEqual((rows[unavailable]["in_party"], rows[unavailable]["party_slot"]), (1, 0))
+        self.assertEqual((rows[member]["in_party"], rows[member]["status"]), (0, "alive"))
+
+    def test_move_party_to_box_swaps_occupant_into_party_and_heals(self):
+        member = self.add("MEMBER", in_party=True)
+        boxed = self.add("BOXED", box_no=2)
+        self.db.execute("UPDATE owned SET box_slot=4 WHERE id=?", (boxed,))
+        self.db.execute("UPDATE owned SET status='dead' WHERE id=?", (member,))
+        self.db.commit()
+
+        move_party_to_box(self.db, member, 2, 4)
+
+        rows = {row["id"]: row for row in self.db.execute("SELECT * FROM owned")}
+        self.assertEqual((rows[member]["in_party"], rows[member]["box_no"], rows[member]["box_slot"]),
+                         (0, 2, 4))
+        self.assertEqual(rows[member]["status"], "alive")
+        self.assertEqual((rows[boxed]["in_party"], rows[boxed]["party_slot"], rows[boxed]["box_slot"]),
+                         (1, 0, None))
+
+    def test_move_party_to_box_leaves_gap_when_target_empty(self):
+        member = self.add("MEMBER", in_party=True)
+        move_party_to_box(self.db, member, 1, 7)
+        row = self.db.execute("SELECT in_party,party_slot,box_slot FROM owned WHERE id=?", (member,)).fetchone()
+        self.assertEqual(tuple(row), (0, None, 7))
 
     def test_invalid_config_does_not_change_party(self):
         member = self.add("MEMBER", in_party=True)

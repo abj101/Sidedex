@@ -1,15 +1,20 @@
 """Local Emerald Imperium Box and matchup planner."""
 
 import json
+import os
 import sqlite3
 import sys
 import tempfile
 from contextlib import closing, contextmanager
 from pathlib import Path
 
+from rom_bridge import ENGINE_ELF_SHA256
+
 ROOT = Path(__file__).parent
 DB_PATH = ROOT / "sidedex.sqlite3"
 DATA_PATH = ROOT / "data" / "game_data.json"
+DEFAULT_ENGINE_ELF = ROOT / "native" / "rom_worker" / "build" / "mingw" / "pokeemerald-test-headless.elf"
+DEFAULT_ROM_WORKER = ROOT / "native" / "rom_worker" / "build" / "mingw" / "rom_worker.exe"
 STATUSES = ("alive", "dead", "unavailable")
 
 
@@ -126,9 +131,9 @@ def apply_party_slots(db, slots):
 
     with _atomic(db):
         found = {row["id"]: row for row in db.execute(
-            f"SELECT id, status, box_no FROM owned WHERE id IN ({','.join('?' for _ in incoming)})", incoming)} if incoming else {}
-        if len(found) != len(incoming) or any(row["status"] != "alive" for row in found.values()):
-            raise ValueError("Party choices must be alive owned Pokémon.")
+            f"SELECT id FROM owned WHERE id IN ({','.join('?' for _ in incoming)})", incoming)} if incoming else {}
+        if len(found) != len(incoming):
+            raise ValueError("Party choices must be owned Pokémon.")
         outgoing = db.execute("SELECT id,box_no FROM owned WHERE in_party=1 AND id NOT IN (" +
                               (",".join("?" for _ in incoming) or "-1") + ") ORDER BY id", incoming).fetchall()
         db.execute("UPDATE owned SET party_slot=NULL WHERE in_party=1")
@@ -143,7 +148,7 @@ def apply_party_slots(db, slots):
                     break
             if destination is None:
                 raise ValueError("Every Box is full; the party cannot be changed.")
-            db.execute("UPDATE owned SET in_party=0,box_no=?,box_slot=? WHERE id=?",
+            db.execute("UPDATE owned SET in_party=0,status='alive',box_no=?,box_slot=? WHERE id=?",
                        (*destination, row["id"]))
         for slot, entry_id in enumerate(normalized):
             if entry_id is not None:
@@ -198,6 +203,33 @@ def move_box_slot(db, entry_id, box_no, target_slot):
             if occupant:
                 db.execute("UPDATE owned SET box_slot=? WHERE id=?", (source[0], occupant[0]))
             db.execute("UPDATE owned SET box_slot=? WHERE id=?", (target_slot, entry_id))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+
+def move_party_to_box(db, entry_id, box_no, target_slot):
+    """Move a party member onto a Box slot; its occupant swaps into the party slot."""
+    if not 1 <= box_no <= 14:
+        raise ValueError("Choose a Box from 1 to 14.")
+    if not 0 <= target_slot < 30:
+        raise ValueError("Choose a slot in the Box.")
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        source = db.execute("SELECT party_slot FROM owned WHERE id=? AND in_party=1",
+                            (entry_id,)).fetchone()
+        if source is None or source["party_slot"] is None:
+            raise ValueError("This Pokémon is no longer in the party.")
+        party_slot = source["party_slot"]
+        occupant = db.execute("SELECT id FROM owned WHERE box_no=? AND box_slot=? AND in_party=0",
+                              (box_no, target_slot)).fetchone()
+        db.execute("UPDATE owned SET in_party=0,party_slot=NULL WHERE id=?", (entry_id,))
+        if occupant:
+            db.execute("UPDATE owned SET in_party=1,box_slot=NULL,party_slot=? WHERE id=?",
+                       (party_slot, occupant["id"]))
+        db.execute("UPDATE owned SET status='alive',box_no=?,box_slot=? WHERE id=?",
+                   (box_no, target_slot, entry_id))
         db.commit()
     except Exception:
         db.rollback()
@@ -277,7 +309,7 @@ def main():
     def planner():
         with closing(connect()) as db:
             render_page(db, game_data, save_entry, resolve_trainer_level, connect, move_box_slot,
-                        apply_party_slots)
+                        apply_party_slots, move_party_to_box)
 
     st.set_page_config(page_title="Sidedex · Emerald Imperium", page_icon="S", layout="wide")
     st.html(ROOT / "ui.css")
@@ -285,7 +317,38 @@ def main():
     if not game_data:
         st.error(f"Game data not found at {DATA_PATH.relative_to(ROOT)}.")
         return
+    if Path(os.environ.get("SIDEDEX_ENGINE_ELF_PATH", DEFAULT_ENGINE_ELF)).is_file():
+        @st.cache_resource
+        def prewarm_rom_once():
+            import rom_eval
+            rom_eval.prewarm()
+            return True
+
+        prewarm_rom_once()
     planner()
+
+
+def engine_setup_status():
+    """Return startup diagnostics without hashing the large ELF."""
+    elf = Path(os.environ.get("SIDEDEX_ENGINE_ELF_PATH", DEFAULT_ENGINE_ELF))
+    worker = Path(os.environ.get("SIDEDEX_ROM_WORKER_EXE", DEFAULT_ROM_WORKER))
+    messages = []
+    if not elf.is_file():
+        messages.append((
+            "engine artifact missing: copy the pinned pokeemerald-test-headless.elf "
+            f"(SHA-256 {ENGINE_ELF_SHA256}) to native/rom_worker/build/mingw/ "
+            "or set SIDEDEX_ENGINE_ELF_PATH, then run native/rom_worker/build.ps1; "
+            "see tools/rom_oracle/README.md.",
+            True))
+    else:
+        messages.append((f"engine artifact ok: {elf}", False))
+    if not worker.is_file():
+        messages.append((
+            f"rom worker missing: {worker}; run native/rom_worker/build.ps1.",
+            True))
+    else:
+        messages.append((f"rom worker ok: {worker}", False))
+    return messages
 
 
 def self_check():
@@ -325,6 +388,8 @@ def self_check():
     assert resolve_trainer_level("202") == "?"
     assert resolve_trainer_level("202", 50) == "48"
     assert resolve_trainer_level("42", 50) == "42"
+    for message, _warning in engine_setup_status():
+        print(message)
 
 
 if __name__ == "__main__":

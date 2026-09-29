@@ -1,16 +1,17 @@
 diff --git a/include/test/sidedex_dynamic.h b/include/test/sidedex_dynamic.h
 new file mode 100644
-index 0000000000..dc53ca48fd
+index 0000000000..fb1556ca0b
 --- /dev/null
 +++ b/include/test/sidedex_dynamic.h
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,67 @@
 +#ifndef SIDEDEX_DYNAMIC_H
 +#define SIDEDEX_DYNAMIC_H
 +
 +#define SIDEDEX_DYNAMIC_MAGIC 0x53445831
-+#define SIDEDEX_DYNAMIC_VERSION 5
++#define SIDEDEX_DYNAMIC_VERSION 7
 +#define SIDEDEX_DYNAMIC_TEST_NAME "Sidedex oracle: dynamic AI singles request"
 +#define SIDEDEX_DYNAMIC_PARTY_LIMIT PARTY_SIZE
++#define SIDEDEX_DYNAMIC_MAX_TRAINER_ITEMS 4
 +
 +enum SidedexDynamicAction
 +{
@@ -40,6 +41,7 @@ index 0000000000..dc53ca48fd
 +    unsigned short moves[4];
 +    unsigned char pp[4];
 +    unsigned short ivs[6], evs[6];
++    unsigned char heldItemEnabled, statStages[7];
 +};
 +
 +struct SidedexDynamicTurn
@@ -60,6 +62,9 @@ index 0000000000..dc53ca48fd
 +    struct SidedexDynamicMon opponent[SIDEDEX_DYNAMIC_PARTY_LIMIT];
 +    struct SidedexDynamicTurn replay;
 +    unsigned short secondKind, secondMove, secondSlot, secondPresent;
++    unsigned short trainerItems[SIDEDEX_DYNAMIC_MAX_TRAINER_ITEMS];
++    unsigned short trainerItemCount;
++    unsigned short trainerReserved;
 +};
 +
 +extern volatile struct SidedexDynamicRequest gSidedexDynamicRequest;
@@ -67,27 +72,80 @@ index 0000000000..dc53ca48fd
 +
 +#endif
 diff --git a/include/test_runner.h b/include/test_runner.h
-index f61f26b66e..c363bcdbe5 100644
+index f61f26b66e..5410c0424d 100644
 --- a/include/test_runner.h
 +++ b/include/test_runner.h
-@@ -16,6 +16,7 @@ void TestRunner_Battle_RecordStatus1(u32 battlerId, u32 status1);
+@@ -16,6 +16,13 @@ void TestRunner_Battle_RecordStatus1(u32 battlerId, u32 status1);
  void TestRunner_Battle_AfterLastTurn(void);
  void TestRunner_Battle_CheckChosenMove(u32 battlerId, u32 moveId, u32 target);
  void TestRunner_Battle_CheckSwitch(u32 battlerId, u32 partyIndex);
 +void TestRunner_Battle_TraceSwitchSettled(u32 battlerId);
++bool32 TestRunner_Battle_RunQuery(u32 battlerId);
++void TestRunner_Battle_ApplyTrainerItems(void);
++void TestRunner_Battle_TraceChosenItem(u32 battlerId, u32 itemId);
++void TestRunner_Battle_ApplyDynamicStages(void);
++bool32 TestRunner_Battle_UsesCriticalPolicy(void);
++void TestRunner_Battle_TraceCritPolicy(u32 battler, u32 move, s32 actual, s32 ordinary);
  void TestRunner_Battle_CheckAiMoveScores(u32 battlerId);
  void TestRunner_Battle_AISetScore(const char *file, u32 line, u32 battlerId, u32 moveIndex, s32 score);
  void TestRunner_Battle_AIAdjustScore(const char *file, u32 line, u32 battlerId, u32 moveIndex, s32 score);
-@@ -37,6 +38,7 @@ u32 TestRunner_Battle_GetChosenGimmick(u32 side, u32 partyIndex);
+@@ -37,6 +44,13 @@ u32 TestRunner_Battle_GetChosenGimmick(u32 side, u32 partyIndex);
  #define TestRunner_Battle_AfterLastTurn(...) (void)0
  #define TestRunner_Battle_CheckChosenMove(...) (void)0
  #define TestRunner_Battle_CheckSwitch(...) (void)0
 +#define TestRunner_Battle_TraceSwitchSettled(...) (void)0
++#define TestRunner_Battle_RunQuery(...) FALSE
++#define TestRunner_Battle_ApplyTrainerItems(...) (void)0
++#define TestRunner_Battle_TraceChosenItem(...) (void)0
++#define TestRunner_Battle_ApplyDynamicStages(...) (void)0
++#define TestRunner_Battle_UsesCriticalPolicy(...) FALSE
++#define TestRunner_Battle_TraceCritPolicy(...) (void)0
  #define TestRunner_Battle_CheckAiMoveScores(...) (void)0
  #define TestRunner_Battle_AISetScore(...) (void)0
  #define TestRunner_Battle_AIAdjustScore(...) (void)0
+diff --git a/src/battle_controller_opponent.c b/src/battle_controller_opponent.c
+index f1ff1a2e4d..ab9aafb3c4 100644
+--- a/src/battle_controller_opponent.c
++++ b/src/battle_controller_opponent.c
+@@ -644,6 +644,7 @@ static void OpponentHandleChooseMove(u32 battler)
+ 
+ static void OpponentHandleChooseItem(u32 battler)
+ {
++    TestRunner_Battle_TraceChosenItem(battler, gBattleStruct->chosenItem[battler]);
+     BtlController_EmitOneReturnValue(battler, BUFFER_B, gBattleStruct->chosenItem[battler]);
+     OpponentBufferExecCompleted(battler);
+ }
+diff --git a/src/battle_controllers.c b/src/battle_controllers.c
+index f537ceecb0..2bb2969bb3 100644
+--- a/src/battle_controllers.c
++++ b/src/battle_controllers.c
+@@ -77,6 +77,7 @@ void SetUpBattleVarsAndBirchZigzagoon(void)
+     ClearBattleAnimationVars();
+     BattleAI_SetupItems();
+     BattleAI_SetupFlags();
++    TestRunner_Battle_ApplyTrainerItems();
+ 
+     if (gBattleTypeFlags & BATTLE_TYPE_FIRST_BATTLE)
+     {
+diff --git a/src/battle_main.c b/src/battle_main.c
+index 43cad76a64..427d50ff3b 100644
+--- a/src/battle_main.c
++++ b/src/battle_main.c
+@@ -4390,9 +4390,12 @@ static void HandleTurnActionSelectionState(void)
+                 gBattleStruct->aiMoveOrAction[battler] = BattleAI_ChooseMoveOrAction();
+                 ModifySwitchAfterMoveScoring(battler);
+                 AI_DATA->aiCalcInProgress = FALSE;
++                if (TestRunner_Battle_RunQuery(battler))
++                    return;
+             }
+             // fallthrough
+         case STATE_BEFORE_ACTION_CHOSEN: // Choose an action.
++            TestRunner_Battle_ApplyDynamicStages();
+             *(gBattleStruct->monToSwitchIntoId + battler) = PARTY_SIZE;
+             if (gBattleTypeFlags & BATTLE_TYPE_MULTI
+                 || (position & BIT_FLANK) == B_FLANK_LEFT
 diff --git a/src/battle_script_commands.c b/src/battle_script_commands.c
-index 39cc0803bb..0895e8c9e4 100644
+index 39cc0803bb..8c1e789887 100644
 --- a/src/battle_script_commands.c
 +++ b/src/battle_script_commands.c
 @@ -2,6 +2,7 @@
@@ -98,7 +156,32 @@ index 39cc0803bb..0895e8c9e4 100644
  #include "battle_anim.h"
  #include "battle_ai_main.h"
  #include "battle_ai_util.h"
-@@ -7054,6 +7055,7 @@ static void Cmd_switchindataupdate(void)
+@@ -2113,7 +2114,7 @@ static void Cmd_critcalc(void)
+     CMD_ARGS();
+ 
+     u16 partySlot;
+-    s32 critChance;
++    s32 critChance, ordinaryCritChance;
+     u32 abilityAtk = GetBattlerAbility(gBattlerAttacker);
+     u32 abilityDef = GetBattlerAbility(gBattlerTarget);
+     u32 holdEffectAtk = GetBattlerHoldEffect(gBattlerAttacker, TRUE);
+@@ -2123,6 +2124,15 @@ static void Cmd_critcalc(void)
+     else
+         critChance = CalcCritChanceStage(gBattlerAttacker, gBattlerTarget, gCurrentMove, TRUE, abilityAtk, abilityDef, holdEffectAtk);
+ 
++    if (B_CRIT_CHANCE != GEN_1 && TestRunner_Battle_UsesCriticalPolicy())
++    {
++        ordinaryCritChance = CalcCritChanceStage(gBattlerAttacker, gBattlerTarget, gCurrentMove, FALSE,
++                                                 ABILITY_NONE, ABILITY_NONE, HOLD_EFFECT_NONE);
++        TestRunner_Battle_TraceCritPolicy(gBattlerAttacker, gCurrentMove, critChance, ordinaryCritChance);
++        if (critChance == ordinaryCritChance)
++            critChance = CRITICAL_HIT_BLOCKED;
++    }
++
+     gPotentialItemEffectBattler = gBattlerAttacker;
+ 
+     if (gBattleTypeFlags & (BATTLE_TYPE_WALLY_TUTORIAL | BATTLE_TYPE_FIRST_BATTLE))
+@@ -7054,6 +7064,7 @@ static void Cmd_switchindataupdate(void)
      }
  
      SwitchInClearSetData(battler);
@@ -108,10 +191,10 @@ index 39cc0803bb..0895e8c9e4 100644
          && gBattleMons[battler].maxHP / 2 >= gBattleMons[battler].hp
 diff --git a/test/battle/ai/sidedex_dynamic.c b/test/battle/ai/sidedex_dynamic.c
 new file mode 100644
-index 0000000000..6525b9250e
+index 0000000000..3e67a8cdbe
 --- /dev/null
 +++ b/test/battle/ai/sidedex_dynamic.c
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,97 @@
 +#include "global.h"
 +#include "test/battle.h"
 +#include "test/sidedex_dynamic.h"
@@ -132,7 +215,8 @@ index 0000000000..6525b9250e
 +            OpenPokemon(__LINE__, B_SIDE_PLAYER, request->player[partySlot].species);
 +            Nature_(__LINE__, request->player[partySlot].nature);
 +            Ability_(__LINE__, request->player[partySlot].ability);
-+            Item_(__LINE__, request->player[partySlot].item);
++            Item_(__LINE__, request->player[partySlot].heldItemEnabled
++                                      ? request->player[partySlot].item : ITEM_NONE);
 +            HPIV_(__LINE__, request->player[partySlot].ivs[0]);
 +            AttackIV_(__LINE__, request->player[partySlot].ivs[1]);
 +            DefenseIV_(__LINE__, request->player[partySlot].ivs[2]);
@@ -157,7 +241,8 @@ index 0000000000..6525b9250e
 +            OpenPokemon(__LINE__, B_SIDE_OPPONENT, request->opponent[partySlot].species);
 +            Nature_(__LINE__, request->opponent[partySlot].nature);
 +            Ability_(__LINE__, request->opponent[partySlot].ability);
-+            Item_(__LINE__, request->opponent[partySlot].item);
++            Item_(__LINE__, request->opponent[partySlot].heldItemEnabled
++                                      ? request->opponent[partySlot].item : ITEM_NONE);
 +            HPIV_(__LINE__, request->opponent[partySlot].ivs[0]);
 +            AttackIV_(__LINE__, request->opponent[partySlot].ivs[1]);
 +            DefenseIV_(__LINE__, request->opponent[partySlot].ivs[2]);
@@ -196,7 +281,7 @@ index 0000000000..6525b9250e
 +            else
 +                SWITCH(player, request->playerSlot);
 +        }
-+        if (request->secondPresent) {
++        if (request->secondPresent == 1) {
 +            TURN {
 +                if (request->secondKind == SIDEDEX_DYNAMIC_MOVE)
 +                    MOVE(player, request->secondMove);
@@ -208,7 +293,7 @@ index 0000000000..6525b9250e
 +    }
 +}
 diff --git a/test/test_runner.c b/test/test_runner.c
-index ced86196f0..46d33959b3 100644
+index ced86196f0..eed9c0b618 100644
 --- a/test/test_runner.c
 +++ b/test/test_runner.c
 @@ -6,9 +6,13 @@
@@ -234,7 +319,7 @@ index ced86196f0..46d33959b3 100644
  
  enum {
      CURRENT_TEST_STATE_ESTIMATE,
-@@ -27,6 +33,140 @@ __attribute__((section(".persistent"))) static struct {
+@@ -27,6 +33,160 @@ __attribute__((section(".persistent"))) static struct {
      u32 state:1;
  } sCurrentTest = {0};
  
@@ -272,8 +357,11 @@ index ced86196f0..46d33959b3 100644
 +    for (i = 0; i < NUM_ABILITY_SLOTS; i++)
 +        if (gSpeciesInfo[mon->species].abilities[i] == mon->ability)
 +            abilityFound = TRUE;
-+    if (!abilityFound)
++    if (!abilityFound || mon->heldItemEnabled > 1)
 +        return FALSE;
++    for (i = 0; i < ARRAY_COUNT(mon->statStages); i++)
++        if (mon->statStages[i] > MAX_STAT_STAGE)
++            return FALSE;
 +    for (i = 0; i < MAX_MON_MOVES; i++)
 +    {
 +        if (mon->moves[i] == MOVE_NONE)
@@ -307,6 +395,7 @@ index ced86196f0..46d33959b3 100644
 +{
 +    u32 i;
 +    bool32 playerMoveFound = FALSE, mainSeedPresent;
++    u32 activePlayerSlot = 0;
 +    const volatile struct SidedexDynamicRequest *request = &gSidedexDynamicRequest;
 +
 +    if (request->magic != SIDEDEX_DYNAMIC_MAGIC
@@ -315,7 +404,9 @@ index ced86196f0..46d33959b3 100644
 +     || request->playerCount == 0 || request->playerCount > SIDEDEX_DYNAMIC_PARTY_LIMIT
 +     || request->opponentCount == 0 || request->opponentCount > SIDEDEX_DYNAMIC_PARTY_LIMIT
 +     || request->replayCount > 1
-+     || request->candidateKind > SIDEDEX_DYNAMIC_SWITCH)
++     || request->candidateKind > SIDEDEX_DYNAMIC_SWITCH
++     || request->secondPresent > 2
++     || request->trainerItemCount > SIDEDEX_DYNAMIC_MAX_TRAINER_ITEMS)
 +        return FALSE;
 +    for (i = 0; i < request->playerCount; i++)
 +        if (!SidedexDynamicMonValid(&request->player[i]))
@@ -323,10 +414,24 @@ index ced86196f0..46d33959b3 100644
 +    for (i = 0; i < request->opponentCount; i++)
 +        if (!SidedexDynamicMonValid(&request->opponent[i]))
 +            return FALSE;
++    for (i = 0; i < SIDEDEX_DYNAMIC_MAX_TRAINER_ITEMS; i++)
++    {
++        if (i < request->trainerItemCount)
++        {
++            if (request->trainerItems[i] == ITEM_NONE || request->trainerItems[i] >= ITEMS_COUNT)
++                return FALSE;
++        }
++        else if (request->trainerItems[i] != ITEM_NONE)
++            return FALSE;
++    }
++    if (request->replayCount && request->replay.playerKind == SIDEDEX_DYNAMIC_SWITCH)
++        activePlayerSlot = request->replay.playerSlot;
++    if (request->secondPresent == 2 && request->candidateKind == SIDEDEX_DYNAMIC_SWITCH)
++        return FALSE;
 +    if (request->candidateKind == SIDEDEX_DYNAMIC_MOVE)
 +    {
 +        for (i = 0; i < MAX_MON_MOVES; i++)
-+            if (request->player[0].moves[i] == request->playerMove)
++            if (request->player[activePlayerSlot].moves[i] == request->playerMove)
 +                playerMoveFound = TRUE;
 +        if (!playerMoveFound)
 +            return FALSE;
@@ -334,7 +439,7 @@ index ced86196f0..46d33959b3 100644
 +    else if (request->playerSlot == 0 || request->playerSlot >= request->playerCount)
 +        return FALSE;
 +
-+    if (request->secondPresent)
++    if (request->secondPresent == 1)
 +    {
 +        u32 active = request->candidateKind == SIDEDEX_DYNAMIC_SWITCH ? request->playerSlot : 0;
 +        bool32 secondMoveFound = FALSE;
@@ -375,7 +480,7 @@ index ced86196f0..46d33959b3 100644
  void TestRunner_Battle(const struct Test *);
  
  static bool32 MgbaOpen_(void);
-@@ -180,6 +320,41 @@ top:
+@@ -180,6 +340,41 @@ top:
              else
                  break;
          }
@@ -417,7 +522,7 @@ index ced86196f0..46d33959b3 100644
  
          Test_MgbaPrintf(":N%s", gTestRunnerState.test->name);
          Test_MgbaPrintf(":L%s:%d", gTestRunnerState.test->filename);
-@@ -379,7 +554,16 @@ top:
+@@ -379,7 +574,16 @@ top:
  
      case STATE_NEXT_TEST:
          gTestRunnerState.state = STATE_ASSIGN_TEST;
@@ -436,18 +541,23 @@ index ced86196f0..46d33959b3 100644
  
      case STATE_EXIT:
 diff --git a/test/test_runner_battle.c b/test/test_runner_battle.c
-index 4b4efed49f..ca1b81816b 100644
+index 4b4efed49f..be2d9955ab 100644
 --- a/test/test_runner_battle.c
 +++ b/test/test_runner_battle.c
-@@ -15,6 +15,7 @@
+@@ -15,6 +15,12 @@
  #include "window.h"
  #include "constants/characters.h"
  #include "constants/trainers.h"
 +#include "test/sidedex_dynamic.h"
++#include "battle_ai_switch_items.h"
++#include "battle_script_commands.h"
++#include "battle_util.h"
++#include "item.h"
++#include "constants/hold_effects.h"
  
  #if defined(__INTELLISENSE__)
  #undef TestRunner_Battle_RecordAbilityPopUp
-@@ -35,6 +36,18 @@
+@@ -35,6 +41,18 @@
  #define STATE gBattleTestRunnerState
  #define DATA gBattleTestRunnerState->data
  
@@ -466,7 +576,7 @@ index 4b4efed49f..ca1b81816b 100644
  #define RNG_SEED_DEFAULT {0, 0, 0, 0}
  static inline bool32 RngSeedNotDefault(const rng_value_t *seed)
  {
-@@ -54,6 +67,96 @@ static void PushBattlerAction(u32 sourceLine, s32 battlerId, u32 actionType, u32
+@@ -54,6 +72,385 @@ static void PushBattlerAction(u32 sourceLine, s32 battlerId, u32 actionType, u32
  static void PrintAiMoveLog(u32 battlerId, u32 moveSlot, u32 moveId, s32 totalScore);
  static void ClearAiLog(u32 battlerId);
  static const char *BattlerIdentifier(s32 battlerId);
@@ -489,6 +599,295 @@ index 4b4efed49f..ca1b81816b 100644
 +{
 +    return gTestRunnerState.test != NULL
 +        && strcmp(gTestRunnerState.test->name, SIDEDEX_DYNAMIC_TEST_NAME) == 0;
++}
++
++enum
++{
++    SIDEDEX_QUERY_UNSUPPORTED = 1 << 0,
++    SIDEDEX_QUERY_FOCUS_SASH = 1 << 1,
++    SIDEDEX_QUERY_STURDY = 1 << 2,
++    SIDEDEX_QUERY_MULTI_HIT_RANGE = 1 << 3,
++    SIDEDEX_QUERY_MULTI_HIT_ENUMERATED = 1 << 4,
++};
++
++enum
++{
++    SIDEDEX_HITS_STANDARD,
++    SIDEDEX_HITS_LOADED_DICE,
++    SIDEDEX_HITS_SKILL_LINK,
++    SIDEDEX_HITS_BATTLE_BOND,
++    SIDEDEX_HITS_FIXED,
++};
++
++static bool32 sSidedexQueryRngActive;
++static enum RandomTag sSidedexQueryRngTag;
++static u32 sSidedexQueryRngValue;
++
++static s32 SidedexQueryDamage(u32 battlerAtk, u32 battlerDef, u32 move, bool32 critical, u32 roll)
++{
++    struct DamageCalculationData damageCalcData = {
++        .battlerAtk = battlerAtk,
++        .battlerDef = battlerDef,
++        .move = move,
++        .moveType = GetMoveType(move),
++        .isCrit = critical,
++        .randomFactor = TRUE,
++        .updateFlags = FALSE,
++    };
++    s32 damage;
++
++    sSidedexQueryRngActive = TRUE;
++    sSidedexQueryRngTag = RNG_DAMAGE_MODIFIER;
++    sSidedexQueryRngValue = roll;
++    damage = CalculateMoveDamage(&damageCalcData, 0);
++    sSidedexQueryRngActive = FALSE;
++    return max(0, damage);
++}
++
++static void SidedexQueryMove(u32 owner, u32 battlerAtk, u32 battlerDef, u32 move)
++{
++    u32 abilityAtk = GetBattlerAbility(battlerAtk);
++    u32 abilityDef = GetBattlerAbility(battlerDef);
++    u32 holdEffectAtk = GetBattlerHoldEffect(battlerAtk, TRUE);
++    u32 holdEffectDef = GetBattlerHoldEffect(battlerDef, TRUE);
++    u32 oldAttacker = gBattlerAttacker, oldTarget = gBattlerTarget;
++    u32 oldMove = gCurrentMove;
++    u32 flags = 0, roll, critDen = 1, accuracy, numerator = 0;
++    u32 minHits = 1, maxHits = 1;
++    u32 hitsMode = SIDEDEX_HITS_FIXED;
++    u32 rollDamage[2][16] = {{0}};
++    u32 minimum = UINT_MAX, maximum = 0, nonCritWeight, critWeight;
++    u32 denominator;
++    s32 critChance, ordinaryCritChance;
++
++    if (gMovesInfo[move].effect == EFFECT_MULTI_HIT)
++    {
++        flags |= SIDEDEX_QUERY_MULTI_HIT_RANGE | SIDEDEX_QUERY_MULTI_HIT_ENUMERATED;
++        minHits = 2;
++        maxHits = 5;
++        hitsMode = SIDEDEX_HITS_STANDARD;
++        if (abilityAtk == ABILITY_SKILL_LINK)
++        {
++            minHits = 5;
++            hitsMode = SIDEDEX_HITS_SKILL_LINK;
++        }
++        else if (holdEffectAtk == HOLD_EFFECT_LOADED_DICE)
++        {
++            minHits = 4;
++            hitsMode = SIDEDEX_HITS_LOADED_DICE;
++        }
++        else if (abilityAtk == ABILITY_BATTLE_BOND && move == MOVE_WATER_SHURIKEN
++              && gBattleMons[battlerAtk].species == SPECIES_GRENINJA_ASH)
++        {
++            minHits = maxHits = 3;
++            hitsMode = SIDEDEX_HITS_BATTLE_BOND;
++        }
++    }
++    else if (gMovesInfo[move].strikeCount > 1 && gMovesInfo[move].effect == EFFECT_HIT)
++    {
++        flags |= SIDEDEX_QUERY_MULTI_HIT_RANGE | SIDEDEX_QUERY_MULTI_HIT_ENUMERATED;
++        minHits = maxHits = gMovesInfo[move].strikeCount;
++        hitsMode = SIDEDEX_HITS_FIXED;
++    }
++    else if (gMovesInfo[move].strikeCount > 1 || gMovesInfo[move].effect == EFFECT_TRIPLE_KICK)
++        flags |= SIDEDEX_QUERY_UNSUPPORTED;
++    if (gMovesInfo[move].category != DAMAGE_CATEGORY_STATUS && gMovesInfo[move].power == 0)
++        flags |= SIDEDEX_QUERY_UNSUPPORTED;
++
++    if ((flags & SIDEDEX_QUERY_UNSUPPORTED) && !(flags & SIDEDEX_QUERY_MULTI_HIT_RANGE))
++    {
++        Test_MgbaPrintf("ROMTRACE|query|damage|%d|%d|0|0|%d|0|0|0|0",
++                        owner, move, flags);
++        return;
++    }
++    if (gMovesInfo[move].category == DAMAGE_CATEGORY_STATUS)
++    {
++        Test_MgbaPrintf("ROMTRACE|query|damage|%d|%d|0|1600|0|0|0|0|1", owner, move);
++        return;
++    }
++
++    gBattlerAttacker = battlerAtk;
++    gBattlerTarget = battlerDef;
++    gCurrentMove = move;
++    accuracy = min(100, GetTotalAccuracy(battlerAtk, battlerDef, move,
++                                         abilityAtk, abilityDef,
++                                         holdEffectAtk, holdEffectDef));
++    critChance = CalcCritChanceStage(battlerAtk, battlerDef, move, FALSE,
++                                     abilityAtk, abilityDef, holdEffectAtk);
++    ordinaryCritChance = CalcCritChanceStage(battlerAtk, battlerDef, move, FALSE,
++                                             ABILITY_NONE, ABILITY_NONE, HOLD_EFFECT_NONE);
++    // Ordinary crit odds (including high-crit moves and Laser Focus) are not
++    // part of the recommendation policy. Retain crit only when an enabled
++    // ability or held item changes the engine's crit state.
++    if (critChance == ordinaryCritChance)
++        critChance = CRITICAL_HIT_BLOCKED;
++    if (critChance >= 0)
++        critDen = GetCritHitOdds(critChance);
++    nonCritWeight = critChance == CRITICAL_HIT_ALWAYS ? 0
++                  : critChance == CRITICAL_HIT_BLOCKED ? 1 : critDen - 1;
++    critWeight = critChance == CRITICAL_HIT_ALWAYS ? 1
++               : critChance == CRITICAL_HIT_BLOCKED ? 0 : 1;
++
++    if (holdEffectDef == HOLD_EFFECT_FOCUS_SASH
++     && gBattleMons[battlerDef].hp == gBattleMons[battlerDef].maxHP)
++        flags |= SIDEDEX_QUERY_FOCUS_SASH;
++    if (B_STURDY >= GEN_5 && abilityDef == ABILITY_STURDY
++     && gBattleMons[battlerDef].hp == gBattleMons[battlerDef].maxHP)
++        flags |= SIDEDEX_QUERY_STURDY;
++
++    for (roll = 0; roll < 16; roll++)
++    {
++        u32 damage;
++        if (nonCritWeight)
++        {
++            damage = SidedexQueryDamage(battlerAtk, battlerDef, move, FALSE, roll);
++            rollDamage[0][roll] = damage;
++            minimum = min(minimum, damage);
++            maximum = max(maximum, damage);
++            if (damage >= gBattleMons[battlerDef].hp)
++                numerator += nonCritWeight;
++        }
++        if (critWeight)
++        {
++            damage = SidedexQueryDamage(battlerAtk, battlerDef, move, TRUE, roll);
++            rollDamage[1][roll] = damage;
++            minimum = min(minimum, damage);
++            maximum = max(maximum, damage);
++            if (damage >= gBattleMons[battlerDef].hp)
++                numerator += critWeight;
++        }
++    }
++
++    if (flags & SIDEDEX_QUERY_MULTI_HIT_RANGE)
++    {
++        minimum *= minHits;
++        maximum *= maxHits;
++        numerator = denominator = 0;
++    }
++    else
++    {
++        if (flags & (SIDEDEX_QUERY_FOCUS_SASH | SIDEDEX_QUERY_STURDY)
++         || gMovesInfo[move].effect == EFFECT_FALSE_SWIPE)
++            numerator = 0;
++        numerator *= accuracy;
++        denominator = 100 * 16 * critDen;
++    }
++    if (minimum == UINT_MAX)
++        minimum = 0;
++    Test_MgbaPrintf("ROMTRACE|query|damage|%d|%d|%d|%d|%d|%d|%d|%d|%d",
++                    owner, move, numerator, denominator, flags, minimum, maximum,
++                    accuracy, critDen);
++    if (flags & SIDEDEX_QUERY_MULTI_HIT_ENUMERATED)
++    {
++        Test_MgbaPrintf("ROMTRACE|query|hits|%d|%d|%d|%d|%d|%d|%d",
++                        owner, move, hitsMode, minHits, maxHits, nonCritWeight, critWeight);
++        Test_MgbaPrintf("ROMTRACE|query|hitroll|%d|%d|0|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
++                        owner, move,
++                        rollDamage[0][0], rollDamage[0][1], rollDamage[0][2], rollDamage[0][3],
++                        rollDamage[0][4], rollDamage[0][5], rollDamage[0][6], rollDamage[0][7],
++                        rollDamage[0][8], rollDamage[0][9], rollDamage[0][10], rollDamage[0][11],
++                        rollDamage[0][12], rollDamage[0][13], rollDamage[0][14], rollDamage[0][15]);
++        Test_MgbaPrintf("ROMTRACE|query|hitroll|%d|%d|1|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
++                        owner, move,
++                        rollDamage[1][0], rollDamage[1][1], rollDamage[1][2], rollDamage[1][3],
++                        rollDamage[1][4], rollDamage[1][5], rollDamage[1][6], rollDamage[1][7],
++                        rollDamage[1][8], rollDamage[1][9], rollDamage[1][10], rollDamage[1][11],
++                        rollDamage[1][12], rollDamage[1][13], rollDamage[1][14], rollDamage[1][15]);
++    }
++    gBattlerAttacker = oldAttacker;
++    gBattlerTarget = oldTarget;
++    gCurrentMove = oldMove;
++}
++static u32 SidedexDynamicPartySlot(u32 battler)
++{
++    const volatile struct SidedexDynamicMon *party;
++    u32 count, i, j;
++    struct BattlePokemon *active = &gBattleMons[battler];
++    if (GetBattlerSide(battler) == B_SIDE_PLAYER)
++    {
++        party = gSidedexDynamicRequest.player;
++        count = gSidedexDynamicRequest.playerCount;
++    }
++    else
++    {
++        party = gSidedexDynamicRequest.opponent;
++        count = gSidedexDynamicRequest.opponentCount;
++    }
++    for (i = 0; i < count; i++)
++    {
++        if (party[i].species != active->species || party[i].ability != active->ability)
++            continue;
++        for (j = 0; j < MAX_MON_MOVES; j++)
++            if (party[i].moves[j] != active->moves[j])
++                break;
++        if (j == MAX_MON_MOVES)
++            return i;
++    }
++    return gBattleStruct->battlerPartyIndexes[battler];
++}
++
++bool32 TestRunner_Battle_RunQuery(u32 battlerId)
++{
++    u32 moveSlot;
++
++    if (!SidedexDynamicTraceActive()
++     || gSidedexDynamicRequest.secondPresent != 2
++     || GetBattlerSide(battlerId) != B_SIDE_OPPONENT
++     || gBattleResults.battleTurnCounter < gSidedexDynamicRequest.replayCount)
++        return FALSE;
++
++    Test_MgbaPrintf("ROMTRACE|critical-policy|item-ability-only|battle-script-filtered");
++    Test_MgbaPrintf("ROMTRACE|query|context|%s",
++                    gSidedexDynamicRequest.replayCount
++                     && gSidedexDynamicRequest.replay.playerKind == SIDEDEX_DYNAMIC_SWITCH
++                        ? "post-switch" : "current-state");
++    for (moveSlot = 0; moveSlot < gBattlersCount; moveSlot++)
++    {
++        u32 side = GetBattlerSide(moveSlot);
++        u32 slot = SidedexDynamicPartySlot(moveSlot);
++        struct BattlePokemon *mon = &gBattleMons[moveSlot];
++        u32 m;
++        Test_MgbaPrintf("ROMTRACE|query|active|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
++                        side, slot, mon->species, mon->hp, mon->maxHP,
++                        mon->statStages[STAT_ATK], mon->statStages[STAT_DEF],
++                        mon->statStages[STAT_SPEED], mon->statStages[STAT_SPATK],
++                        mon->statStages[STAT_SPDEF], mon->statStages[STAT_ACC],
++                        mon->statStages[STAT_EVASION]);
++        for (m = 0; m < MAX_MON_MOVES; m++)
++            Test_MgbaPrintf("ROMTRACE|query|active-move|%d|%d|%d", side, m, mon->moves[m]);
++    }
++    for (moveSlot = 0; moveSlot < MAX_MON_MOVES; moveSlot++)
++    {
++        u32 move = gBattleMons[B_POSITION_PLAYER_LEFT].moves[moveSlot];
++        if (move != MOVE_NONE)
++            SidedexQueryMove(B_SIDE_PLAYER, B_POSITION_PLAYER_LEFT,
++                             B_POSITION_OPPONENT_LEFT, move);
++    }
++    for (moveSlot = 0; moveSlot < MAX_MON_MOVES; moveSlot++)
++    {
++        u32 move = gBattleMons[B_POSITION_OPPONENT_LEFT].moves[moveSlot];
++        if (move != MOVE_NONE)
++            SidedexQueryMove(B_SIDE_OPPONENT, B_POSITION_OPPONENT_LEFT,
++                             B_POSITION_PLAYER_LEFT, move);
++    }
++
++    AI_TrySwitchOrUseItem(battlerId);
++    u8 action = gBattleResources->bufferB[battlerId][1];
++    if (action == B_ACTION_USE_ITEM)
++        Test_MgbaPrintf("ROMTRACE|query|ai|item|%d", gBattleStruct->chosenItem[battlerId]);
++    else if (action == B_ACTION_SWITCH)
++        Test_MgbaPrintf("ROMTRACE|query|ai|switch|%d",
++                        gBattleStruct->monToSwitchIntoId[battlerId]);
++    else
++    {
++        moveSlot = gBattleStruct->aiMoveOrAction[battlerId];
++        Test_MgbaPrintf("ROMTRACE|query|ai|move|%d",
++                        gBattleMons[battlerId].moves[moveSlot]);
++    }
++    gSidedexDynamicRequest.status = SIDEDEX_DYNAMIC_COMPLETE;
++    Test_MgbaPrintf("ROMTRACE|query|complete");
++    Test_MgbaPrintf("ROMTRACE|complete|0");
++    return TRUE;
 +}
 +
 +static void SidedexOracleTraceBlob(u32 turn, u32 owner, u32 index, const char *kind, const void *data, u32 size)
@@ -563,18 +962,19 @@ index 4b4efed49f..ca1b81816b 100644
  
  NAKED static void InvokeSingleTestFunctionWithStack(void *results, u32 i, struct BattlePokemon *player, struct BattlePokemon *opponent, SingleBattleTestFunction function, void *stack)
  {
-@@ -352,7 +455,9 @@ static void BattleTest_Run(void *data)
- }
+@@ -353,6 +750,11 @@ static void BattleTest_Run(void *data)
  
  u32 RandomUniform(enum RandomTag tag, u32 lo, u32 hi)
--{
-+{    if (SidedexDynamicTraceActive())
+ {
++    if (sSidedexQueryRngActive && tag == sSidedexQueryRngTag)
++        return min(hi, max(lo, sSidedexQueryRngValue));
++    if (SidedexDynamicTraceActive())
 +        return RandomUniformDefault(tag, lo, hi);
 +
      const struct BattlerTurn *turn = NULL;
  
      if (gCurrentTurnActionNumber < gBattlersCount)
-@@ -384,7 +489,9 @@ u32 RandomUniform(enum RandomTag tag, u32 lo, u32 hi)
+@@ -384,7 +786,9 @@ u32 RandomUniform(enum RandomTag tag, u32 lo, u32 hi)
  }
  
  u32 RandomUniformExcept(enum RandomTag tag, u32 lo, u32 hi, bool32 (*reject)(u32))
@@ -585,7 +985,7 @@ index 4b4efed49f..ca1b81816b 100644
      const struct BattlerTurn *turn = NULL;
      u32 default_;
  
-@@ -435,7 +542,9 @@ u32 RandomUniformExcept(enum RandomTag tag, u32 lo, u32 hi, bool32 (*reject)(u32
+@@ -435,7 +839,9 @@ u32 RandomUniformExcept(enum RandomTag tag, u32 lo, u32 hi, bool32 (*reject)(u32
  }
  
  u32 RandomWeightedArray(enum RandomTag tag, u32 sum, u32 n, const u8 *weights)
@@ -596,7 +996,7 @@ index 4b4efed49f..ca1b81816b 100644
      const struct BattlerTurn *turn = NULL;
  
      if (sum == 0)
-@@ -501,7 +610,9 @@ u32 RandomWeightedArray(enum RandomTag tag, u32 sum, u32 n, const u8 *weights)
+@@ -501,7 +907,9 @@ u32 RandomWeightedArray(enum RandomTag tag, u32 sum, u32 n, const u8 *weights)
  }
  
  const void *RandomElementArray(enum RandomTag tag, const void *array, size_t size, size_t count)
@@ -607,7 +1007,7 @@ index 4b4efed49f..ca1b81816b 100644
      const struct BattlerTurn *turn = NULL;
      u32 index = count-1;
  
-@@ -561,6 +672,8 @@ static s32 TryAbilityPopUp(s32 i, s32 n, u32 battlerId, u32 ability)
+@@ -561,6 +969,8 @@ static s32 TryAbilityPopUp(s32 i, s32 n, u32 battlerId, u32 ability)
  
  void TestRunner_Battle_RecordAbilityPopUp(u32 battlerId, u32 ability)
  {
@@ -616,16 +1016,20 @@ index 4b4efed49f..ca1b81816b 100644
      s32 queuedEvent;
      s32 match;
      struct QueuedEvent *event;
-@@ -714,6 +827,8 @@ static s32 TryHP(s32 i, s32 n, u32 battlerId, u32 oldHP, u32 newHP)
+@@ -714,6 +1124,12 @@ static s32 TryHP(s32 i, s32 n, u32 battlerId, u32 oldHP, u32 newHP)
  
  void TestRunner_Battle_RecordHP(u32 battlerId, u32 oldHP, u32 newHP)
  {
 +    if (SidedexOracleTraceActive())
 +        Test_MgbaPrintf("ROMTRACE|hp|%d|%d|%d|%d", gBattleResults.battleTurnCounter, battlerId, oldHP, newHP);
++    if (SidedexDynamicTraceActive() && oldHP != 0 && newHP == 0)
++        Test_MgbaPrintf("ROMTRACE|faint|%d|%d|%d|%d", gBattleResults.battleTurnCounter,
++                        battlerId, gBattleStruct->battlerPartyIndexes[battlerId],
++                        gBattleMons[battlerId].species);
      s32 queuedEvent;
      s32 match;
      struct QueuedEvent *event;
-@@ -779,6 +894,8 @@ static u32 CountAiExpectMoves(struct ExpectedAIAction *expectedAction, u32 battl
+@@ -779,6 +1195,8 @@ static u32 CountAiExpectMoves(struct ExpectedAIAction *expectedAction, u32 battl
  
  void TestRunner_Battle_CheckChosenMove(u32 battlerId, u32 moveId, u32 target)
  {
@@ -634,7 +1038,7 @@ index 4b4efed49f..ca1b81816b 100644
      const char *filename = gTestRunnerState.test->filename;
      u32 id = DATA.trial.aiActionsPlayed[battlerId];
      struct ExpectedAIAction *expectedAction = &DATA.expectedAiActions[battlerId][id];
-@@ -850,6 +967,8 @@ void TestRunner_Battle_CheckChosenMove(u32 battlerId, u32 moveId, u32 target)
+@@ -850,6 +1268,8 @@ void TestRunner_Battle_CheckChosenMove(u32 battlerId, u32 moveId, u32 target)
  
  void TestRunner_Battle_CheckSwitch(u32 battlerId, u32 partyIndex)
  {
@@ -643,7 +1047,7 @@ index 4b4efed49f..ca1b81816b 100644
      const char *filename = gTestRunnerState.test->filename;
      u32 id = DATA.trial.aiActionsPlayed[battlerId];
      struct ExpectedAIAction *expectedAction = &DATA.expectedAiActions[battlerId][id];
-@@ -870,6 +989,15 @@ void TestRunner_Battle_CheckSwitch(u32 battlerId, u32 partyIndex)
+@@ -870,6 +1290,81 @@ void TestRunner_Battle_CheckSwitch(u32 battlerId, u32 partyIndex)
      DATA.trial.aiActionsPlayed[battlerId]++;
  }
  
@@ -656,10 +1060,76 @@ index 4b4efed49f..ca1b81816b 100644
 +    SidedexOracleTraceSnapshot("switch-settled");
 +}
 +
++void TestRunner_Battle_ApplyTrainerItems(void)
++{
++    u32 i;
++    // Trainer items are applied only for the pre-choice query turn. The
++    // resolved-turn sampling path cannot safely re-run the AI item decision in
++    // this harness (ShouldUseItem commits the item and is re-evaluated with the
++    // item already consumed), so sampling stays item-agnostic; the query carries
++    // the exact item prediction.
++    if (!SidedexDynamicTraceActive()
++     || gSidedexDynamicRequest.version != SIDEDEX_DYNAMIC_VERSION
++     || gSidedexDynamicRequest.secondPresent != 2
++     || gSidedexDynamicRequest.trainerItemCount == 0)
++        return;
++    for (i = 0; i < MAX_TRAINER_ITEMS; i++)
++        gBattleResources->battleHistory->trainerItems[i] =
++            (i < gSidedexDynamicRequest.trainerItemCount)
++                ? gSidedexDynamicRequest.trainerItems[i] : ITEM_NONE;
++    gBattleResources->battleHistory->itemsNo = gSidedexDynamicRequest.trainerItemCount;
++}
++
++void TestRunner_Battle_TraceChosenItem(u32 battlerId, u32 itemId)
++{
++    if (SidedexOracleTraceActive())
++        Test_MgbaPrintf("ROMTRACE|action|%d|%d|item|%d",
++                        gBattleResults.battleTurnCounter, battlerId, itemId);
++}
++
++bool32 TestRunner_Battle_UsesCriticalPolicy(void)
++{
++    return SidedexDynamicTraceActive();
++}
++
++void TestRunner_Battle_TraceCritPolicy(u32 battler, u32 move, s32 actual, s32 ordinary)
++{
++    if (SidedexDynamicTraceActive() && actual != ordinary)
++        Test_MgbaPrintf("ROMTRACE|crit-policy-change|%d|%d|%d|%d|%d",
++                        gBattleResults.battleTurnCounter, battler, move, actual, ordinary);
++}
++
++void TestRunner_Battle_ApplyDynamicStages(void)
++{
++    static bool32 applied;
++    u32 battler;
++
++    if (!SidedexDynamicTraceActive() || applied)
++        return;
++    Test_MgbaPrintf("ROMTRACE|critical-policy|item-ability-only|battle-script-filtered");
++    applied = TRUE;
++    for (battler = 0; battler < gBattlersCount; battler++)
++    {
++        u32 slot = gBattleStruct->battlerPartyIndexes[battler];
++        const volatile struct SidedexDynamicMon *mon;
++        if (GetBattlerSide(battler) == B_SIDE_PLAYER)
++            mon = &gSidedexDynamicRequest.player[slot];
++        else
++            mon = &gSidedexDynamicRequest.opponent[slot];
++        gBattleMons[battler].statStages[STAT_ATK] = mon->statStages[0];
++        gBattleMons[battler].statStages[STAT_DEF] = mon->statStages[1];
++        gBattleMons[battler].statStages[STAT_SPEED] = mon->statStages[2];
++        gBattleMons[battler].statStages[STAT_SPATK] = mon->statStages[3];
++        gBattleMons[battler].statStages[STAT_SPDEF] = mon->statStages[4];
++        gBattleMons[battler].statStages[STAT_ACC] = mon->statStages[5];
++        gBattleMons[battler].statStages[STAT_EVASION] = mon->statStages[6];
++    }
++}
++
  void TestRunner_Battle_InvalidNoHPMon(u32 battlerId, u32 partyIndex)
  {
      Test_ExitWithResult(TEST_RESULT_INVALID, SourceLine(0), ":L%s: INVALID: %s trying to send out a mon(id: %d) with 0 HP.",
-@@ -1254,6 +1382,8 @@ static s32 TryStatus(s32 i, s32 n, u32 battlerId, u32 status1)
+@@ -1254,6 +1749,8 @@ static s32 TryStatus(s32 i, s32 n, u32 battlerId, u32 status1)
  
  void TestRunner_Battle_RecordStatus1(u32 battlerId, u32 status1)
  {
@@ -668,13 +1138,14 @@ index 4b4efed49f..ca1b81816b 100644
      s32 queuedEvent;
      s32 match;
      struct QueuedEvent *event;
-@@ -1309,6 +1439,15 @@ void TestRunner_Battle_AfterLastTurn(void)
+@@ -1309,6 +1806,16 @@ void TestRunner_Battle_AfterLastTurn(void)
  {
      const struct BattleTest *test = GetBattleTest();
  
 +    if (SidedexOracleTraceActive())
 +        SidedexOracleTraceSnapshot("after-turn");
 +    if (SidedexDynamicTraceActive()
++     && gSidedexDynamicRequest.secondPresent != 2
 +     && gBattleResults.battleTurnCounter >= gSidedexDynamicRequest.replayCount + 1)
 +    {
 +        gSidedexDynamicRequest.status = SIDEDEX_DYNAMIC_COMPLETE;

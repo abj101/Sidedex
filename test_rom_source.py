@@ -52,6 +52,13 @@ def multiply_modifiers(a, b):
 
 
 class SchemaTest(unittest.TestCase):
+    def test_move_descriptions_and_values_are_imported(self):
+        for move_id, move in GAME["moves"].items():
+            if move_id != "MOVE_NONE":
+                self.assertTrue(move["description"], move_id)
+            for field in ("power", "accuracy", "pp"):
+                self.assertIsInstance(move[field], int, f"{move_id} {field}")
+
     def test_schema_version_is_2(self):
         self.assertEqual(GAME["schema_version"], 2)
         self.assertEqual(FIXTURES["source"]["commit"], LOCK["commit"])

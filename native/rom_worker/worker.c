@@ -37,6 +37,8 @@ static char s_trace_events[MAX_TRACE_EVENTS][MAX_TRACE_BYTES];
 static size_t s_trace_count;
 static bool s_trace_overflow;
 static bool s_turn_complete;
+static bool s_saw_after_turn;
+static bool s_slim_trace;
 struct BatchTurn {
     bool complete;
     bool overflow;
@@ -59,6 +61,26 @@ static void capture_log(struct mLogger *logger, int category, enum mLogLevel lev
     vsnprintf(message, sizeof(message), format, args);
     if (strncmp(message, "ROMTRACE|", 9) != 0) return;
     if (strncmp(message, "ROMTRACE|complete|", 18) == 0) s_turn_complete = true;
+    // A first-turn KO restarts the test runner before battleTurnCounter
+    // increments, so the hook never emits complete. Stop on the post-turn
+    // mailbox ready instead of spinning to max_frames.
+    if (strncmp(message, "ROMTRACE|phase|", 15) == 0 && strstr(message, "|after-turn") != NULL)
+        s_saw_after_turn = true;
+    if (s_saw_after_turn && strncmp(message, "ROMTRACE|ready|", 15) == 0)
+        s_turn_complete = true;
+    if (s_slim_trace &&
+        strncmp(message, "ROMTRACE|query|", 15) != 0 &&
+        strncmp(message, "ROMTRACE|action|", 16) != 0 &&
+        strncmp(message, "ROMTRACE|party|", 15) != 0 &&
+        strncmp(message, "ROMTRACE|active|", 16) != 0 &&
+        strncmp(message, "ROMTRACE|rng|", 13) != 0 &&
+        strncmp(message, "ROMTRACE|phase|", 15) != 0 &&
+        strncmp(message, "ROMTRACE|status|", 16) != 0 &&
+        strncmp(message, "ROMTRACE|faint|", 15) != 0 &&
+        strncmp(message, "ROMTRACE|critical-policy|", 25) != 0 &&
+        strncmp(message, "ROMTRACE|complete|", 18) != 0 &&
+        strncmp(message, "ROMTRACE|ready|", 15) != 0)
+        return;
     if (s_trace_count == MAX_TRACE_EVENTS || strlen(message) >= MAX_TRACE_BYTES - 1) {
         s_trace_overflow = true;
         return;
@@ -183,14 +205,17 @@ static bool run_batch_turns(const char *line) {
         if (!mCoreLoadStateNamed(s_core, s_saved_state, SAVESTATE_SAVEDATA | SAVESTATE_RTC) || !write_hex(address, items[i])) {
             respond_error("batch_checkpoint_or_write_failed"); return false;
         }
-        s_trace_count = 0; s_trace_overflow = false; s_turn_complete = false;
+        s_trace_count = 0; s_trace_overflow = false; s_turn_complete = false; s_saw_after_turn = false;
+        s_slim_trace = true;
         uint64_t frames = 0;
         while (frames < frames_limit && !s_turn_complete && !s_trace_overflow) {
             s_core->runFrame(s_core); ++frames;
             if ((uint64_t) (clock() - started) * 1000 / CLOCKS_PER_SEC >= budget_ms) {
+                s_slim_trace = false;
                 respond_error("deadline_exceeded"); return false;
             }
         }
+        s_slim_trace = false;
         s_batch[i].complete = s_turn_complete;
         s_batch[i].overflow = s_trace_overflow;
         s_batch[i].frames = frames;

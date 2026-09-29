@@ -93,14 +93,17 @@
 .sd-profile-moves { min-width:0; }
 .sd-profile-stats > strong,
 .sd-profile-moves > strong { display:block; margin:0 0 10px; font:800 15px monospace; }
-.sd-stat { display:grid; grid-template-columns:64px minmax(32px,1fr) 44px; align-items:center; min-height:16px; column-gap:4px; margin:7px 0; font:700 11px monospace; }
+.sd-stat { display:grid; grid-template-columns:64px minmax(32px,1fr) 44px; align-items:center; box-sizing:border-box; width:100%; min-width:0; min-height:16px; column-gap:4px; margin:7px 0; font:700 11px monospace; }
 .sd-nature-arrow { width:8px; height:16px; flex:none; image-rendering:pixelated; object-fit:contain; }
-.sd-stat > div { height:11px; background:#d0d8cf; border:1px solid #82978c; }
+.sd-stat > div { box-sizing:border-box; width:100%; min-width:0; height:11px; background:#d0d8cf; border:1px solid #82978c; }
 .sd-stat i { display:block; height:100%; }
-.sd-stat b { display:flex; align-items:center; justify-content:flex-start; gap:2px; text-align:left; }
+.sd-stat b { display:flex; align-items:center; justify-content:flex-start; min-width:0; gap:2px; text-align:left; }
 .sd-stat-delta { color:#526b68; font-weight:700; text-align:right; }
 .sd-stat.up b { color:#23865b; }
 .sd-stat.down b { color:#b34741; }
+.sd-stat.status-effect > div { border-color:var(--status-color); }
+.sd-stat.status-effect b { color:var(--status-color); white-space:nowrap; }
+.sd-stat.status-effect .sd-stat-delta { color:#526b68; }
 .sd-stat-total { margin-top:10px; padding-bottom:9px; border-bottom:1px solid #b5c8b6; }
 .sd-profile > strong { display:block; margin:0 0 10px; font:800 15px monospace; }
 .sd-stat-total + strong { margin-top:15px; }
@@ -117,6 +120,21 @@
 .sd-picker-option { cursor:pointer; }
 .sd-picker-option:hover,.sd-picker-option:focus-visible { background:#d8e5dc; outline:none; }
 .sd-picker-empty { color:#526b68; }
+.sd-move-option strong,.sd-move-option small,.sd-move-option span { display:block; white-space:normal; }
+.sd-move-card .sd-move-option strong { color:#17303a; font:800 12px/1.3 monospace; }
+.sd-move-option small { margin:2px 0; color:#405c5a; font:700 10px/1.3 monospace; }
+.sd-move-option span { color:#405c5a; font:400 11px/1.3 sans-serif; }
+.sd-status-control { position:relative; display:inline-flex; align-items:center; vertical-align:middle; }
+.sd-status-badge { position:relative; left:-2px; box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center; gap:4px; height:23px; min-height:23px; padding:3px 6px; color:#17303a; background:#e9eedb; border:1px solid #9bb0a4; font:700 11px/1.2 monospace; white-space:nowrap; cursor:pointer; }
+.sd-status-badge:hover,.sd-status-badge:focus-visible { outline:1px solid #17303a; outline-offset:1px; }
+.sd-status-current-icon { display:block; width:40px; height:16px; object-fit:fill; image-rendering:pixelated; }
+.sd-status-current-icon[hidden] { display:none; }
+.sd-status-current-label { color:var(--status-color,#17303a); }
+.sd-status-current-label:empty { display:none; }
+.sd-status-menu { display:none; z-index:100; top:calc(100% + 3px); left:-2px; min-width:190px; }
+.sd-status-menu.is-open { display:block; }
+.sd-status-control:has(.sd-status-menu.is-open) { z-index:100; }
+.sd-status-option { display:block; }
 .sd-moves { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); grid-auto-rows:1fr; gap:9px; margin-top:0; }
 .sd-move-card { position:relative; min-width:0; padding:11px 12px; color:#17303a; background:#e9eedb; border-left:5px solid var(--type,#829ba0); }
 .sd-move-card:not(.sd-move-empty) { cursor:pointer; }
@@ -209,7 +227,12 @@
 
 .st-key-calc_screen { min-width:0; color:#17303a; }
 .st-key-calc_screen [data-testid="stVerticalBlock"] { min-width:0; }
-.st-key-calc_results [data-testid="stHorizontalBlock"] { align-items:stretch; gap:14px; }
+.st-key-calc_results [data-testid="stHorizontalBlock"] {
+  display:flex; flex-direction:row; align-items:flex-start; gap:14px;
+}
+.st-key-calc_results .sd-calc-result-card {
+  box-sizing:border-box; display:flex; flex-direction:column; flex:none; width:100%; height:180px; min-height:180px; max-height:180px; overflow:hidden;
+}
 .st-key-calc_player_panel,
 .st-key-calc_enemy_panel,
 .sd-calc-result-card {
@@ -217,7 +240,9 @@
   color:#17303a; background:#e9eedb; border:3px solid #a7d6c5;
   box-shadow:inset 0 0 0 2px #fff,0 4px 0 #071d24;
 }
-.sd-calc-result-card { min-height:164px; }
+.sd-calc-result-card { min-height:0; }
+.st-key-calc_player_panel .sd-calc-result-card,
+.st-key-calc_enemy_panel .sd-calc-result-card { min-height:0; margin-top:8px; }
 .st-key-calc_player_panel { position:relative; }
 .sd-calc-panel-heading {
   display:flex; align-items:center; justify-content:space-between; gap:8px;
@@ -263,6 +288,8 @@
 .sd-calc-slot-filled .sd-calc-slot-card { padding-right:24px; }
 .sd-calc-roster-readonly .sd-calc-slot-filled .sd-calc-slot-card { padding-right:5px; }
 .sd-calc-slot-icon { display:block; flex:none; width:34px; height:34px; object-fit:contain; image-rendering:pixelated; }
+.st-key-calc-own-roster .sd-calc-slot-card { touch-action:none; }
+.sd-calc-dragging { position:fixed; width:34px; height:34px; object-fit:contain; image-rendering:pixelated; pointer-events:none; z-index:9999; }
 .sd-calc-slot-info { display:block; min-width:0; overflow:hidden; }
 .sd-calc-slot-title { display:flex; align-items:center; gap:4px; min-width:0; }
 .sd-calc-slot-name { flex:1 1 auto; min-width:0; overflow:hidden; color:#17303a; font:800 10px/1.2 monospace; text-overflow:ellipsis; white-space:nowrap; }
@@ -293,38 +320,74 @@
 .sd-calc-picker-icon { flex:none; width:26px; height:26px; object-fit:contain; image-rendering:pixelated; }
 .sd-calc-picker-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .sd-calc-picker-empty { padding:8px 6px; color:#526b68; font:700 10px monospace; }
-.sd-calc-focused-title { position:relative; display:flex; align-items:center; min-height:36px; min-width:0; margin:0; padding-left:62px; }
-.st-key-calc_player_heading,.st-key-calc_enemy_heading { display:flex; align-items:center; width:100%; min-width:0; gap:8px; }
+.sd-calc-focused-title { position:relative; display:flex; align-items:flex-start; min-height:56px; min-width:0; margin:0; padding-left:62px; }
+.st-key-calc_player_heading,.st-key-calc_enemy_heading { position:relative; z-index:10; display:flex; align-items:flex-start; width:100%; min-width:0; gap:8px; overflow:visible !important; }
+:is(.st-key-calc_player_heading,.st-key-calc_enemy_heading):focus-within { z-index:100; }
 :is(.st-key-calc_player_heading,.st-key-calc_enemy_heading) > [data-testid="stElementContainer"]:first-child { flex:1 1 auto; min-width:0; }
-:is(.st-key-calc_player_heading,.st-key-calc_enemy_heading) > [data-testid="stElementContainer"]:last-child { flex:none; width:auto; margin-left:auto; }
-:is(.st-key-calc_player_heading,.st-key-calc_enemy_heading) [data-testid="stHorizontalBlock"] { flex-wrap:nowrap !important; width:100%; }
+:is(.st-key-calc_player_heading,.st-key-calc_enemy_heading) > [data-testid="stElementContainer"]:not(:first-child) { flex:none; align-self:flex-start; width:auto; margin:-2px 0 0; }
+:is(.st-key-calc_player_heading,.st-key-calc_enemy_heading) [data-testid="stHorizontalBlock"] { align-items:flex-start !important; flex-wrap:nowrap !important; width:100%; }
 :is(.st-key-calc_player_heading,.st-key-calc_enemy_heading) [data-testid="stHorizontalBlock"] > [data-testid="stElementContainer"]:first-child { flex:1 1 auto !important; min-width:0; }
-:is(.st-key-calc_player_heading,.st-key-calc_enemy_heading) [data-testid="stHorizontalBlock"] > [data-testid="stElementContainer"]:last-child { flex:0 0 auto !important; width:auto !important; margin-left:auto; }
-.sd-calc-focused-title .sd-focused-sprite { position:absolute; top:0; left:0; width:56px; height:64px; }
+:is(.st-key-calc_player_heading,.st-key-calc_enemy_heading) [data-testid="stHorizontalBlock"] > [data-testid="stElementContainer"]:not(:first-child) { flex:0 0 auto !important; align-self:flex-start; width:auto !important; margin:-2px 0 0; }
+.sd-calc-focused-title .sd-focused-sprite { position:absolute; top:0; left:0; width:56px; height:56px; }
 .sd-calc-focused-title strong { min-width:0; overflow-wrap:anywhere; color:#17303a; font:900 16px/1.2 monospace; }
-.sd-calc-name-types { display:flex; flex-direction:column; align-items:flex-start; gap:4px; min-width:0; }
+.sd-calc-name-types { display:flex; flex-wrap:wrap; align-items:center; gap:4px 6px; min-width:0; }
 .sd-calc-focused-title .sd-calc-meta-types { gap:3px; }
 .sd-calc-focused-title .sd-calc-meta-types .sd-type { padding:2px 4px; font-size:9px; }
 .sd-calc-focused-title small { flex:none; margin-left:auto; color:#49616a; font:700 10px/1.2 monospace; }
 .sd-calc-result-card > strong { display:block; margin-bottom:8px; color:#17303a; font:800 12px/1.3 monospace; }
+.sd-calc-card-body { flex:1 1 auto; min-height:0; overflow-y:auto; scrollbar-gutter:stable; }
+.sd-calc-card-body > p { margin:0; }
 .sd-calc-result-card ol { display:flex; flex-direction:column; gap:5px; margin:0; padding:0; list-style:none; }
 .sd-calc-result-card li { display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:3px 10px; min-width:0; padding:5px 7px; background:#d9e3d5; border-left:3px solid #9bb0a4; font:700 10px/1.3 monospace; }
 .sd-calc-result-card li > span { min-width:0; overflow-wrap:anywhere; color:#17303a; }
 .sd-calc-result-card li > small { flex:none; color:#526b68; font:700 9px/1.3 monospace; }
+.st-key-calc_results .sd-calc-prob-row,
+.st-key-calc_results .sd-calc-unknown { box-sizing:border-box; min-height:26px; }
+.sd-calc-recommendation-card .sd-calc-prob-row {
+  box-sizing:border-box; display:grid; grid-template-columns:minmax(0,1fr) auto;
+  align-items:center; min-height:26px;
+}
+.sd-calc-recommendation-card .sd-calc-prob-name {
+  grid-column:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.sd-calc-recommendation-card .sd-calc-percent { grid-column:2; white-space:nowrap; }
+.sd-calc-ai-actions-card .sd-calc-prob-row {
+  box-sizing:border-box; display:grid; grid-template-columns:minmax(0,1fr) auto;
+  align-items:center; min-height:26px;
+}
 .sd-calc-result-card > p { margin:0; color:#526b68; font:700 10px/1.4 monospace; }
-.sd-calc-item-badge { display:inline-flex; align-items:center; min-height:23px; padding:3px 6px; color:#17303a; background:#e9eedb; border:1px solid #9bb0a4; font:700 11px/1.2 monospace; }
-.sd-calc-held-item { display:block; width:18px; height:18px; object-fit:contain; image-rendering:pixelated; }
-:is(.st-key-calc_player_item_row,.st-key-calc_enemy_item_row) { box-sizing:border-box; display:flex; align-items:center; flex-wrap:wrap; gap:4px; min-height:28px; padding-left:62px; margin:-3px 0 3px; }
+.sd-calc-card-loading { display:flex; flex:1 1 auto; align-items:center; justify-content:center; min-height:36px; }
+.sd-calc-spinner {
+  display:block; box-sizing:border-box; width:28px; height:28px; flex:none;
+  border:3px solid #a7c2b4; border-top-color:#2e7264; border-radius:50%;
+  animation:sd-calc-spin .8s linear infinite;
+}
+@keyframes sd-calc-spin { to { transform:rotate(360deg); } }
+.sd-calc-row-pending,.sd-calc-move-pending { grid-template-columns:minmax(0,1fr) minmax(0,max-content) auto 16px !important; }
+.sd-calc-move-row > .sd-calc-spinner { grid-column:4; grid-row:1; align-self:center; width:14px; height:14px; border-width:2px; }
+.sd-calc-row-pending > .sd-calc-prob-name { grid-column:1; }
+.sd-calc-row-pending > .sd-calc-spinner { grid-column:4; width:14px; height:14px; border-width:2px; }
+.sd-calc-recommended { background:#f7e9a8 !important; border-left-color:#b38e13 !important; box-shadow:inset 0 0 0 1px #fff; }
+.sd-calc-evidence-badge { padding:2px 5px; color:#17303a !important; background:#f5f3e7; border:1px solid #9bb0a4; }
+.sd-calc-prediction { margin:0 0 6px !important; padding:6px 7px; color:#17303a !important; background:#f7e9a8; border-left:3px solid #b38e13; }
+.sd-calc-progress { display:flex; align-items:center; gap:10px; margin:0 0 8px; color:#49616a; font:700 10px monospace; }
+.sd-calc-progress progress { flex:1; height:8px; accent-color:#598d83; }
+.sd-calc-item-badge { box-sizing:border-box; display:inline-flex; align-items:center; height:23px; min-height:23px; padding:3px 6px; color:#17303a; background:#e9eedb; border:1px solid #9bb0a4; font:700 11px/1.2 monospace; }
+.sd-calc-held-item-badge { gap:4px; padding:2px 5px; }
+.sd-calc-held-item { display:block; width:16px; height:16px; object-fit:contain; image-rendering:pixelated; }
+:is(.st-key-calc_player_item_row,.st-key-calc_enemy_item_row) { position:relative; z-index:11; box-sizing:border-box; display:flex; align-items:center; flex-wrap:wrap; gap:4px; min-height:28px; padding:0 0 3px 62px; margin:-3px 0 3px; }
 :is(.st-key-calc_player_item_row,.st-key-calc_enemy_item_row) > [data-testid="stElementContainer"] { width:max-content !important; flex:0 0 auto; min-width:0; }
+/* stHtml is a line-box wrapper; its baseline shifts when a badge holds an icon. Flex-centering the wrapper makes icon/no-icon badges align identically. */
+:is(.st-key-calc_player_item_row,.st-key-calc_enemy_item_row) [data-testid="stHtml"] { display:flex; align-items:center; }
 .sd-calc-meta-types { display:inline-flex; align-items:center; gap:2px; white-space:nowrap; }
 .sd-calc-meta-types .sd-type { padding:3px 2px; font-size:8px; border-width:1px; }
+.st-key-calc_screen :is(.st-key-calc_player_item_row,.st-key-calc_enemy_item_row) { margin-top:-20px; }
 .st-key-calc_player_item_row .sd-build-editor { gap:4px; font-size:10px; }
 .st-key-calc_player_item_row .sd-build-chip { gap:4px; padding-left:3px; padding-right:3px; }
-.st-key-calc_player_item_row .sd-build-combo[data-field="item"] .sd-build-trigger { box-sizing:border-box; width:25px; min-width:25px; padding:3px; }
-.st-key-calc_player_item_row .sd-build-combo[data-field="item"] .sd-build-trigger .sd-build-value { display:none; }
 .st-key-calc_player_item_row .sd-build-level:hover { outline:1px solid #17303a; outline-offset:1px; }
 .st-key-calc_player_item_row [data-testid="stCheckbox"] { padding:2px 3px; }
 :is(.st-key-calc_player_item_row,.st-key-calc_enemy_item_row) [data-testid="stCheckbox"] { box-sizing:border-box; width:auto; height:23px !important; min-height:23px !important; margin:0; padding:0 5px !important; background:#e9eedb; border:1px solid #9bb0a4; }
+:is(.st-key-calc_player_item_row,.st-key-calc_enemy_item_row) [data-testid="stCheckbox"]:is(:hover,:focus-within) { outline:1px solid #17303a; outline-offset:1px; }
 :is(.st-key-calc_player_item_row,.st-key-calc_enemy_item_row) [data-testid="stCheckbox"] label { display:flex; align-items:center !important; height:21px; min-height:0; color:#17303a !important; font:700 10px/1.2 monospace; }
 :is(.st-key-calc_player_item_row,.st-key-calc_enemy_item_row) [data-testid="stCheckbox"] [data-testid="stWidgetLabel"] { display:flex; align-items:center; height:100%; }
 :is(.st-key-calc_player_item_row,.st-key-calc_enemy_item_row) [data-testid="stCheckbox"] [data-testid="stWidgetLabel"] p { position:relative; top:-4px; margin:0; color:#17303a; font:700 10px/1 monospace; }
@@ -334,7 +397,6 @@
 :is(.st-key-calc_player_item_row,.st-key-calc_enemy_item_row) [data-testid="stCheckbox"][data-selected="true"] label > div:first-of-type > div { transform:translateX(10px); }
 :is(.st-key-calc_player_item_row,.st-key-calc_enemy_item_row) [data-testid="stCheckbox"] button[aria-label^="Help"] { display:none; }
 :is(.st-key-calc_player_item_row,.st-key-calc_enemy_item_row) [data-testid="stCheckbox"] label { gap:6px; white-space:nowrap; }
-.st-key-calc_player_item_row [data-testid="stCheckbox"]:is(:hover,:focus-within) { outline:1px solid #17303a; outline-offset:1px; }
 .sd-calc-enemy-profile h4 { margin:12px 0 7px; padding-bottom:4px; border-bottom:1px solid #c5d6c5; color:#244855; font:800 11px monospace; text-transform:uppercase; }
 .sd-calc-enemy-move { cursor:default !important; }
 .sd-calc-enemy-move:hover { background:#e9eedb !important; }
@@ -348,28 +410,32 @@
 .st-key-calc_screen .sd-move-head { min-height:20.5px; }
 .st-key-calc_screen .sd-move-card,
 .st-key-calc_screen .sd-move-add { min-height:97px; }
-.st-key-calc_screen .sd-detail-divider { margin:0; }
+.st-key-calc_screen .sd-detail-divider { margin:0; padding-top:3px; }
 .st-key-calc_screen .sd-profile-body { padding-top:0; margin-top:2px; }
-.st-key-calc_screen :is(.st-key-calc_player_panel,.st-key-calc_enemy_panel) { gap:0 !important; justify-content:space-evenly; }
-.sd-calc-panel-heading { margin-bottom:0; }
+.st-key-calc_screen :is(.st-key-calc_player_panel,.st-key-calc_enemy_panel) { gap:0 !important; justify-content:flex-start; }
+.sd-calc-panel-heading { margin-bottom:4px; }
 .st-key-calc_grid { min-width:0; }
 .st-key-calc_grid > [data-testid="stHorizontalBlock"] {
   display:grid; grid-template-columns:minmax(175px,1fr) minmax(300px,2fr) minmax(300px,2fr) minmax(175px,1fr); align-items:stretch; gap:12px;
 }
 .st-key-calc_grid > [data-testid="stHorizontalBlock"] > [data-testid="column"] { width:auto !important; min-width:0; }
-.st-key-calc_grid [data-testid="stLayoutWrapper"]:has(> :is(.st-key-calc_player_panel,.st-key-calc_enemy_panel)) { flex:1; }
+.st-key-calc_grid [data-testid="column"]:is(:has(.sd-status-menu.is-open),:focus-within) { position:relative; z-index:100; }
+.st-key-calc_grid [data-testid="stLayoutWrapper"]:has(> :is(.st-key-calc_player_panel,.st-key-calc_enemy_panel,.st-key-calc_trainer_settings,.st-key-pc-box-card)) { flex:1; min-height:0; }
 .st-key-calc_trainer_settings {
-  box-sizing:border-box; width:100%; min-width:0; padding:10px 12px 15px;
+  box-sizing:border-box; width:100%; height:100%; min-width:0; padding:10px 12px 15px;
   color:#17303a; background:#e9eedb; border:3px solid #a7d6c5;
   box-shadow:inset 0 0 0 2px #fff,0 4px 0 #071d24;
 }
-[data-testid="stSelectbox"] label,[data-testid="stMultiSelect"] label { color:#17303a !important; }
+[data-testid="stSelectbox"] label,[data-testid="stMultiSelect"] label,
+.st-key-calc_trainer_settings [data-testid="stNumberInput"] label { color:#17303a !important; }
 [data-testid="stSelectbox"] .react-aria-ComboBox > div:has(> input),
-[data-testid="stMultiSelect"] .react-aria-ComboBox > div:has(> input),
 .st-key-calc_trainer_settings [data-testid="stNumberInputContainer"] {
   min-height:23px; color:#17303a !important; background:#e9eedb !important;
   border:1px solid #9bb0a4 !important; border-radius:0;
   box-shadow:none !important; font:700 11px/1.2 monospace;
+}
+.st-key-calc_trainer_settings :is([data-testid="stSelectbox"] .react-aria-ComboBox > div:has(> input),[data-testid="stNumberInputContainer"]) {
+  box-sizing:border-box; height:30px; min-height:30px;
 }
 [data-testid="stSelectbox"] .react-aria-ComboBox > div:has(> input):is(:hover,:focus-within),
 [data-testid="stMultiSelect"] .react-aria-ComboBox > div:has(> input):is(:hover,:focus-within),
@@ -384,11 +450,20 @@
 [data-testid="stSelectbox"] input[role="combobox"],[data-testid="stMultiSelect"] input[role="combobox"] {
   background:transparent !important; border:0 !important;
 }
+.st-key-calc_trainer_settings [data-testid="stSelectbox"] input[role="combobox"],
+.st-key-calc_trainer_settings [data-testid="stSelectbox"] button[aria-label="Open"] {
+  box-sizing:border-box; height:28px; min-height:0; padding-block:0;
+}
 .react-aria-Popover:has([role="listbox"]) {
+  box-sizing:border-box; padding:4px;
   color:#17303a; background:#e9eedb; border:1px solid #9bb0a4;
   border-radius:0; box-shadow:0 3px 0 #071d24;
 }
-.react-aria-ListBox [role="option"] { color:#17303a; font:700 11px/1.2 monospace; }
+.react-aria-ListBox { max-height:180px; overflow-y:auto; }
+.react-aria-ListBox [role="option"] {
+  display:block; box-sizing:border-box; width:100%; padding:6px;
+  color:#17303a; border-radius:0; text-align:left; font:700 11px/1.2 monospace;
+}
 .react-aria-ListBox [role="option"]:is(:hover,[data-focused="true"],[aria-selected="true"]) {
   color:#17303a; background:#d8e5dc;
 }
@@ -418,7 +493,7 @@
 .sd-config-row .sd-calc-picker-option { flex:1; }
 .sd-config-delete { width:27px; margin:2px 0; font-size:20px; }
 .st-key-calc_screen .st-key-pc-box-card {
-  box-sizing:border-box; width:100%; max-width:none; margin:0; padding:7px;
+  box-sizing:border-box; width:100%; height:100%; max-width:none; margin:0; padding:7px;
   overflow:visible; gap:7px; background:#e9eedb; border:3px solid #a7d6c5;
   box-shadow:inset 0 0 0 2px #fff,0 4px 0 #071d24;
 }
@@ -480,6 +555,7 @@
 
 @media (max-width:900px) {
   .st-key-calc_grid > [data-testid="stHorizontalBlock"] { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .st-key-calc_screen :is(.st-key-calc_player_item_row,.st-key-calc_enemy_item_row) { margin-top:-3px; }
   .st-key-sd_header { flex-wrap:wrap; }
 }
 @media (max-width:620px) {
@@ -503,8 +579,27 @@
 .sd-calc-percent { flex:none; color:#17303a; font-weight:900; }
 .sd-calc-ko,.sd-calc-notes,.sd-calc-basis { flex:1 1 100%; color:#526b68; font:700 9px/1.3 monospace; }
 .sd-calc-basis { color:#5c6b53; }
+.sd-calc-result-card .sd-calc-move-row {
+  display:grid; grid-template-columns:minmax(0,1fr) max-content max-content;
+  align-items:center !important; gap:3px 8px;
+}
+.sd-calc-result-card .sd-calc-move-row .sd-calc-prob-name {
+  grid-column:1; grid-row:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.sd-calc-result-card .sd-calc-move-row .sd-calc-damage-range {
+  grid-column:2; grid-row:1; color:#526b68; font:700 9px/1.3 monospace; white-space:nowrap;
+}
+.sd-calc-result-card .sd-calc-move-row .sd-calc-percent {
+  grid-column:3; grid-row:1; justify-self:end; min-width:4ch; box-sizing:content-box; padding:2px 5px; color:#17303a;
+  background:#f5f3e7; border:1px solid #9bb0a4; white-space:nowrap;
+  text-align:center;
+}
+.sd-calc-result-card .sd-calc-move-row .sd-calc-ko,
+.sd-calc-result-card .sd-calc-move-row .sd-calc-notes,
+.sd-calc-result-card .sd-calc-move-row .sd-calc-basis,
+.sd-calc-result-card .sd-calc-move-row > .sd-calc-unavailable { grid-column:1/-1; }
 .sd-calc-conditioned { margin:6px 0 0; color:#49616a; font:700 9px/1.3 monospace; }
-.sd-calc-top { border-left-color:#d9b93d; box-shadow:inset 0 0 0 1px #d9b93d; }
+.sd-calc-top { background:#f7e9a8 !important; border-left-color:#b38e13 !important; box-shadow:inset 0 0 0 1px #fff; }
 .sd-calc-top .sd-calc-percent { color:#8a5f00; }
 .sd-calc-unavailable { margin:0 0 6px; color:#8a3b2e; font:700 10px/1.4 monospace; }
 .sd-calc-pending { margin:0; color:#526b68; font:700 10px/1.4 monospace; }

@@ -435,33 +435,35 @@ class SwitchRecommendationIntegration(unittest.TestCase):
 
 
 class CardRenderIntegration(unittest.TestCase):
-    """The real renderer must show the engine's exact result, never a bare number."""
+    """The cards show actionable results without engine metadata."""
 
-    def test_exact_card_renders_percentage_basis_and_kind(self):
+    def test_exact_card_renders_move_and_percentage(self):
         snap = snapshot("TRAINER_HALEY_1", enemy_index=2, enemy_hp=1, rng=None)
         result = be.evaluate_head_to_head(snap, DATA, deadline=time.monotonic() + BUDGET)
         markup = planner_ui.calc_result_card("Your moves · KO probability", "player_moves",
                                             card=result["player_moves"])
         self.assertIn("100%", markup)
-        self.assertIn("1/1", markup)
-        self.assertIn("source-transcribed", markup)
-        self.assertIn("identical for every RNG state", markup)
+        self.assertIn(result["player_moves"]["moves"][0]["move_name"], markup)
+        self.assertNotIn("1/1", markup)
+        self.assertNotIn("source-transcribed", markup)
+        self.assertNotIn("identical for every RNG state", markup)
         self.assertNotIn("Not calculated", markup)
 
-    def test_unavailable_card_renders_the_reason_and_missing_inputs(self):
+    def test_unavailable_card_renders_short_missing_input_message(self):
         snap = snapshot("TRAINER_HALEY_1", enemy_index=2)
         snap["enemy"]["party"][2]["hp"] = None
         result = be.evaluate_head_to_head(snap, DATA, deadline=time.monotonic() + BUDGET)
         card = result["player_moves"]
         self.assertEqual(card["status"], "unavailable")
         markup = planner_ui.calc_result_card("Your moves · KO probability", "player_moves", card=card)
-        self.assertIn("missing-input", markup)
-        self.assertIn("enemy.party[2].hp", markup)
+        self.assertIn("Enter the opponent&#x27;s current HP.", markup)
+        self.assertNotIn("missing-input", markup)
+        self.assertNotIn("enemy.party[2].hp", markup)
         self.assertNotIn("% (", markup)
 
-    def test_percent_text_uses_the_exact_fraction(self):
+    def test_percent_text_hides_the_exact_fraction(self):
         self.assertEqual(planner_ui.percent_text({"num": 1, "den": 3}), "33%")
-        self.assertEqual(planner_ui.probability_text({"num": 2, "den": 4}), "50% (2/4)")
+        self.assertEqual(planner_ui.probability_text({"num": 2, "den": 4}), "50%")
         self.assertEqual(planner_ui.percent_text(None), "Unknown")
 
 
@@ -599,7 +601,7 @@ class ServiceIntegration(unittest.TestCase):
         snap = snapshot_v2("TRAINER_HALEY_1")
         cards = {kind: {"status": "engine-fixed-seed"} for kind in
                  ("player_moves", "enemy_moves", "ai_actions", "recommendation")}
-        fake = types.SimpleNamespace(evaluate=lambda snapshot, data, deadline, cancelled: cards)
+        fake = types.SimpleNamespace(evaluate=lambda snapshot, data, deadline, cancelled, publish: cards)
         with patch.dict("sys.modules", {"rom_eval": fake}):
             result = calc_service._run(calc_service.snapshot_key(snap), snap, DATA)
         self.assertEqual(result["player_moves"]["status"], "engine-fixed-seed")

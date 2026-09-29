@@ -1,0 +1,176 @@
+"""The query trace must preserve the exact fraction and reject partial traces."""
+
+import json
+import unittest
+from fractions import Fraction
+from itertools import product
+from pathlib import Path
+
+import rom_query
+from tools.rom_oracle import run_dynamic
+
+
+DATA = json.loads((Path(__file__).parent / "data" / "game_data.json").read_text(encoding="utf-8"))
+
+NONCRIT = [20] * 16
+CRIT = [30] * 16
+WN, WC = 15, 1
+
+
+def _hitroll(side, move, crit, values):
+    return "ROMTRACE|query|hitroll|" + "|".join(
+        str(cell) for cell in (side, move, crit, *values))
+
+
+def _brute_probability(hp, acc, protection):
+    """Independent enumeration of the KO fraction: every hit count times every
+    per-hit roll sequence, instead of the closed-form convolution."""
+    outcomes = {}
+    for damage in NONCRIT:
+        outcomes[damage] = outcomes.get(damage, 0) + WN
+    for damage in CRIT:
+        outcomes[damage] = outcomes.get(damage, 0) + WC
+    outcomes = {damage: ways for damage, ways in outcomes.items() if ways}
+    total = 16 * (WN + WC)
+    weights = rom_query.MODE_WEIGHTS[0]
+    weight_den = sum(weights.values())
+    probability = Fraction(0)
+    for count, weight in weights.items():
+        if protection and count < 2:
+            continue
+        steps = count - 1 if protection else count
+        reaching = 0
+        for combo in product(outcomes.items(), repeat=steps):
+            ways, damage_total = 1, 0
+            for damage, ways_per in combo:
+                ways *= ways_per
+                damage_total += damage
+            if damage_total >= hp:
+                reaching += ways
+        probability += Fraction(weight, weight_den) * Fraction(reaching, total ** steps)
+    return Fraction(acc, 100) * probability
+
+
+class QueryParsing(unittest.TestCase):
+    def _multi_hit_events(self, player="MOVE_BULLET_SEED", flags=8 | 16):
+        enemy = "MOVE_ABSORB"
+        seed, absorb = run_dynamic.numeric_id("moves", player), run_dynamic.numeric_id("moves", enemy)
+        return [
+            f"ROMTRACE|query|damage|0|{seed}|0|0|{flags}|40|150|100|16",
+            f"ROMTRACE|query|hits|0|{seed}|0|2|5|{WN}|{WC}",
+            _hitroll(0, seed, 0, NONCRIT),
+            _hitroll(0, seed, 1, CRIT),
+            f"ROMTRACE|query|damage|1|{absorb}|0|1600|0|2|8|100|1",
+            f"ROMTRACE|query|ai|move|{absorb}",
+            "ROMTRACE|query|complete", "ROMTRACE|complete|0",
+        ]
+
+    def test_multi_hit_move_composes_the_exact_ko_fraction(self):
+        snapshot = {"player": {"party": [{"moves": ["MOVE_BULLET_SEED"]}]},
+                    "enemy": {"party": [{"moves": ["MOVE_ABSORB"], "hp": 90}]}}
+        row = rom_query.parse(self._multi_hit_events(), snapshot, DATA)["player_moves"]["moves"][0]
+        self.assertEqual(row["status"], "engine-exact")
+        self.assertEqual(row["method"], "engine-enumerated-multi-hit")
+        self.assertEqual(row["damage_range"], {"min": 40, "max": 150})
+        self.assertEqual(row["crit_denominator"], WN + WC)
+        self.assertEqual(row["probability"], {"num": 241453, "den": 1310720})
+        self.assertEqual(row["probability"], {
+            "num": _brute_probability(90, 100, False).numerator,
+            "den": _brute_probability(90, 100, False).denominator})
+
+    def test_full_hp_sash_needs_the_cumulative_before_the_last_hit(self):
+        snapshot = {"player": {"party": [{"moves": ["MOVE_BULLET_SEED"]}]},
+                    "enemy": {"party": [{"moves": ["MOVE_ABSORB"], "hp": 60}]}}
+        card = rom_query.parse(self._multi_hit_events(flags=8 | 16 | 2), snapshot, DATA)["player_moves"]
+        row = card["moves"][0]
+        expected = _brute_probability(60, 100, True)
+        self.assertEqual(row["status"], "engine-exact")
+        self.assertEqual(row["probability"], {"num": expected.numerator, "den": expected.denominator})
+        self.assertEqual(row["probability"], {"num": 1543, "den": 5120})
+        self.assertIn("Focus Sash", row["notes"][0])
+
+    def test_enumerated_multi_hit_without_rolls_is_an_engine_error(self):
+        snapshot = {"player": {"party": [{"moves": ["MOVE_BULLET_SEED"]}]},
+                    "enemy": {"party": [{"moves": ["MOVE_ABSORB"], "hp": 90}]}}
+        events = [line for line in self._multi_hit_events()
+                  if not line.startswith("ROMTRACE|query|hitroll")]
+        with self.assertRaisesRegex(ValueError, "engine-error"):
+            rom_query.parse(events, snapshot, DATA)
+
+    def test_exact_fraction_sash_and_ai(self):
+        player = "MOVE_THUNDER_SHOCK"
+        enemy = "MOVE_ABSORB"
+        snapshot = {"player": {"party": [{"moves": [player]}]},
+                    "enemy": {"party": [{"moves": [enemy]}]}}
+        events = [
+            f"ROMTRACE|query|damage|0|{run_dynamic.numeric_id('moves', player)}|240|6400|0|30|45|75|4",
+            f"ROMTRACE|query|damage|1|{run_dynamic.numeric_id('moves', enemy)}|0|1600|2|20|25|100|1",
+            f"ROMTRACE|query|ai|move|{run_dynamic.numeric_id('moves', enemy)}",
+            "ROMTRACE|query|complete", "ROMTRACE|complete|0",
+        ]
+        cards = rom_query.parse(events, snapshot, DATA)
+        self.assertEqual(cards["player_moves"]["moves"][0]["probability"], {"num": 240, "den": 6400})
+        self.assertEqual(cards["player_moves"]["moves"][0]["damage_range"], {"min": 30, "max": 45})
+        self.assertEqual(cards["enemy_moves"]["moves"][0]["probability"], {"num": 0, "den": 1600})
+        self.assertIn("Focus Sash", cards["enemy_moves"]["moves"][0]["notes"][0])
+        self.assertEqual(cards["ai_actions"]["actions"][0]["id"], enemy)
+        with self.assertRaisesRegex(ValueError, "did not complete"):
+            rom_query.parse(events[:-1], snapshot, DATA)
+
+    def test_ai_item_choice_is_labelled(self):
+        player, enemy = "MOVE_THUNDER_SHOCK", "MOVE_ABSORB"
+        item = run_dynamic.numeric_id("items", "ITEM_HYPER_POTION")
+        snapshot = {"player": {"party": [{"moves": [player]}]},
+                    "enemy": {"party": [{"moves": [enemy]}]}}
+        events = [
+            f"ROMTRACE|query|damage|0|{run_dynamic.numeric_id('moves', player)}|240|6400|0|30|45|75|4",
+            f"ROMTRACE|query|damage|1|{run_dynamic.numeric_id('moves', enemy)}|0|1600|0|20|25|100|1",
+            f"ROMTRACE|query|ai|item|{item}",
+            "ROMTRACE|query|complete", "ROMTRACE|complete|0",
+        ]
+        card = rom_query.parse(events, snapshot, DATA)["ai_actions"]
+        self.assertEqual(card["actions"][0]["kind"], "item")
+        self.assertEqual(card["actions"][0]["id"], "ITEM_HYPER_POTION")
+        self.assertEqual(card["actions"][0]["label"], rom_query.item_label(DATA, "ITEM_HYPER_POTION"))
+        self.assertEqual(card["predicted_action"]["kind"], "item")
+
+    def test_post_switch_context_active_records_policy_and_faints(self):
+        snapshot = {"player": {"party": [{"moves": ["MOVE_ABSORB"], "hp": 75, "max_hp": 100}]},
+                    "enemy": {"party": [{"moves": ["MOVE_BULLET_SEED"], "hp": 90, "max_hp": 120}]}}
+        events = self._multi_hit_events()
+        events[0:0] = [
+            "ROMTRACE|critical-policy|item-ability-only|battle-script-filtered",
+            "ROMTRACE|query|context|post-switch",
+            f"ROMTRACE|query|active|0|1|{run_dynamic.numeric_id('species', 'SPECIES_CHARIZARD')}|75|138|6|6|8|6|6|6|6",
+            f"ROMTRACE|query|active-move|0|0|{run_dynamic.numeric_id('moves', 'MOVE_BULLET_SEED')}",
+            f"ROMTRACE|query|active|1|0|{run_dynamic.numeric_id('species', 'SPECIES_GYARADOS')}|90|155|6|6|6|6|6|6|6",
+            f"ROMTRACE|query|active-move|1|0|{run_dynamic.numeric_id('moves', 'MOVE_ABSORB')}",
+            f"ROMTRACE|faint|1|1|2|{run_dynamic.numeric_id('species', 'SPECIES_BLASTOISE')}",
+        ]
+        cards = rom_query.parse(events, snapshot, DATA)
+        self.assertEqual(cards["critical_policy"], "item-ability-only")
+        self.assertTrue(cards["critical_policy_verified"])
+        self.assertEqual(cards["query_context"], "post-switch")
+        self.assertEqual(cards["active"][0]["party_slot"], 1)
+        self.assertEqual(cards["active"][0]["hp"], 75)
+        self.assertEqual(cards["active"][0]["stat_stages"], [6, 6, 8, 6, 6, 6, 6])
+        self.assertEqual(cards["faints"][0]["party_slot"], 2)
+
+        current_state_events = [
+            event.replace("ROMTRACE|query|context|post-switch",
+                          "ROMTRACE|query|context|current-state")
+            for event in events
+        ]
+        self.assertEqual(rom_query.parse(current_state_events, snapshot, DATA)["query_context"],
+                         "current-state")
+
+        # A wrapper claim about the ELF is not evidence that the engine's
+        # critical-hit filter ran for this action.
+        unverified = [event for event in events if not event.startswith("ROMTRACE|critical-policy|")]
+        unverified.append("ROMTRACE|runner|critical-policy|item-ability-only|verified-elf:test")
+        cards = rom_query.parse(unverified, snapshot, DATA)
+        self.assertFalse(cards["critical_policy_verified"])
+
+
+if __name__ == "__main__":
+    unittest.main()

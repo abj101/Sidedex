@@ -12,9 +12,11 @@ import streamlit as st
 import calc_service
 from focused_build_component import focused_build
 from hp_badge_component import hp_badge
+from status_badge_component import STATUS_COLORS, status_badge
 from focused_profile_component import focused_profile
 from calc_roster_component import calc_roster
 from calc_config_component import calc_config_picker
+from status_badge_component import STATUS_COLORS
 from matchup import matchup
 from pc_box_component import pc_box
 from sprite_assets import item_icon, nature_arrow_icon, party_indicator_icon, species_icon, species_portrait, trainer_icon
@@ -47,7 +49,7 @@ NATURES = {
     "timid": ("speed", "attack"),
 }
 
-CALC_STATE_VERSION = 3
+CALC_STATE_VERSION = 4
 CALC_DIFFICULTIES = ("Easy", "Normal")
 CALC_ITEM_PREFIX = {"player": "calc_item_player_", "enemy": "calc_item_enemy_"}
 STAT_KEYS = tuple(key for key, _ in STAT_FIELDS)
@@ -55,14 +57,8 @@ STAT_STAGE_FIELDS = (("attack", "Attack"), ("defense", "Defense"), ("sp_attack",
                      ("sp_defense", "Sp. Def"), ("speed", "Speed"),
                      ("accuracy", "Accuracy"), ("evasion", "Evasion"))
 ALLOWED_STAGES = frozenset(key for key, _ in STAT_STAGE_FIELDS)
-CALC_CARDS = (("player_moves", "Your moves · KO result"),
-              ("recommendation", "Simulated recommendation"),
-              ("ai_actions", "AI simulated action"),
-              ("enemy_moves", "Enemy moves · KO result"))
-
-
 def esc(value):
-    return html.escape(str(value or ""), quote=True)
+    return html.escape(str("" if value is None else value), quote=True)
 
 
 def human(value):
@@ -200,7 +196,8 @@ def party_grid(rows, data, selected_id, connect, save_entry):
                           on_click=select_pokemon, args=(row["id"],))
 
 
-def box_grid(rows, selected_id, data, box_no, db, move_box_slot, *, select_on_click=True, compact=False):
+def box_grid(rows, selected_id, data, box_no, db, move_box_slot, *, select_on_click=True, compact=False,
+             party_slots=None, apply_party_slots=None):
     entries = []
     for row in rows:
         species = data.get("species", {}).get(row["species"], {})
@@ -220,8 +217,17 @@ def box_grid(rows, selected_id, data, box_no, db, move_box_slot, *, select_on_cl
     if move and move.get("token") != st.session_state.get("pc_last_move_token"):
         st.session_state["pc_last_move_token"] = move["token"]
         try:
-            move_box_slot(db, int(move["id"]), int(move["box_no"]), int(move["slot"]))
-            st.rerun(scope="fragment")
+            if move.get("to") == "party":
+                target = int(move["slot"])
+                if apply_party_slots is None or party_slots is None or not 0 <= target < 6:
+                    raise ValueError("Choose a party slot.")
+                next_ids = [row["id"] if row else None for row in party_slots]
+                next_ids[target] = int(move["id"])
+                apply_party_slots(db, next_ids)
+                st.rerun()
+            else:
+                move_box_slot(db, int(move["id"]), int(move["box_no"]), int(move["slot"]))
+                st.rerun(scope="fragment")
         except (ValueError, TypeError, KeyError) as exc:
             st.error(str(exc))
     if result.box is not None and result.box != box_no:
@@ -289,12 +295,36 @@ def calculate_stats(base_stats, level, nature, ivs=None, evs=None, apply_nature=
     return result
 
 
-def stat_bars_markup(base_stats, level, nature, ivs=None, evs=None, show_unknown=False):
+def stat_bars_markup(base_stats, level, nature, ivs=None, evs=None, show_unknown=False,
+                     status=None, ability=None):
     stats = calculate_stats(base_stats, level, nature, ivs, evs) if level is not None else base_stats
     original_stats = (calculate_stats(base_stats, level, nature, ivs, evs, apply_nature=False)
                       if level is not None else stats)
     up, down = nature_effect(nature) if level is not None else (None, None)
+    status_key = str(status or "").removeprefix("STATUS1_").lower()
+    if status_key == "none":
+        status_key = ""
+    ability_key = str(ability or "").removeprefix("ABILITY_").lower()
+    status_color = STATUS_COLORS.get(status) or STATUS_COLORS.get(status_key)
+    status_stat = {
+        "burn": "attack", "paralysis": "speed", "frostbite": "sp_attack",
+    }.get(status_key)
+    status_factor = {"burn": (1, 2), "paralysis": (1, 2), "frostbite": (1, 2)}.get(status_key)
+    # The pinned game's battle modifiers: Guts/Marvel Scale apply 1.5x to
+    # physical damage/defense, while Quick Feet doubles Speed and ignores para.
+    ability_stat = {"guts": "attack", "marvel_scale": "defense", "quick_feet": "speed"}.get(ability_key)
+    status_factor_by_stat = {status_stat: status_factor} if status_stat and status_factor else {}
+    has_status = status_key in {"poison", "toxic_poison", "burn", "paralysis",
+                                "sleep", "freeze", "frostbite"}
+    if has_status and ability_stat:
+        status_factor_by_stat[ability_stat] = (2, 1) if ability_key == "quick_feet" else (3, 2)
+    if ability_key == "guts" and status_key == "burn":
+        status_factor_by_stat["attack"] = (3, 2)
+    if ability_key == "quick_feet" and status_key == "paralysis":
+        status_factor_by_stat["speed"] = (2, 1)
     bars = []
+    adjusted_stats = {}
+    baseline_total = 0
     for key, label in STAT_FIELDS:
         value = stats.get(key)
         if not isinstance(value, (int, float)):
@@ -303,20 +333,29 @@ def stat_bars_markup(base_stats, level, nature, ivs=None, evs=None, show_unknown
             continue
         base = base_stats[key]
         color = "#df6670" if base < 60 else "#e1b850" if base < 100 else "#67b985"
+        status_factor_for_stat = status_factor_by_stat.get(key)
+        adjusted_value = (value * status_factor_for_stat[0] // status_factor_for_stat[1]
+                          if status_factor_for_stat else value)
+        adjusted_stats[key] = adjusted_value
+        baseline_total += value
         width = min(100, max(3, round(value / 300 * 100)))
         nature_class = " up" if key == up else " down" if key == down else ""
         arrow = (icon(nature_arrow_icon(key == up), f"Nature raises {label}" if key == up else f"Nature lowers {label}", "sd-nature-arrow")
                  if key in (up, down) else "")
         delta = value - original_stats.get(key, value)
         delta_markup = f'<small class="sd-stat-delta">{delta:+g}</small>' if delta else ""
-        bars.append(f'<div class="sd-stat{nature_class}"><span>{esc(label)}</span><div><i style="width:{width}%;background:{color}"></i></div><b>{value:g}{arrow}{delta_markup}</b></div>')
+        if status_factor_for_stat and status_color:
+            status_delta = adjusted_value - value
+            bars.append(f'<div class="sd-stat status-effect" style="--status-color:{esc(status_color)}"><span>{esc(label)}</span><div><i style="width:{width}%;background:{color}"></i></div><b><span>{adjusted_value:g}</span><small class="sd-stat-delta">{status_delta:+g}</small></b></div>')
+        else:
+            bars.append(f'<div class="sd-stat{nature_class}"><span>{esc(label)}</span><div><i style="width:{width}%;background:{color}"></i></div><b>{value:g}{arrow}{delta_markup}</b></div>')
     if bars and (not show_unknown or len(stats) == len(STAT_FIELDS)):
-        total = sum(value for value in stats.values() if isinstance(value, (int, float)))
-        bars.append(f'<div class="sd-stat sd-stat-total"><span>Total</span><div><i style="width:{min(100, round(total / 900 * 100))}%;background:#67b985"></i></div><b>{total:g}</b></div>')
+        total = sum(value for value in adjusted_stats.values() if isinstance(value, (int, float)))
+        bars.append(f'<div class="sd-stat sd-stat-total"><span>Total</span><div><i style="width:{min(100, round(baseline_total / 900 * 100))}%;background:#67b985"></i></div><b>{total:g}</b></div>')
     return "".join(bars)
 
 
-def species_profile_markup(row, data):
+def species_profile_markup(row, data, status=None):
     species_id = row["species"]
     record = data.get("species", {}).get(species_id, {})
     base_stats = record.get("stats") or {}
@@ -330,7 +369,7 @@ def species_profile_markup(row, data):
     if not base_stats and not record.get("abilities"):
         return f'<div class="sd-profile-body"><div class="sd-profile-stats"><strong>Stats</strong><p>Stats are not available for this Pokémon.</p>{abilities_html}</div><div class="sd-profile-moves"><strong>Known moves</strong>{move_cards_markup(known_moves(row, data), data)}</div></div>'
     moves = known_moves(row, data)
-    stats = f'<div class="sd-profile">{stat_bars_markup(base_stats, level, nature, ivs, evs)}{abilities_html}</div>'
+    stats = f'<div class="sd-profile">{stat_bars_markup(base_stats, level, nature, ivs, evs, status=status, ability=row["ability"])}{abilities_html}</div>'
     return f'<div class="sd-profile-body"><div class="sd-profile-stats"><strong>Stats</strong>{stats}</div><div class="sd-profile-moves"><strong>Known moves</strong>{move_cards_markup(moves, data)}</div></div>'
 
 
@@ -365,7 +404,7 @@ def focused_fields(row, data, connect, save_entry):
             st.rerun(scope="fragment")
 
 
-def focused_profile_fields(row, data, connect, save_entry):
+def focused_profile_fields(row, data, connect, save_entry, status=None):
     species = data.get("species", {}).get(row["species"], {})
     known = known_moves(row, data)[:4]
     abilities = list(dict.fromkeys(species.get("abilities") or []))
@@ -375,12 +414,17 @@ def focused_profile_fields(row, data, connect, save_entry):
     if row["ability"] and row["ability"] not in abilities:
         abilities.append(row["ability"])
     result = focused_profile(
-        markup=species_profile_markup(row, data), ability=row["ability"] or "",
+        markup=species_profile_markup(row, data, status=status), ability=row["ability"] or "",
         abilities=[{"value": value, "label": human(value),
                     "description": (data.get("abilities", {}).get(value) or "Description unavailable.").replace("\n", " ")}
                    for value in abilities],
         known_moves=known,
-        moves=[{"value": value, "label": data["moves"][value].get("name") or human(value)}
+        moves=[{"value": value, "label": data["moves"][value].get("name") or human(value),
+                "type": human(data["moves"][value].get("type")),
+                "power": data["moves"][value].get("power"),
+                "accuracy": data["moves"][value].get("accuracy"),
+                "pp": data["moves"][value].get("pp"),
+                "description": (data["moves"][value].get("description") or "").replace("\n", " ")}
                for value in legal_moves(row["species"], data)],
         key=f"focused-profile-{row['id']}",
     )
@@ -905,10 +949,12 @@ def fraction_text(probability):
 
 
 def probability_text(probability):
-    return f"{percent_text(probability)} ({fraction_text(probability)})"
+    return percent_text(probability)
 
 
 def score_text(score):
+    if "mean" in score:
+        return f"{float(score['mean']):.1f}"
     num, den = int(score["num"]), int(score["den"])
     return str(num) if den == 1 else f"{round(Fraction(num, den))} ({num}/{den})"
 
@@ -932,166 +978,218 @@ def card_result(result, kind):
 
 
 def card_unavailable_markup(card):
-    reason = esc(card.get("reason") or "unavailable")
-    detail = esc(card.get("detail") or "No exact result is available for this state.")
-    parts = [f'<p class="sd-calc-unavailable"><b>{reason}</b> {detail}</p>']
-    missing = [esc(str(item)) for item in (card.get("missing") or [])]
-    if missing:
-        parts.append('<ul class="sd-calc-missing">'
-                     + "".join(f"<li>{item}</li>" for item in missing) + "</ul>")
-    mechanics = [esc(str(item)) for item in (card.get("mechanics") or [])]
-    if mechanics:
-        parts.append('<ul class="sd-calc-mechanics">'
-                     + "".join(f"<li>{item}</li>" for item in mechanics) + "</ul>")
-    return "".join(parts)
+    reason = card.get("reason")
+    detail = str(card.get("detail") or "")
+    if reason == "unsupported-mechanic" and "trainer" in detail.lower() and "item" in detail.lower():
+        message = "Trainer may use a bag item. No recommendation."
+    elif reason == "missing-input":
+        missing = card.get("missing") or []
+        message = ("Enter the opponent's current HP." if any(
+                   str(field).startswith("enemy.party") and str(field).endswith(".hp") for field in missing)
+                   else "Enter your Pokémon's current HP." if any(
+                   str(field).startswith("player.party") and str(field).endswith(".hp") for field in missing)
+                   else "Complete the battle state to predict.")
+    else:
+        message = {
+            "insufficient-samples": "No reliable prediction yet.",
+            "timeout": "Prediction timed out.",
+            "incomplete-state": "Complete the battle state to predict.",
+            "no-legal-actions": "No legal action available.",
+            "unsupported-mechanic": "Prediction unavailable for this mechanic.",
+            "engine-error": "Prediction unavailable.",
+        }.get(reason, detail or "Prediction unavailable.")
+    return f'<p class="sd-calc-unavailable">{esc(message)}</p>'
 
 
-def move_entry_row(move, basis):
+def calc_spinner(label="Calculating"):
+    return f'<span class="sd-calc-spinner" role="status" aria-label="{esc(label)}"></span>'
+
+
+def move_entry_row(move, pending=False):
     """One gated move entry: an exact row, or that move's own unavailability."""
     name = move.get("move_name") or human(move.get("move_id"))
     if move.get("status") == "unavailable":
-        entry = dict(move)
-        entry.setdefault("detail", f"{name} cannot be evaluated in this state.")
-        return (f'<li class="sd-calc-prob-row sd-calc-entry-unavailable">'
+        damage_range = move.get("damage_range") or move.get("damage")
+        damage_text = (f'<small class="sd-calc-damage-range">'
+                        f'{esc(damage_range["min"])}–{esc(damage_range["max"])} dmg</small>'
+                        if isinstance(damage_range, dict) and damage_range.get("min") is not None
+                        and damage_range.get("max") not in (None, 0) else "")
+        return (f'<li class="sd-calc-prob-row sd-calc-move-row sd-calc-entry-unavailable">'
                 f'<span class="sd-calc-prob-name">{esc(name)}</span>'
-                f'<small class="sd-calc-percent">Not calculated</small>'
-                f'{card_unavailable_markup(entry)}</li>')
-    probability = move.get("probability") if isinstance(move.get("probability"), dict) else None
+                f'{damage_text}<small class="sd-calc-percent">Unavailable</small>'
+                f'</li>')
+    probability = next((move.get(key) for key in ("ko_probability", "probability")
+                        if isinstance(move.get(key), dict)), None)
     if probability is None and type(move.get("num")) is int and type(move.get("den")) is int:
         probability = {"num": move["num"], "den": move["den"]}
     method = move.get("method") or move.get("status") or ""
-    notes = " · ".join(str(note) for note in (move.get("notes") or [])
-                       if "seed" not in str(note))
-    estimated = move.get("status") == "estimated"
     outcome = ("KO in this simulation" if probability and probability.get("num") else
                "No KO in this simulation") if method in ("known-seed", "verified-fixed-seed") else probability_text(probability)
-    sample = move.get("effective_samples")
-    interval = move.get("interval_95") if isinstance(move.get("interval_95"), dict) else None
-    estimate_meta = ""
-    if estimated:
-        interval_text = (f"95% interval {round(float(interval.get('low', 0)) * 100)}–"
-                         f"{round(float(interval.get('high', 0)) * 100)}%" if interval else "")
-        estimate_meta = " · ".join(part for part in (
-            "model-based estimate", f"{sample} samples" if isinstance(sample, int) else "",
-            interval_text, str(move.get("sampler_id") or "")) if part)
+    damage_range = move.get("damage_range") or move.get("damage")
+    has_damage_range = (isinstance(damage_range, dict)
+                        and damage_range.get("min") is not None
+                        and damage_range.get("max") is not None)
+    has_probability = (isinstance(probability, dict)
+                       and type(probability.get("num")) is int
+                       and type(probability.get("den")) is int
+                       and probability["den"] > 0)
+    row_pending = pending and not (has_probability and has_damage_range)
+    damage_text = (f'<small class="sd-calc-damage-range">'
+                   f'{esc(damage_range["min"])}–{esc(damage_range["max"])} dmg</small>'
+                   if has_damage_range and damage_range["max"] != 0 else "")
     return (
-        f'<li class="sd-calc-prob-row"><span class="sd-calc-prob-name">{esc(name)}</span>'
+        f'<li class="sd-calc-prob-row sd-calc-move-row{" sd-calc-move-pending" if row_pending else ""}"><span class="sd-calc-prob-name">{esc(name)}</span>'
         f'<small class="sd-calc-percent">{esc(outcome)}</small>'
-        f'<small class="sd-calc-ko">{esc(move.get("ko") or "")}</small>'
-        f'<small class="sd-calc-basis">{esc(estimate_meta or " · ".join(part for part in (("verified ROM turn" if method == "verified-fixed-seed" else "simulated turn" if method == "known-seed" else basis), basis) if part))}</small>'
-        + (f'<small class="sd-calc-notes">{esc(notes)}</small>' if notes else "") + "</li>")
+        f'{damage_text}'
+        + (calc_spinner() if row_pending else "") + "</li>")
 
 
-def move_card_body(card):
+def move_card_body(card, move_names=None, pending=False):
     """Moves are gated per entry, so an unsupported move never hides its siblings."""
-    basis = ("ROM-verified" if card.get("status") == "verified-fixed-seed" else
-             "model-based sampled outcomes" if card.get("status") == "estimated" else
-             basis_text(card.get("evidence")))
+    card = card if isinstance(card, dict) else {}
     moves = [move for move in (card.get("moves") or []) if isinstance(move, dict)]
-    rows = [move_entry_row(move, basis) for move in moves]
+    rows = []
+    for move in moves:
+        rows.append(move_entry_row(move, pending))
+    known_names = {str(move.get("move_name") or human(move.get("move_id"))) for move in moves}
+    for name in move_names or []:
+        if name not in known_names:
+            rows.append(
+                f'<li class="sd-calc-prob-row sd-calc-move-row sd-calc-row-pending">'
+                f'<span class="sd-calc-prob-name">{esc(name)}</span>{calc_spinner()}</li>')
     if not rows:
-        return '<p class="sd-calc-unavailable">No move probabilities were returned for this state.</p>'
-    gated = any(move.get("status") == "unavailable" for move in moves)
-    return ('<ol class="sd-calc-rows">' + "".join(rows) + "</ol>"
-            + ('<p class="sd-calc-notes">A move marked Not calculated carries its own reason; '
-               "the remaining entries are shown with their own evidence.</p>" if gated else ""))
+        return ('<div class="sd-calc-card-loading">' + calc_spinner() + '</div>' if pending else
+                '<p class="sd-calc-unavailable">No move probabilities were returned for this state.</p>')
+    return '<ol class="sd-calc-rows">' + "".join(rows) + "</ol>"
 
 
 def ai_card_body(card):
+    actions = [action for action in (card.get("actions") or []) if isinstance(action, dict)]
+    deterministic = (card.get("deterministic") or card.get("preview") or card.get("method") == "known-seed"
+                     or card.get("status") in ("known-seed", "engine-fixed-seed", "verified-fixed-seed"))
     rows = []
-    for action in card.get("actions") or []:
-        if not isinstance(action, dict):
-            continue
-        probability = action.get("probability") if isinstance(action.get("probability"), dict) else None
-        if probability is None and type(action.get("num")) is int and type(action.get("den")) is int:
-            probability = {"num": action["num"], "den": action["den"]}
+    for action in actions:
         label = action.get("label") or human(action.get("id"))
-        top = bool(action.get("top"))
+        top = bool(action.get("top_option") or action.get("top"))
+        amount = "" if deterministic else probability_text(action.get("probability"))
+        row = (f'<li class="sd-calc-prob-row{" sd-calc-top" if top else ""}">'
+               f'<span class="sd-calc-prob-name">{esc(label)}</span>'
+               + (f'<small class="sd-calc-percent">{esc(amount)}</small>' if amount else ""))
+        row += '</li>'
         rows.append(
-            f'<li class="sd-calc-prob-row{" sd-calc-top" if top else ""}">'
-            f'<span class="sd-calc-prob-name">{esc(label)}</span>'
-            f'<span class="sd-calc-prob-kind">{esc(str(action.get("kind") or ""))}</span>'
-            f'<small class="sd-calc-percent">{esc("Chosen in verified ROM turn" if card.get("status") == "verified-fixed-seed" else probability_text(probability))}</small>'
-            f'<small class="sd-calc-basis">{esc("top tie" if top else "")}</small></li>')
+            row)
     if not rows:
-        return '<p class="sd-calc-unavailable">No legal AI action probabilities were returned.</p>'
-    conditioned = card.get("conditioned_on") or "entered battle state"
-    return ('<ol class="sd-calc-rows">' + "".join(rows) + "</ol>"
-            + f'<p class="sd-calc-conditioned">conditioned on the {esc(conditioned)}</p>')
+        return '<p class="sd-calc-unavailable">No predicted AI action was returned.</p>'
+    return '<ol class="sd-calc-rows">' + "".join(rows) + "</ol>"
 
 
 def recommendation_card_body(card):
-    label = card.get("label") or "two-turn lookahead"
+    actions = [action for action in (card.get("actions") or []) if isinstance(action, dict)]
+    recommended_id = card.get("recommended_action") or card.get("recommended_id")
+    if isinstance(recommended_id, dict):
+        recommended_id = recommended_id.get("id")
+    if not recommended_id:
+        recommended_id = next((action.get("id") for action in actions if action.get("recommended")), None)
+    if not recommended_id:
+        scored = [(Fraction(action["score"]["num"], action["score"]["den"]), action.get("id"))
+                  for action in actions if isinstance(action.get("score"), dict)
+                  and type(action["score"].get("num")) is int
+                  and type(action["score"].get("den")) is int and action["score"]["den"]]
+        recommended_id = max(scored)[1] if scored else None
+    if not recommended_id and actions:
+        # The compiled evaluator already sorts its floating score means.
+        recommended_id = actions[0].get("id")
+
+    deterministic = (card.get("deterministic") or card.get("preview") or card.get("method") == "known-seed"
+                     or card.get("status") in ("known-seed", "engine-fixed-seed", "verified-fixed-seed"))
+    uncertain = bool(card.get("ranking_uncertain"))
+    leading = [action for action in actions if action.get("top_option") or action.get("top")]
+    if not leading:
+        leading = [next((action for action in actions if action.get("id") == recommended_id),
+                        actions[0] if actions else None)]
+    shown = [action for action in leading if action]
+    if not uncertain and not deterministic:
+        shown = shown[:1]
     rows = []
-    for action in card.get("actions") or []:
-        if not isinstance(action, dict):
-            continue
-        score = action.get("score") if isinstance(action.get("score"), dict) else None
+    for action in shown:
+        risk = (action.get("ranking_death_risk") or {}).get("estimate")
+        basis = "survival"
+        if type(risk) not in (int, float) or not 0 <= risk <= 1:
+            observed = action.get("first_turn_death_risk") or action.get("death_risk") or {}
+            if type(observed.get("num")) is int and type(observed.get("den")) is int and observed["den"] > 0:
+                risk = observed["num"] / observed["den"]
+                basis = "turn survival"
+        survival = (f'<small class="sd-calc-percent">{round(100 * (1 - risk))}% est. {basis}</small>'
+                    if not deterministic and type(risk) in (int, float) and 0 <= risk <= 1 else "")
         rows.append(
-            f'<li class="sd-calc-prob-row sd-calc-top">'
+            f'<li class="sd-calc-prob-row{" sd-calc-recommended" if not uncertain and not deterministic else ""}">'
             f'<span class="sd-calc-prob-name">{esc(action.get("label") or human(action.get("id")))}</span>'
-            f'<span class="sd-calc-prob-kind">{esc(str(action.get("kind") or ""))}</span>'
-            f'<small class="sd-calc-percent">{esc(score_text(score) if score else "Unknown")}</small></li>')
-    if not rows:
+            f'{survival}</li>')
+    if not actions:
         return '<p class="sd-calc-unavailable">No legal action was available.</p>'
-    turns = card.get("scored_turns")
-    turns_label = f" · {int(turns)} scored turns" if isinstance(turns, int) else ""
-    breakdown = [esc(str(line)) for line in (card.get("breakdown") or [])]
-    return (f'<p class="sd-calc-card-label">{esc(label)}{esc(turns_label)}</p>'
-            + '<ol class="sd-calc-rows">' + "".join(rows) + "</ol>"
-            + ('<ul class="sd-calc-breakdown">' + "".join(f"<li>{line}</li>" for line in breakdown)
-               + "</ul>" if breakdown else ""))
+    if not rows:
+        return '<p class="sd-calc-unavailable">No safe action identified.</p>'
+    return '<ol class="sd-calc-rows">' + "".join(rows) + "</ol>"
 
 
 def calc_card_body(kind, card, moves=None, pending=False):
+    if pending and kind in ("player_moves", "enemy_moves"):
+        return move_card_body(card, moves, pending=True)
     if not isinstance(card, dict) or not card.get("status"):
-        if pending:
-            return '<p class="sd-calc-pending">Calculating…</p>'
         names = list(moves or [])[:4]
         if kind in ("player_moves", "enemy_moves") and names:
-            names += ["Unknown move"] * (4 - len(names))
-            return '<ol class="sd-calc-rows">' + "".join(
-                f'<li class="sd-calc-unknown"><span>{esc(name)}</span><small>Not calculated</small></li>'
-                for name in names) + "</ol>"
+            return move_card_body(None, names, pending=pending)
+        if pending:
+            return '<div class="sd-calc-card-loading">' + calc_spinner() + '</div>'
         return ('<p class="sd-calc-unavailable">Not calculated. '
                 "Choose an active Pokémon and an opponent.</p>")
     status = card.get("status")
     if status == "unavailable":
+        preview = card.get("preview")
+        if kind == "recommendation" and isinstance(preview, dict):
+            preview = {**preview, "status": "engine-fixed-seed", "deterministic": True}
+            return (card_unavailable_markup(card)
+                    + '<p class="sd-calc-estimate">Action preview only.</p>'
+                    + recommendation_card_body(preview))
         return card_unavailable_markup(card)
-    if status not in ("exact", "engine-fixed-seed", "verified-fixed-seed", "estimated"):
+    if status in ("pending", "refining"):
+        return '<div class="sd-calc-card-loading">' + calc_spinner() + '</div>'
+    if status not in ("exact", "engine-exact", "engine-fixed-seed", "verified-fixed-seed", "estimated"):
         return card_unavailable_markup({"reason": "incomplete-state",
                                        "detail": "No verified or estimated result is available yet."})
-    if status == "estimated":
-        interval = card.get("interval_95") if isinstance(card.get("interval_95"), dict) else None
-        samples = card.get("effective_samples")
-        low = round(float(interval.get("low", 0)) * 100) if interval else None
-        high = round(float(interval.get("high", 0)) * 100) if interval else None
-        label = ("Model-based estimate" + (f" · {samples} samples" if isinstance(samples, int) else "")
-                 + (f" · 95% interval {low}–{high}%" if low is not None and high is not None else "")
-                 + (f" · {esc(card.get('sampler_id'))}" if card.get("sampler_id") else ""))
-        banner = f'<p class="sd-calc-estimate">{label}</p>'
-    elif status == "verified-fixed-seed":
-        banner = '<p class="sd-calc-basis">Verified fixed-seed ROM result</p>'
-    elif status == "engine-fixed-seed":
-        banner = '<p class="sd-calc-basis">Compiled game engine · fixed seed</p>'
-    elif status == "exact":
-        banner = f'<p class="sd-calc-basis">{esc(basis_text(card.get("evidence")))}</p>'
-    else:
-        banner = ""
     if kind in ("player_moves", "enemy_moves"):
-        return banner + move_card_body(card)
-    if kind == "ai_actions":
-        return banner + ai_card_body(card)
-    if kind == "recommendation":
-        uncertainty = card.get("ranking_uncertain") is True
-        note = '<p class="sd-calc-estimate">Ranking remains uncertain across sampled trajectories.</p>' if uncertainty else ""
-        return banner + note + recommendation_card_body(card)
-    return '<p class="sd-calc-unavailable">Unknown result card.</p>'
+        body = move_card_body(card)
+    elif kind == "ai_actions":
+        body = ai_card_body(card)
+    elif kind == "recommendation":
+        body = recommendation_card_body(card)
+    else:
+        body = '<p class="sd-calc-unavailable">Unknown result card.</p>'
+    if pending:
+        body += '<div class="sd-calc-card-loading">' + calc_spinner() + '</div>'
+    return body
 
 
 def calc_result_card(title, kind=None, card=None, moves=None, pending=False):
-    return (f'<div class="sd-calc-result-card"><strong>{esc(title)}</strong>'
-            f'{calc_card_body(kind, card, moves, pending)}</div>')
+    modifier = {"recommendation": " sd-calc-recommendation-card",
+                "ai_actions": " sd-calc-ai-actions-card"}.get(kind, "")
+    if isinstance(card, dict):
+        preview = (card.get("deterministic") or card.get("preview") or
+                   card.get("status") in ("engine-fixed-seed", "verified-fixed-seed", "known-seed"))
+        if kind == "ai_actions" and preview:
+            title = "Trainer action preview"
+        elif kind == "recommendation" and (preview or isinstance(card.get("preview"), dict)):
+            title = "Player action preview"
+        elif kind == "recommendation" and card.get("ranking_uncertain"):
+            title = "Player action options"
+    return (f'<div class="sd-calc-result-card{modifier}"><strong>{esc(title)}</strong>'
+            f'<div class="sd-calc-card-body">{calc_card_body(kind, card, moves, pending)}</div></div>')
+
+
+def calc_progress_markup(meta):
+    if not isinstance(meta, dict) or not meta.get("refining"):
+        return ""
+    return '<div class="sd-calc-progress">' + calc_spinner() + '</div>'
 
 
 def calc_service_fetch(snapshot, game_data):
@@ -1112,15 +1210,24 @@ def calc_service_fetch(snapshot, game_data):
                 "missing": [], "mechanics": []}
 
 
+def calc_result_marker(result):
+    if not isinstance(result, dict):
+        return None
+    meta = result.get("_meta") if isinstance(result.get("_meta"), dict) else {}
+    return meta.get("revision") or json.dumps(result, sort_keys=True, default=str)
+
+
 @st.fragment(run_every=0.5)
-def calc_wait_for_result(snapshot):
+def calc_wait_for_result(snapshot, seen_marker=None):
     """Poll while a calculation is pending, then rerun so its cards can render."""
     try:
-        ready = calc_service.poll(snapshot) is not None
+        result = calc_service.poll(snapshot)
     except (TypeError, ValueError, KeyError):
-        ready = True
-    if ready:
-        st.rerun(scope="app")
+        result = {"_meta": {"refining": False}}
+    if result is not None:
+        meta = result.get("_meta") if isinstance(result, dict) else {}
+        if not meta.get("refining") or calc_result_marker(result) != seen_marker:
+            st.rerun(scope="app")
 
 
 def calc_slot(row, data, level=None, focused=False):
@@ -1144,12 +1251,13 @@ def calc_trainer_header(name, subtitle, portrait, count):
             f'<div class="sd-calc-trainer-balls">{party_balls(count)}</div></div>')
 
 
-def enemy_profile_markup(enemy, data, level):
+def enemy_profile_markup(enemy, data, level, status=None):
     species = data.get("species", {}).get(enemy.get("species"), {})
     base_stats = species.get("stats") or {}
     resolved_level = int(level) if str(level).isdigit() else None
     bars = stat_bars_markup(base_stats, resolved_level, enemy.get("nature"),
-                            enemy.get("ivs") or {}, enemy.get("evs") or {}, show_unknown=True)
+                            enemy.get("ivs") or {}, enemy.get("evs") or {}, show_unknown=True,
+                            status=status, ability=enemy.get("ability"))
     move_markup = []
     for move_id in (enemy.get("moves") or [])[:4]:
         move = data.get("moves", {}).get(move_id, {})
@@ -1380,7 +1488,7 @@ def calc_delete_dialog(connect, config_id, config_name):
 def calc_validate_state(payload):
     """Validate the saved battle state. Older configs simply have none."""
     version = payload.get("calc_state_version", 1)
-    if type(version) is not int or version not in (1, 2, CALC_STATE_VERSION):
+    if type(version) is not int or version not in (1, 2, 3, CALC_STATE_VERSION):
         raise ValueError("Saved Calc state version is invalid.")
     if version == 1 or "battle_state" not in payload:
         return {}
@@ -1427,13 +1535,48 @@ def calc_state_for_trainer(state, trainer_id):
 def calc_state_for_focus(state, party_slots, player_focus, enemy_focus):
     """Keep the battle active pair aligned with the two focused battlers."""
     player_slot = next((slot for slot, row in enumerate(party_slots)
-                        if row and row.get("id") == player_focus), None)
+                        if row and row["id"] == player_focus), None)
     enemy_index = enemy_focus if type(enemy_focus) is int and enemy_focus >= 0 else None
     if (state.get("player_active_slot"), state.get("enemy_active_index")) != (player_slot, enemy_index):
         state["planned_action"] = None
     state["player_active_slot"] = player_slot
     state["enemy_active_index"] = enemy_index
     return state
+
+
+def calc_state_for_focused_battle(state, player_id=None, enemy_id=None):
+    """Drop hidden advanced inputs now that Calc uses the focused pair and HP."""
+    state.pop("planned_action", None)
+    state.pop("progress_flags", None)
+    state["rng"] = {"main": None, "secondary": None}
+    state["history"] = {"turns": []}
+    state["field"] = {}
+    active_keys = {"player": str(player_id) if player_id is not None else None,
+                   "enemy": str(enemy_id) if enemy_id is not None else None}
+    for side in ("player", "enemy"):
+        for key, entry in (state.get(side) or {}).items():
+            if isinstance(entry, dict):
+                entry.pop("pp", None)
+                if active_keys[side] is None or str(key) != active_keys[side]:
+                    entry.pop("stat_stages", None)
+    return state
+
+
+def calc_cure_boxed_status(state, party_ids):
+    """Cure current-scenario status when a player Pokémon leaves the party."""
+    for entry_id, entry in (state.get("player") or {}).items():
+        if str(entry_id) not in party_ids and isinstance(entry, dict):
+            entry["status"] = "none"
+
+
+def calc_focus_for_active_selection(party_slots, enemies, player_active, enemy_active):
+    """Return focus IDs corresponding to valid battle-state widget choices."""
+    player_row = (party_slots[player_active]
+                  if type(player_active) is int and 0 <= player_active < len(party_slots)
+                  else None)
+    enemy_valid = (type(enemy_active) is int and 0 <= enemy_active < len(enemies))
+    return (player_row["id"] if player_row else None,
+            enemy_active if enemy_valid else None)
 
 
 def calc_default_max_hp(data, species, level, ivs, evs):
@@ -1516,6 +1659,20 @@ def calc_hp_badge(entry, side, key, state=None):
             st.rerun()
 
 
+def calc_status_badge(entry, side, key, state):
+    """Edit one Pokémon's status in the current Calc scenario."""
+    result = status_badge(status=entry.get("status"), key=f"calc_{side}_status_badge_{key}")
+    changed = result.changed
+    token_key = f"calc_status_change_token_{side}_{key}"
+    if changed and changed.get("token") != st.session_state.get(token_key):
+        st.session_state[token_key] = changed["token"]
+        value = changed.get("value")
+        if isinstance(value, str) and value in STATUS_COLORS:
+            entry["status"] = value
+            state["state_origin"] = "manual-scenario"
+            st.rerun()
+
+
 def calc_load_config(db, record, data, apply_party_slots, trainer_rows):
     payload = json.loads(record["settings"])
     if not isinstance(payload, dict):
@@ -1585,7 +1742,7 @@ def calc_load_config(db, record, data, apply_party_slots, trainer_rows):
         if key.startswith("calc_state_") and key != "calc_battle_state":
             del st.session_state[key]
         elif key.startswith(("calc_battle_", "calc_rng_", "calc_status_", "calc_field_",
-                            "calc_manual_hp_", "calc_manual_pp_", "calc_history_")):
+                            "calc_manual_hp_", "calc_manual_pp_", "calc_history_", "calc_stage_")):
             del st.session_state[key]
     if state:
         state["_trainer_id"] = trainer_id
@@ -1598,7 +1755,8 @@ def calc_load_config(db, record, data, apply_party_slots, trainer_rows):
     return "Loaded config. " + ("Skipped: " + ", ".join(missing) + "." if missing else "") + note
 
 
-def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, apply_party_slots):
+def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, apply_party_slots,
+                move_party_to_box):
     rows = db.execute("SELECT * FROM owned ORDER BY id").fetchall()
     party_slots = [None] * 6
     for row in rows:
@@ -1664,10 +1822,11 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
             st.session_state.pop("calc_state_planned_action", None)
             for key in list(st.session_state):
                 if key.startswith(("calc_battle_", "calc_rng_", "calc_status_", "calc_field_",
-                                   "calc_manual_hp_", "calc_manual_pp_", "calc_history_")):
+                                   "calc_manual_hp_", "calc_manual_pp_", "calc_history_", "calc_stage_")):
                     del st.session_state[key]
         battle_state = calc_state_for_trainer(previous_state, trainer_id)
         st.session_state["calc_battle_state"] = battle_state
+        calc_cure_boxed_status(battle_state, {str(row["id"]) for row in party})
         save_event = config_result.save
         if save_event and save_event.get("token") != st.session_state.get("calc_config_save_token"):
             st.session_state["calc_config_save_token"] = save_event["token"]
@@ -1719,9 +1878,6 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
                         for member in enemies]
         level_cap_id = level_cap_id_for(data, st.session_state.get("calc_level_cap"))
         battle_state = calc_state_for_focus(battle_state, party_slots, player_focus, enemy_focus)
-        if not isinstance(battle_state.get("rng"), dict):
-            battle_state["rng"] = {"main": parse_rng_words(battle_state.get("rng")),
-                                    "secondary": None}
         battle_state.setdefault("state_origin", "battle-start")
         for member_row in party:
             calc_seed_hp(
@@ -1737,214 +1893,7 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
                          calc_default_max_hp(data, member.get("species"), battle_level,
                                              member.get("ivs"), member.get("evs")))
 
-        with trainer_settings_area:
-            st.markdown("**Battle state**")
-            player_active_options = [slot for slot, row in enumerate(party_slots) if row]
-            enemy_active_options = list(range(len(enemies)))
-            player_active = battle_state.get("player_active_slot")
-            if player_active not in player_active_options:
-                player_active = None
-            enemy_active = battle_state.get("enemy_active_index")
-            if enemy_active not in enemy_active_options:
-                enemy_active = None
-            player_active = st.selectbox(
-                "Your active Pokémon", player_active_options,
-                index=player_active_options.index(player_active) if player_active is not None else None,
-                key="calc_battle_player_active", placeholder="Choose active Pokémon",
-                format_func=lambda slot: species_name(party_slots[slot]["species"], data))
-            enemy_active = st.selectbox(
-                "Opponent active Pokémon", enemy_active_options,
-                index=enemy_active_options.index(enemy_active) if enemy_active is not None else None,
-                key="calc_battle_enemy_active", placeholder="Choose active Pokémon",
-                format_func=lambda index: species_name(enemies[index].get("species"), data))
-            if (player_active, enemy_active) != (battle_state.get("player_active_slot"),
-                                                  battle_state.get("enemy_active_index")):
-                battle_state["planned_action"] = None
-                st.session_state.pop("calc_state_planned_action", None)
-            battle_state["player_active_slot"] = player_active
-            battle_state["enemy_active_index"] = enemy_active
-            player_active_row = party_slots[player_active] if player_active is not None else None
-            player_active_entry = (battle_state.get("player") or {}).get(str(player_active_row["id"]), {}) if player_active_row else {}
-            enemy_active_entry = (battle_state.get("enemy") or {}).get(str(enemy_active), {}) if enemy_active is not None else {}
-            if player_active_row and enemy_active is not None:
-                if st.button("Start battle at full HP", key="calc_start_full_hp",
-                             help="Explicitly set every party member to full HP and record this as the battle start."):
-                    player_hp_levels = [level_cap if level_cap_id else row.get("level") if row else None
-                                        for row in party_slots]
-                    enemy_start_levels = [
-                        max(1, _coerce_int(level) - 2)
-                        if _coerce_int(level) is not None and st.session_state.get("calc_difficulty") == "Easy"
-                        and trainer.get("is_boss") else level for level in enemy_levels]
-                    calc_start_battle_at_full_hp(battle_state, party_slots, enemies, data,
-                                                 player_hp_levels, enemy_start_levels)
-                    for key in list(st.session_state):
-                        if key.startswith(("calc_status_", "calc_manual_hp_", "calc_manual_pp_",
-                                           "calc_rng_", "calc_field_")):
-                            del st.session_state[key]
-                    st.rerun()
-                with st.expander("Manual battle details and observed turns"):
-                    status_options = [(None, "Unknown"), ("none", "No status"),
-                                      ("STATUS1_SLEEP", "Sleep"), ("STATUS1_POISON", "Poison"),
-                                      ("STATUS1_BURN", "Burn"), ("STATUS1_FREEZE", "Freeze"),
-                                      ("STATUS1_PARALYSIS", "Paralysis"), ("STATUS1_TOXIC_POISON", "Toxic")]
-                    player_status = st.selectbox(
-                        "Your active status", status_options,
-                        index=next((i for i, option in enumerate(status_options)
-                                    if option[0] == player_active_entry.get("status")), 0),
-                        key=f"calc_status_player_{player_active_row['id']}", format_func=lambda item: item[1])
-                    enemy_status = st.selectbox(
-                        "Opponent active status", status_options,
-                        index=next((i for i, option in enumerate(status_options)
-                                    if option[0] == enemy_active_entry.get("status")), 0),
-                        key=f"calc_status_enemy_{trainer_id}_{enemy_active}", format_func=lambda item: item[1])
-                    for side, entry, status_choice in (("player", player_active_entry, player_status),
-                                                       ("enemy", enemy_active_entry, enemy_status)):
-                        old_status = entry.get("status")
-                        if status_choice[0] is not None:
-                            entry["status"] = status_choice[0]
-                        else:
-                            entry.pop("status", None)
-                        if old_status != status_choice[0]:
-                            battle_state["state_origin"] = "manual-scenario"
-                    st.caption("Current HP, PP, status, and RNG are entered state. Blank values stay unknown.")
-                    for side, entry, row_key in (("player", player_active_entry, player_active_row["id"]),
-                                                  ("enemy", enemy_active_entry, f"{trainer_id}_{enemy_active}")):
-                        build = player_active_row if side == "player" else enemies[enemy_active]
-                        state_map = battle_state.setdefault(side, {})
-                        slot_key = str(row_key) if side == "player" else str(enemy_active)
-                        state_entry = state_map.setdefault(slot_key, entry)
-                        current_hp = _coerce_int(state_entry.get("hp"))
-                        hp_text = st.text_input(
-                            f"{side.title()} active current HP", value=str(current_hp) if current_hp is not None else "",
-                            key=f"calc_manual_hp_{side}_{slot_key}",
-                            help="Leave blank when current HP is unknown.")
-                        hp_value = _coerce_int(hp_text)
-                        maximum = _coerce_int(state_entry.get("max_hp"))
-                        if hp_text.strip() and (hp_value is None or hp_value < 0
-                                                or (maximum is not None and hp_value > maximum)):
-                            st.caption("Current HP must be a whole number within the displayed maximum.")
-                        elif not hp_text.strip():
-                            if "hp" in state_entry:
-                                state_entry.pop("hp", None)
-                                battle_state["state_origin"] = "manual-scenario"
-                        else:
-                            if current_hp != hp_value:
-                                battle_state["state_origin"] = "manual-scenario"
-                            state_entry["hp"] = hp_value
-                        moves = known_moves(build, data) if side == "player" else list(build.get("moves") or [])[:4]
-                        for move_id in moves[:4]:
-                            current_pp = _coerce_int((state_entry.get("pp") or {}).get(move_id))
-                            pp_text = st.text_input(
-                                f"{side.title()} PP · {human(move_id)}",
-                                value=str(current_pp) if current_pp is not None else "",
-                                key=f"calc_manual_pp_{side}_{slot_key}_{move_id}",
-                                help="Leave blank when current PP is unknown.")
-                            pp = _coerce_int(pp_text)
-                            if pp_text.strip() and (pp is None or not 0 <= pp <= 999):
-                                st.caption(f"{human(move_id)} PP must be an integer from 0 to 999.")
-                            elif pp is None:
-                                state_entry.get("pp", {}).pop(move_id, None)
-                            else:
-                                prior_pp = (state_entry.get("pp") or {}).get(move_id)
-                                state_entry.setdefault("pp", {})[move_id] = pp
-                                if prior_pp != pp:
-                                    battle_state["state_origin"] = "manual-scenario"
-                    rng = battle_state.setdefault("rng", {"main": None, "secondary": None})
-                    for stream, label in (("main", "Main RNG state"), ("secondary", "Secondary RNG state")):
-                        current = parse_rng_words(rng.get(stream))
-                        raw = st.text_input(label, value=" ".join(map(str, current)) if current else "",
-                                            key=f"calc_rng_{stream}",
-                                            help="Enter four unsigned 32-bit words, or leave blank when unknown.")
-                        previous_words = parse_rng_words(rng.get(stream))
-                        set_rng_stream(battle_state, stream, raw)
-                        if parse_rng_words(raw) != previous_words:
-                            battle_state["state_origin"] = "manual-scenario"
-                        if raw.strip() and parse_rng_words(raw) is None:
-                            st.caption(f"{label} is invalid and will be treated as unknown.")
-                    field = battle_state.setdefault("field", {})
-                    weather_options = [None, "WEATHER_SUN", "WEATHER_RAIN", "WEATHER_SANDSTORM",
-                                       "WEATHER_HAIL", "WEATHER_SNOW"]
-                    old_weather = field.get("weather")
-                    weather = st.selectbox(
-                        "Weather", weather_options,
-                        index=weather_options.index(field.get("weather"))
-                        if field.get("weather") in weather_options else 0,
-                        key="calc_field_weather", format_func=lambda item: "Unknown" if item is None else human(item))
-                    if weather != old_weather:
-                        battle_state["state_origin"] = "manual-scenario"
-                    field["weather"] = weather
-                    field_options = [(None, "Unknown"), (True, "Trick Room")]
-                    trick_room = st.selectbox(
-                        "Trick Room", field_options,
-                        index=next((i for i, option in enumerate(field_options)
-                                    if option[0] == field.get("trick_room")), 0),
-                        key="calc_field_trick_room", format_func=lambda item: item[1])
-                    if field.get("trick_room") != trick_room[0]:
-                        battle_state["state_origin"] = "manual-scenario"
-                    field["trick_room"] = trick_room[0]
-                    for field_key, label, options in (
-                            ("player_screens", "Your screens", ["SCREEN_REFLECT", "SCREEN_LIGHT_SCREEN", "SCREEN_AURORA_VEIL"]),
-                            ("enemy_screens", "Opponent screens", ["SCREEN_REFLECT", "SCREEN_LIGHT_SCREEN", "SCREEN_AURORA_VEIL"]),
-                            ("player_hazards", "Hazards on your side", ["HAZARD_SPIKES", "HAZARD_TOXIC_SPIKES", "HAZARD_STEALTH_ROCK", "HAZARD_STICKY_WEB"]),
-                            ("enemy_hazards", "Hazards on opponent side", ["HAZARD_SPIKES", "HAZARD_TOXIC_SPIKES", "HAZARD_STEALTH_ROCK", "HAZARD_STICKY_WEB"])):
-                        choices = field.get(field_key) if isinstance(field.get(field_key), list) else []
-                        selected_field = st.multiselect(
-                            label, options, default=[item for item in choices if item in options],
-                            key=f"calc_field_{field_key}", format_func=human)
-                        if selected_field != choices:
-                            battle_state["state_origin"] = "manual-scenario"
-                        field[field_key] = selected_field
-                    st.markdown("**Observed history**")
-                    log_turn = st.number_input("Turn", min_value=1, value=1, step=1,
-                                               key="calc_history_turn")
-                    log_side = st.selectbox("Side", ["player", "enemy"], key="calc_history_side")
-                    log_kind = st.selectbox("Event", ["move", "switch", "damage", "status",
-                                                       "item", "ability", "field"],
-                                            key="calc_history_kind")
-                    log_id = st.text_input("Move or event ID", key="calc_history_id")
-                    log_value_text = st.text_input("Value or switch slot", key="calc_history_value",
-                                                   help="Optional; switch entries need a target slot.")
-                    log_value = _coerce_int(log_value_text)
-                    history_turns = calc_history(battle_state)
-                    if st.button("Add observed event", key="calc_history_add"):
-                        rows = history_to_log_rows(history_turns)
-                        rows.append({"turn": int(log_turn), "side": log_side, "kind": log_kind,
-                                     "id": log_id.strip(), "value": log_value})
-                        battle_state["history"] = {"turns": history_from_log(rows)}
-                        if battle_state.get("state_origin") != "battle-start":
-                            battle_state["state_origin"] = "manual-scenario"
-                        st.rerun()
-                    if history_turns:
-                        st.caption(f"{len(history_turns)} observed turn(s) recorded.")
-                        if st.button("Clear observed history", key="calc_history_clear"):
-                            battle_state["history"] = {"turns": []}
-                            st.rerun()
-            if player_active_row:
-                moves = known_moves(player_active_row, data)[:4] if player_active_row else []
-                choices = [None] + [("move", move) for move in moves]
-                choices += [("switch", slot) for slot, row in enumerate(party_slots)
-                            if row and slot != player_active]
-                planned = calc_planned_action(battle_state)
-                current_choice = ((planned["kind"], planned.get("move_id", planned.get("slot")))
-                                  if planned else None)
-                if current_choice not in choices:
-                    current_choice = None
-                seed_choice("calc_state_planned_action", choices, current_choice)
-                def action_label(value):
-                    if value is None:
-                        return "Choose an action"
-                    if value[0] == "move":
-                        return data.get("moves", {}).get(value[1], {}).get("name") or human(value[1])
-                    return f"Switch to {species_name(party_slots[value[1]]['species'], data)}"
-
-                choice = st.selectbox(
-                    "Planned action", choices, index=choices.index(current_choice),
-                    key="calc_state_planned_action", format_func=action_label,
-                    help="Enemy move probabilities are conditioned on this action.")
-                battle_state["planned_action"] = (
-                    {"kind": "move", "move_id": choice[1], "target_index": enemy_active}
-                    if choice and choice[0] == "move" else
-                    {"kind": "switch", "slot": choice[1]} if choice else None)
+        calc_state_for_focused_battle(battle_state, player_focus, enemy_focus)
 
         item_flags = st.session_state.get("calc_item_flags")
         snapshot = build_calc_snapshot(
@@ -1954,31 +1903,39 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
             enemy_items=calc_trainer_items(trainer), ai_flags=trainer.get("ai_flags"),
             enemy_levels=enemy_levels)
         result = calc_service_fetch(snapshot, data) if snapshot else None
-        pending = snapshot is not None and result is None
+        result_meta = result.get("_meta") if isinstance(result, dict) and isinstance(result.get("_meta"), dict) else {}
+        pending = snapshot is not None and (result is None or result_meta.get("refining") is True)
+        names = {"player_moves": [], "enemy_moves": []}
+        active_slot = _coerce_int(battle_state.get("player_active_slot"))
+        active_player = (party_slots[active_slot]
+                         if active_slot is not None and 0 <= active_slot < 6 else None)
+        if active_player:
+            names["player_moves"] = [data.get("moves", {}).get(move_id, {}).get("name") or human(move_id)
+                                     for move_id in known_moves(active_player, data)]
+        active_enemy = _coerce_int(battle_state.get("enemy_active_index"))
+        if active_enemy is not None and 0 <= active_enemy < len(enemies):
+            names["enemy_moves"] = [data.get("moves", {}).get(move_id, {}).get("name") or human(move_id)
+                                    for move_id in (enemies[active_enemy].get("moves") or [])[:4]]
         with result_area:
-            if snapshot and snapshot.get("state_origin") == "battle-start":
-                st.caption("ROM prediction starts from your explicit full HP battle setup and recorded turns.")
-            elif snapshot:
-                st.caption("Manual scenario: results use only the battle state you entered.")
-            else:
-                st.caption("Choose both active Pokémon to calculate a battle result.")
-            names = {"player_moves": [], "enemy_moves": []}
-            active_slot = _coerce_int(battle_state.get("player_active_slot"))
-            active_player = (party_slots[active_slot]
-                             if active_slot is not None and 0 <= active_slot < 6 else None)
-            if active_player:
-                names["player_moves"] = [data.get("moves", {}).get(move_id, {}).get("name") or human(move_id)
-                                         for move_id in known_moves(active_player, data)]
-            active_enemy = _coerce_int(battle_state.get("enemy_active_index"))
-            if active_enemy is not None and 0 <= active_enemy < len(enemies):
-                names["enemy_moves"] = [data.get("moves", {}).get(move_id, {}).get("name") or human(move_id)
-                                        for move_id in (enemies[active_enemy].get("moves") or [])[:4]]
-            for column, (kind, title) in zip(st.columns(4, gap="small"), CALC_CARDS):
-                with column:
-                    st.html(calc_result_card(title, kind, card_result(result, kind),
-                                             names.get(kind), pending))
+            if not snapshot:
+                st.caption("Focus a Pokémon on each side to calculate a battle result.")
+            player_ko_col, recommendation_col, trainer_action_col, trainer_ko_col = st.columns(4, gap="small")
+            with player_ko_col:
+                st.html(calc_result_card("Your moves · KO chance", "player_moves",
+                                         card_result(result, "player_moves"),
+                                         names["player_moves"], pending))
+            with recommendation_col:
+                st.html(calc_result_card("Recommended player action", "recommendation",
+                                         card_result(result, "recommendation"), pending=pending))
+            with trainer_action_col:
+                st.html(calc_result_card("Trainer predicted action", "ai_actions",
+                                         card_result(result, "ai_actions"), pending=pending))
+            with trainer_ko_col:
+                st.html(calc_result_card("Trainer's moves · KO chance", "enemy_moves",
+                                         card_result(result, "enemy_moves"),
+                                         names["enemy_moves"], pending))
             if pending:
-                calc_wait_for_result(snapshot)
+                calc_wait_for_result(snapshot, calc_result_marker(result))
 
         with grid_area:
             with own_col:
@@ -2016,10 +1973,28 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
                             st.rerun()
                         except ValueError as exc:
                             st.error(str(exc))
+                move = own_result.move
+                if move and move.get("token") != st.session_state.get("calc_own_move_token"):
+                    st.session_state["calc_own_move_token"] = move["token"]
+                    try:
+                        if move.get("to") == "box":
+                            move_party_to_box(db, int(move["id"]), int(move["box_no"]), int(move["slot"]))
+                        else:
+                            source, dest = move.get("from"), move.get("slot")
+                            if not (isinstance(source, int) and isinstance(dest, int)
+                                    and 0 <= source < 6 and 0 <= dest < 6 and source != dest):
+                                raise ValueError("Choose a party slot.")
+                            next_ids = [row["id"] if row else None for row in party_slots]
+                            next_ids[source], next_ids[dest] = next_ids[dest], next_ids[source]
+                            apply_party_slots(db, next_ids)
+                        st.rerun()
+                    except ValueError as exc:
+                        st.error(str(exc))
                 with st.container(key="pc-box-card"):
                     box_no = st.session_state.setdefault("pc_box_number", 1)
                     box_grid([row for row in rows if not row["in_party"] and row["box_no"] == box_no],
-                             None, data, box_no, db, move_box_slot, select_on_click=False, compact=True)
+                             None, data, box_no, db, move_box_slot, select_on_click=False, compact=True,
+                             party_slots=party_slots, apply_party_slots=apply_party_slots)
                     if st.button("Add Pokemon", key="add_box"):
                         st.session_state["new_pokemon_box_target"] = box_no
                         st.session_state["new_pokemon_dialog_id"] = st.session_state.get("new_pokemon_dialog_id", 0) + 1
@@ -2030,18 +2005,19 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
                     if selected:
                         with st.container(horizontal=True, wrap=False, vertical_alignment="center", key="calc_player_heading"):
                             st.html(f'<div class="sd-calc-focused-title">{pokemon_icon(selected["species"], data, "sd-focused-sprite")}<span class="sd-calc-name-types"><strong>{esc(species_name(selected["species"], data))}</strong><span class="sd-calc-meta-types">{badges((data.get("species", {}).get(selected["species"]) or {}).get("types"))}</span></span></div>')
+                            calc_status_badge(battle_state["player"][str(selected["id"])], "player", selected["id"], battle_state)
                             calc_hp_badge(battle_state["player"][str(selected["id"])], "player", selected["id"], battle_state)
                         flags = st.session_state.setdefault("calc_item_flags", {})
                         item_key = f"calc_item_player_{selected['id']}"
                         with st.container(horizontal=True, key="calc_player_item_row"):
-                            st.html(f'<span class="sd-calc-item-badge">{esc(human(selected["ability"]))}</span>')
                             focused_fields(selected, data, connect, save_entry)
                             active = st.toggle("Use Item", value=flags.get(item_key, True),
                                                key=item_key, persist_state="session",
                                                help="Off simulates the held item being absent in the calculation.")
                         flags[item_key] = active
                         st.html('<div class="sd-detail-divider"></div>')
-                        focused_profile_fields(selected, data, connect, save_entry)
+                        focused_profile_fields(selected, data, connect, save_entry,
+                                               status=battle_state["player"][str(selected["id"])].get("status"))
                     else:
                         st.info("Choose an alive Pokémon for a party slot.")
             with enemy_focus_col:
@@ -2050,23 +2026,27 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
                     if enemy:
                         with st.container(horizontal=True, wrap=False, vertical_alignment="center", key="calc_enemy_heading"):
                             st.html(f'<div class="sd-calc-focused-title">{pokemon_icon(enemy.get("species"), data, "sd-focused-sprite")}<span class="sd-calc-name-types"><strong>{esc(species_name(enemy.get("species"), data))}</strong><span class="sd-calc-meta-types">{badges((data.get("species", {}).get(enemy.get("species")) or {}).get("types"))}</span></span></div>')
+                            calc_status_badge(battle_state["enemy"][str(enemy_focus)], "enemy", f"{trainer_id}_{enemy_focus}", battle_state)
                             calc_hp_badge(battle_state["enemy"][str(enemy_focus)], "enemy", f"{trainer_id}_{enemy_focus}", battle_state)
                         flags = st.session_state.setdefault("calc_item_flags", {})
                         item_key = f"calc_item_enemy_{trainer_id}_{enemy_focus}"
                         with st.container(horizontal=True, key="calc_enemy_item_row"):
                             st.html(f'<span class="sd-calc-item-badge">Level {esc(enemy_level)}</span>')
-                            st.html(f'<span class="sd-calc-item-badge">{esc(human(enemy.get("ability")))}</span>')
                             st.html(f'<span class="sd-calc-item-badge">{esc(human(enemy.get("nature")) if enemy.get("nature") else "Unknown")}</span>')
                             held_item = enemy.get("item")
                             held_item_icon = item_icon(held_item) if held_item else None
-                            if held_item_icon:
-                                st.html(f'<img class="sd-calc-held-item" src="{esc(held_item_icon)}" alt="{esc(human(held_item))}" title="{esc(human(held_item))}">')
+                            held_item_name = human(held_item) if held_item else "None"
+                            held_item_icon_markup = (f'<img class="sd-calc-held-item" src="{esc(held_item_icon)}" '
+                                                     f'alt="" aria-hidden="true">' if held_item_icon else "")
+                            st.html(f'<span class="sd-calc-item-badge sd-calc-held-item-badge">'
+                                    f'{held_item_icon_markup}{esc(held_item_name)}</span>')
                             active = st.toggle("Use Item", value=flags.get(item_key, True),
                                                key=item_key, persist_state="session",
                                                help="Off simulates the held item being absent in the calculation.")
                         flags[item_key] = active
                         st.html('<div class="sd-detail-divider"></div>')
-                        st.html(enemy_profile_markup(enemy, data, enemy_level))
+                        st.html(enemy_profile_markup(enemy, data, enemy_level,
+                                                     status=battle_state["enemy"][str(enemy_focus)].get("status")))
                     else:
                         st.info("This trainer has no Pokémon to show.")
             with enemy_roster_area:
@@ -2090,7 +2070,8 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
                     if isinstance(slot, int) and 0 <= slot < len(order):
                         st.session_state["calc_enemy_focus"] = order[slot]
                         st.rerun()
-def render_page(db, data, save_entry, resolve_level, connect, move_box_slot, apply_party_slots):
+def render_page(db, data, save_entry, resolve_level, connect, move_box_slot, apply_party_slots,
+                move_party_to_box):
     active = st.session_state.setdefault("active_tab", "Calc")
     with st.container(key="sd_header"):
         brand_col, nav_col = st.columns([2, 1], vertical_alignment="center")
@@ -2105,7 +2086,8 @@ def render_page(db, data, save_entry, resolve_level, connect, move_box_slot, app
                     st.session_state["active_tab"] = "Calc"
                     st.rerun()
     if active == "Calc":
-        render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, apply_party_slots)
+        render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, apply_party_slots,
+                    move_party_to_box)
     else:
         render_pokedex(db, data, save_entry, resolve_level, connect, move_box_slot)
 

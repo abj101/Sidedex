@@ -123,7 +123,7 @@ import json, os, sys
 rom = sys.argv[-1]
 status = {
     "protocol": 1, "ok": True,
-    "worker": "sidedex-mgba-worker/0.1.2", "mgba": "0.10.5+26b7884",
+    "worker": "sidedex-mgba-worker/0.1.4", "mgba": "0.10.5+26b7884",
     "platform": "gba", "rom_title": "TEST", "rom_code": "TEST",
     "rom_bytes": os.path.getsize(rom), "frame_count": 7,
 }
@@ -161,7 +161,7 @@ import json, sys, time
 rom = sys.argv[-1]
 print(json.dumps({
     "protocol": 1, "ok": True,
-    "worker": "sidedex-mgba-worker/0.1.2",
+    "worker": "sidedex-mgba-worker/0.1.4",
     "mgba": "0.10.5+26b7884", "platform": "gba",
     "rom_title": "TEST", "rom_code": "TEST",
     "rom_bytes": __import__("os").path.getsize(rom), "frame_count": 0
@@ -194,7 +194,7 @@ time.sleep(3)
             fake_worker = r"""
 import json, os, sys
 rom = sys.argv[-1]
-status = {"protocol":1,"ok":True,"worker":"sidedex-mgba-worker/0.1.2","mgba":"0.10.5+26b7884","platform":"gba","rom_title":"TEST","rom_code":"TEST","rom_bytes":os.path.getsize(rom),"frame_count":0}
+status = {"protocol":1,"ok":True,"worker":"sidedex-mgba-worker/0.1.4","mgba":"0.10.5+26b7884","platform":"gba","rom_title":"TEST","rom_code":"TEST","rom_bytes":os.path.getsize(rom),"frame_count":0}
 print(json.dumps(status), flush=True)
 for line in sys.stdin:
     req = json.loads(line)

@@ -30,8 +30,8 @@ _CSS = """
 .sd-build-trigger:hover,.sd-build-trigger:focus-visible { color:#17303a; background:#e9eedb; border-color:#9bb0a4; outline:1px solid #17303a; outline-offset:1px; }
 .sd-build-value { overflow:hidden; text-overflow:ellipsis; }
 .sd-build-combo { position:relative; }
-.sd-build-combo[data-field="item"] .sd-build-trigger { padding-left:25px; }
-.sd-build-combo[data-field="item"] .sd-build-edit { padding-left:25px; }
+.sd-build-combo[data-field="item"] :is(.sd-build-trigger,.sd-build-edit) { padding-left:5px; }
+.sd-build-combo[data-field="item"][data-has-icon="true"] :is(.sd-build-trigger,.sd-build-edit) { padding-left:25px; }
 .sd-build-edit { width:100%; outline:none; }
 .sd-build-edit[hidden] { display:none; }
 .sd-build-edit:focus { color:#17303a; background:#e9eedb; border-color:#9bb0a4; outline:none; }
@@ -76,8 +76,10 @@ export default function (component) {
   };
   levelEdit.onblur = commitLevel;
   const icon = root.querySelector(".sd-build-item-icon");
+  const itemCombo = root.querySelector('.sd-build-combo[data-field="item"]');
   const previewItem = choice => {
     icon.hidden = !choice?.icon;
+    itemCombo.dataset.hasIcon = String(Boolean(choice?.icon));
     if (choice?.icon) icon.src = choice.icon;
     icon.alt = choice?.icon ? `${choice.label} icon` : "";
   };
