@@ -84,8 +84,11 @@ def action_request(fixture: dict, action: dict, operation: str = "simulate-turn"
     return request
 
 
+_ANN: dict = {}  # the ROM's v9 ready announcement (set by boot_to_ready)
+
+
 def payload(request: dict) -> bytes:
-    return run_dynamic.encode_request(request, protocol_version=PROTOCOL)
+    return run_dynamic.encode_request(request, protocol_version=PROTOCOL, result_buffer=_ANN)
 
 
 def parse_turn(events: list[str]) -> dict:
@@ -110,10 +113,11 @@ def boot_to_ready(client: rom_bridge.RomWorkerClient) -> dict:
         trace.extend(run_dynamic._trace(reply))
         ready = [line for line in trace if line.startswith("ROMTRACE|ready|")]
         if ready:
-            address = int(ready[-1].split("|")[2])
+            _ANN.update(rom_bridge.parse_v9_ready(ready))
+            address = _ANN["address"]
             break
     if address is None:
-        raise TimeoutError("v8 ELF never announced its mailbox")
+        raise TimeoutError("ELF never announced its mailbox")
     return {"address": address, "elapsed_ns": (time.perf_counter() - started) * 1e9,
             "frames": client.status["frame_count"], "emulation_ns": emu_ns,
             "log_ns": log_ns, "cycles": cycles, "calls": calls}
@@ -304,7 +308,7 @@ def main() -> int:
     lines.append("")
     lines.append(f"- Fixture: P1 (physical damage, neutral); {args.iterations} iterations after "
                  f"{args.warmup} warmup; mode normal")
-    lines.append(f"- ELF v8c: `{ELF_SHA}` (protocol {PROTOCOL})")
+    lines.append(f"- ELF: `{ELF_SHA}` (protocol {PROTOCOL})")
     lines.append(f"- Release ROM: `{ROM_SHA}`")
     lines.append(f"- Worker: `{worker_sha}` (built from `codex/rom-worker-b`)")
     lines.append("")

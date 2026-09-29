@@ -54,8 +54,9 @@ V9_DIFFICULTY_RESERVED = 3
 V9_DIFFICULTY_LABELS = {"keep": V9_DIFFICULTY_KEEP, "easy": V9_DIFFICULTY_EASY,
                         "normal": V9_DIFFICULTY_NORMAL}
 # Versions `encode_request` speaks. v9 shares the v8 body but adds a mandatory
-# ROM-announced result buffer, so it has its own entry point (encode_v9_request).
-SUPPORTED_PROTOCOL_VERSIONS = (7, 8)
+# ROM-announced result buffer: `encode_request(..., 9, result_buffer=ann)` is the trace
+# path (flags bit0 clear); encode_v9_request(compact=True) is the SDR2 path.
+SUPPORTED_PROTOCOL_VERSIONS = (7, 8, 9)
 SUBMITTED = 1
 SECOND_ACTION_OFFSET = 836
 SECOND_PRESENT_OFFSET = 842
@@ -161,16 +162,19 @@ def _ints(values, count: int, maximum: int) -> list[int]:
     return values
 
 
-def encode_request(request: dict, protocol_version: int | None = None) -> bytes:
+def encode_request(request: dict, protocol_version: int | None = None, result_buffer: dict | None = None) -> bytes:
     """Encode a six-slot trainer-single state and optional query controls.
 
     `protocol_version` defaults to the pinned protocol from `pinned_source.json`.
     Version 7 writes the 856-byte v7 mailbox (query via `secondPresent == 2`);
     version 8 appends op/mode/criticalPolicy/requestId at offset 856 for an
-    864-byte request. Both layouts share the v7 field offsets. The 876-byte v9
-    request is `encode_v9_request` because it needs the ROM's announcement.
+    864-byte request. Both layouts share the v7 field offsets. Version 9 (the pin) is the
+    876-byte trace request and needs `result_buffer` (`parse_v9_ready` of the ROM's own
+    announcement); it is `encode_v9_trace_request`.
     """
     version = _protocol_version(protocol_version)
+    if version == 9:
+        return encode_v9_trace_request(request, result_buffer)
     query = is_query(request)
     op = operation(request)
     mode = _mode(request)
@@ -438,30 +442,33 @@ def run_v9_turn(elf: Path, sha256: str, request: dict, *, worker_path: Path | No
 
 def run_turn(elf: Path, sha256: str, request: dict, *, protocol_version: int | None = None) -> list[str]:
     version = _protocol_version(protocol_version)
-    if version >= 9:
-        raise RuntimeError("unsupported-protocol-version: v9 returns SDR2 bytes, use run_v9_turn")
     size = mailbox_bytes(version)
     if version == PINNED_PROTOCOL_VERSION:
         expected_elf = PIN["dynamic_oracle"]["headless_elf_sha256"]
         if sha256.upper() != expected_elf.upper():
             raise RuntimeError(f"artifact-mismatch: expected test ELF {expected_elf}, got {sha256.upper()}")
     query = is_query(request)
-    payload = encode_request(request, protocol_version=version)
     with RomWorkerClient(rom_path=elf, expected_artifact_sha256=sha256,
                          timeout=15.0) as worker:
         trace = []
-        address = None
+        address = announced = None
         for _ in range(400):
             trace.extend(_trace(worker.run_frames(60)))
             ready = [line for line in trace if line.startswith("ROMTRACE|ready|")]
             if ready:
-                fields = ready[-1].split("|")
-                if len(fields) != 4 or int(fields[3]) != size:
-                    raise RuntimeError("invalid battle mailbox announcement")
-                address = int(fields[2])
+                if version == 9:
+                    announced = parse_v9_ready(ready)
+                    address = announced["address"]
+                else:
+                    fields = ready[-1].split("|")
+                    if len(fields) != 4 or int(fields[3]) != size:
+                        raise RuntimeError("invalid battle mailbox announcement")
+                    address = int(fields[2])
                 break
         if address is None:
             raise TimeoutError("battle harness did not announce its mailbox")
+        payload = encode_request(request, protocol_version=version,
+                                 result_buffer=announced if version == 9 else None)
         worker.save_state()
         result = worker.batch_turns(
             address, [payload], mailbox_bytes=size,

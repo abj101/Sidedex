@@ -17,14 +17,18 @@
   "test_headless_elf_sha256": "44bdbe5aa7a071064a1dca20c411b0e3ab56c8e4d8fca00857f3b50d56c5bd93",
   "raw_trace_sha256": "e4051f1eb74a2dc61089c0bf15cf98a5472ad3b985a19f178235dfb98ae38034",
   "dynamic_oracle": {
-    "protocol_version": 8,
-    "test_elf_sha256": "23c34b8357eba2cc6a1b486d444a56fcd50852acb8846a9e585d3fdbce7ae3c1",
-    "headless_elf_sha256": "422ade3e159916f9cc8bc1350ad274201b6af6cb9b9d38c14d073f85e982bc77",
+    "protocol_version": 9,
+    "wsl_branch": "sidedex/native",
+    "wsl_commit": "8be1722bbd",
+    "patch": "tools/rom_oracle/dynamic_request.patch",
+    "headless_elf_sha256": "2186323f7fb9f6279e6868f96dc76942ec8ecb1e425538052651daac20ca5cb7",
+    "release_neutral_sha256": "0CCAAAD0878A9CBFB36FBEFFF800E9B6DD66055924B7595038EDE1E8771EC5A2",
     "recipe": [
-      "apply dynamic_request.patch to the pinned source (it already contains the trace hooks; trace_hooks.patch is only for the separate 170-record oracle)",
-      "make -j4 pokeemerald-test.elf TESTS='Sidedex oracle: dynamic AI singles request' (use TEST=1 to select the build/modern-test objdir; the bare recipe reuses build/modern and must not race a rom build in the same tree)",
+      "apply dynamic_request.patch to the pinned source (git diff 2576d0f3f4 of WSL sidedex/native; it already contains the trace hooks)",
+      "make -f make_tools.mk; make rom (TEST=0 must hash to release_neutral_sha256)",
+      "make TEST=1 pokeemerald-test.elf TESTS='Sidedex oracle: dynamic AI singles request' (TEST=1 selects build/modern-test; delete -DTESTING objects before relinking either)",
       "copy pokeemerald-test.elf to pokeemerald-test-headless.elf",
-      "tools/patchelf/patchelf pokeemerald-test-headless.elf gTestRunnerHeadless '\\x01' gTestRunnerSkipIsFail \"\\x00\""
+      "tools/patchelf/patchelf pokeemerald-test-headless.elf gTestRunnerHeadless '\u0001' gTestRunnerSkipIsFail \"\u0000\""
     ]
   },
   "release_evidence": {
@@ -87,17 +91,5 @@
       }
     },
     "narrow_claim": "The patched source is byte-for-byte release-neutral (H1) and the pinned release ROM supports savestate RAM patching and worker IWRAM writes (H4/H5). No release-vs-test-ELF battle comparison is claimed (H2 blocked); the product stays labelled compiled-engine."
-  },
-  "dynamic_oracle_v9": {
-    "status": "candidate (not the active pin; see ROM_TRANSITION_LEDGER.md)",
-    "rom_hook_protocol": 9,
-    "wire_protocol": 3,
-    "wsl_branch": "sidedex/a1-export",
-    "wsl_commit": "c9001b29358154da5e5ac68934940b13f79710d5",
-    "patch": "tools/rom_oracle/dynamic_request_v9.patch",
-    "test_elf_sha256": "ebf37e1be08570184569098a2088bb58cf1948b8c91a6c5213db141ab77d7f35",
-    "headless_elf_sha256": "04060ed874dbf36a51189c98f95ab4a9f8dcadf6dd6093f6ca56e268347d76d2",
-    "worker_sha256": "dd6f1dd646d1b1aabcca9edb7f3c5cff3100a90fb8aaf0daa538264a953aae60",
-    "release_neutral_sha256": "0CCAAAD0878A9CBFB36FBEFFF800E9B6DD66055924B7595038EDE1E8771EC5A2"
   }
 }

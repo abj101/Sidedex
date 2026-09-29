@@ -186,7 +186,7 @@ def _request(snapshot, game_data, action, seed, *, second=None, replay_turns=Non
 
 def _run_batch(client, mailbox, payloads, deadline, request_id):
     return client.batch_turns(
-        mailbox, payloads, mailbox_bytes=run_dynamic.MAILBOX_BYTES,
+        mailbox["address"], payloads, mailbox_bytes=run_dynamic.MAILBOX_BYTES,
         engine_elf_sha256=rom_bridge.ENGINE_ELF_SHA256,
         deadline_ms=int(deadline * 1000), request_id=request_id, max_frames=24_000)
 
@@ -194,7 +194,7 @@ def _run_batch(client, mailbox, payloads, deadline, request_id):
 def _query_cards(client, mailbox, snapshot, game_data, action, seed, deadline):
     request = _request(snapshot, game_data, action, seed)
     request["query"] = True
-    payload = run_dynamic.encode_request(request)
+    payload = run_dynamic.encode_request(request, result_buffer=mailbox)
     reply = _run_batch(client, mailbox, [payload], deadline, "calc-query")
     cards = rom_query.parse(reply["turns"][0]["events"], snapshot, game_data)
     if not cards.get("critical_policy_verified"):
@@ -303,12 +303,12 @@ def _engine_paths():
     return elf.resolve(), worker_path.resolve()
 
 
-def _boot_engine(deadline, elf, worker_path):
+def _boot_engine(deadline, elf, worker_path, command=None):
     client = rom_bridge.RomWorkerClient(
         worker_path=worker_path, rom_path=elf,
         timeout=max(0.1, deadline - time.monotonic()),
         expected_artifact_sha256=rom_bridge.ENGINE_ELF_SHA256,
-        expected_worker_sha256=rom_bridge.WORKER_SHA256,
+        expected_worker_sha256=rom_bridge.WORKER_SHA256, command=command,
     )
     try:
         for _ in range(400):
@@ -317,10 +317,7 @@ def _boot_engine(deadline, elf, worker_path):
             ready = [line for line in run_dynamic._trace(client.run_frames(60))
                      if line.startswith("ROMTRACE|ready|")]
             if ready:
-                fields = ready[-1].split("|")
-                if len(fields) != 4 or int(fields[3]) != run_dynamic.MAILBOX_BYTES:
-                    raise ValueError("engine-error: invalid mailbox announcement")
-                mailbox = int(fields[2])
+                mailbox = rom_bridge.parse_v9_ready(ready)  # request + result buffers the ROM announced
                 client.save_state()
                 # An immutable named pristine-ready slot: every request restores
                 # it, because the default slot is overwritten by node installs.
@@ -334,11 +331,12 @@ def _boot_engine(deadline, elf, worker_path):
 
 def _engine_pool():
     elf, worker_path = _engine_paths()
-    key = (str(elf), str(worker_path), rom_bridge.ENGINE_ELF_SHA256, rom_bridge.WORKER_SHA256)
+    command = rom_rollout.native_command()
+    key = (str(elf), str(worker_path), rom_bridge.ENGINE_ELF_SHA256, rom_bridge.WORKER_SHA256, tuple(command or ()))
     with _POOL_LOCK:
         pool = _POOLS.get(key)
         if pool is None:
-            pool = rom_pool.EnginePool(lambda deadline: _boot_engine(deadline, elf, worker_path), size=1)
+            pool = rom_pool.EnginePool(lambda deadline: _boot_engine(deadline, elf, worker_path, command), size=1)
             _POOLS[key] = pool
             pool.prewarm()
     return pool

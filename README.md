@@ -362,7 +362,7 @@ Current constraints:
    at the pinned source. The build recipe is `dynamic_oracle.recipe` in
    `tools/rom_oracle/pinned_source.json`.
 2. Build `pokeemerald-test-headless.elf`. Its SHA-256 must equal
-   `rom_bridge.ENGINE_ELF_SHA256` (currently `B26561E3…`).
+   `rom_bridge.ENGINE_ELF_SHA256` (currently `2186323F…`, hook protocol 9; query cards use its trace path, request flags bit0 clear).
 3. Copy it to `native/rom_worker/build/mingw/pokeemerald-test-headless.elf`, or
    set `SIDEDEX_ENGINE_ELF_PATH`.
 4. Build the worker with `native/rom_worker/build.ps1` (MSYS2 MinGW64; see

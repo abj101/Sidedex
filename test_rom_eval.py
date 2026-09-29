@@ -91,6 +91,8 @@ def _party_hps(snapshot, side):
 
 
 
+BUF = rom_bridge.parse_v9_ready(["ROMTRACE|ready|33554688|876|9|3|33558528|8192"])
+
 
 class RequestEncoding(unittest.TestCase):
     def test_trainer_items_fill_the_four_slots_at_the_mailbox_tail(self):
@@ -100,7 +102,7 @@ class RequestEncoding(unittest.TestCase):
         request = rom_eval._request(snapshot, DATA,
                                     {"kind": "move", "move_id": "MOVE_THUNDER_SHOCK"},
                                     (KNOWN_MAIN, KNOWN_SECONDARY))
-        payload = run_dynamic.encode_request(request)
+        payload = run_dynamic.encode_request(request, result_buffer=BUF)
         self.assertEqual(len(payload), run_dynamic.MAILBOX_BYTES)
         self.assertEqual(struct.unpack_from("<H", payload, 4)[0], run_dynamic.VERSION)
         self.assertEqual(struct.unpack_from("<4H", payload, run_dynamic.SECOND_ACTION_OFFSET),
@@ -113,7 +115,7 @@ class RequestEncoding(unittest.TestCase):
         # Counts expand into one slot per item (2 Hyper Potions + 1 Revive = 3).
         self.assertEqual(struct.unpack_from("<H", payload, run_dynamic.SECOND_ACTION_OFFSET + 16)[0], 3)
         request["query"] = True
-        query_payload = run_dynamic.encode_request(request)
+        query_payload = run_dynamic.encode_request(request, result_buffer=BUF)
         self.assertEqual(
             struct.unpack_from("<H", query_payload, run_dynamic.SECOND_PRESENT_OFFSET)[0], 2)
 
@@ -134,7 +136,7 @@ class RequestEncoding(unittest.TestCase):
                                     {"kind": "move", "move_id": "MOVE_THUNDER_SHOCK"},
                                     (KNOWN_MAIN, KNOWN_SECONDARY))
         with self.assertRaisesRegex(ValueError, "four item slots"):
-            run_dynamic.encode_request(request)
+            run_dynamic.encode_request(request, result_buffer=BUF)
 
 
 
