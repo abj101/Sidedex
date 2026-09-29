@@ -210,6 +210,7 @@ class RomWorkerClient:
         expected_worker_sha256: str = WORKER_SHA256,
         worker_args: Sequence[str] = (),
         wire_protocol: int = PROTOCOL_VERSION,
+        command: Sequence[str] | None = None,
     ):
         if type(timeout) not in (int, float) or timeout <= 0:
             raise ValueError("timeout must be a positive number")
@@ -241,7 +242,8 @@ class RomWorkerClient:
         if not worker.is_file():
             raise WorkerUnavailableError(f"mGBA worker executable is missing: {worker}")
 
-        command = [str(worker), *[str(arg) for arg in worker_args], "--rom", str(rom)]
+        # `command` launches another engine speaking the same JSON-lines ops (native worker via wsl.exe).
+        command = list(command) if command else [str(worker), *[str(arg) for arg in worker_args], "--rom", str(rom)]
         self._started_at = time.time()
         try:
             self._process = subprocess.Popen(

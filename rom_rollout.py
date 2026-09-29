@@ -10,13 +10,16 @@ The native engine's fused `rollout` op must return exactly these results.
 """
 import concurrent.futures
 import hashlib
-import json
+import os
+import shlex
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 import rom_bridge
 import rom_identity
+import rom_pool
 from tools.rom_oracle import run_dynamic, sdr2
 
 AI = {"kind": "ai"}
@@ -59,11 +62,13 @@ class Runner:
     """One booted v9 worker: `turn` runs one mailbox with unique u16 request tokens."""
 
     def __init__(self, client, ann):
-        self.client, self.ann, self.n, self.last, self.root_key = client, ann, 0, 0, None
+        self.client, self.ann, self.n, self.last, self.avoid, self.root_key = client, ann, 0, 0, 0, None
         self.ready_blob = client.export_state(client.save_checkpoint()["handle"])["blob"]
 
-    def install(self, blob, key):
-        """Make `blob` the worker's default slot (what handle=None restores)."""
+    def install(self, blob, key, hold=0):
+        """Make `blob` the worker's default slot (what handle=None restores). The ROM only releases a
+        held boundary for a request id different from the hold's, so `hold` is never issued again."""
+        self.avoid = hold
         if self.root_key != key:
             self.client.load_state_blob(blob)
             self.client.save_checkpoint()
@@ -72,7 +77,7 @@ class Runner:
     def turn(self, request, handle, timeout=60.0):
         self.n += 1
         text = f"r{self.n}"
-        while _token(text) in (0, self.last):
+        while _token(text) in (0, self.last, self.avoid):
             text += "x"
         self.last = _token(text)
         request = {**request, "request_id": self.last}
@@ -86,12 +91,21 @@ class Runner:
         return reply["turns"][0]
 
 
-def open_worker(elf, worker=rom_bridge.DEFAULT_WORKER, timeout=60.0):
+def native_command():
+    """`SIDEDEX_ENGINE=native` -> launch argv (`SIDEDEX_NATIVE_CMD`, default wsl.exe -e sidedex-native); mgba -> None."""
+    engine = os.environ.get("SIDEDEX_ENGINE", "mgba")  # ponytail: mgba until the native gate passes
+    if engine not in ("mgba", "native"):
+        raise ValueError(f"SIDEDEX_ENGINE must be native or mgba, not {engine!r}")
+    return shlex.split(os.environ.get("SIDEDEX_NATIVE_CMD", "wsl.exe -e sidedex-native")) if engine == "native" else None
+
+
+def open_worker(elf, worker=rom_bridge.DEFAULT_WORKER, timeout=60.0, command=None):
     """Boot `elf` (identity = its own sha256) to the v9 ready announcement -> (client, Runner)."""
     sha = hashlib.sha256(Path(elf).read_bytes()).hexdigest().upper()
     client = rom_bridge.RomWorkerClient(
         worker_path=worker, rom_path=elf, expected_artifact_sha256=sha,
-        expected_worker_sha256=rom_identity.CANDIDATE_WORKER_V3_SHA256, wire_protocol=3, timeout=timeout)
+        expected_worker_sha256=rom_identity.CANDIDATE_WORKER_V3_SHA256, wire_protocol=3, timeout=timeout,
+        command=command)
     try:
         for _ in range(400):
             ready = [x for x in run_dynamic._trace(client.run_frames(60)) if x.startswith("ROMTRACE|ready|")]
@@ -112,6 +126,7 @@ class Root:
     legal: list
     blob: str
     key: str
+    hold: int  # the request id the ROM holds this boundary on
 
 
 def make_root(runner, request):
@@ -127,12 +142,12 @@ def make_root(runner, request):
     legal = words(turn["binary"]["records"]["legal"])
     if not legal:
         raise ValueError("no-legal-actions: the root has no player action")
-    return Root(request, legal, blob, hashlib.sha256(blob.encode()).hexdigest())
+    return Root(request, legal, blob, hashlib.sha256(blob.encode()).hexdigest(), runner.last)
 
 
 def rollout_item(runner, root, item):
     """One rollout from `root` on `runner` (see the module docstring)."""
-    runner.install(root.blob, root.key)
+    runner.install(root.blob, root.key, root.hold)
     prefix, consumed, legal, end = item["prefix"], 0, root.legal, None
     rng = (list(item["rng1"]), list(item["rng2"]))
     handle, prev, outcome, turns, leaf = None, None, "cap", 0, None
@@ -162,6 +177,33 @@ def rollout_item(runner, root, item):
             "legal_at_prefix_end": legal if end is None else end, "leaf": leaf}
 
 
+_POOLS, _POOL_LOCK = {}, threading.Lock()
+
+
+def engine_paths():
+    """(elf, worker): SIDEDEX_V9_ELF, else the pinned ELF location (SIDEDEX_ENGINE_ELF_PATH)."""
+    elf = Path(os.environ.get("SIDEDEX_V9_ELF") or os.environ.get(
+        "SIDEDEX_ENGINE_ELF_PATH", rom_bridge.DEFAULT_WORKER.with_name("pokeemerald-test-headless.elf")))
+    worker = Path(os.environ.get("SIDEDEX_ROM_WORKER_EXE", rom_bridge.DEFAULT_WORKER))
+    for path in (elf, worker):
+        if not path.is_file():
+            raise FileNotFoundError(f"missing-artifact: {path} is missing (SIDEDEX_V9_ELF / SIDEDEX_ROM_WORKER_EXE)")
+    return elf.resolve(), worker.resolve()
+
+
+def engine_pool():
+    """The shared rollout pool: SIDEDEX_WORKERS engines (native: cores - 2, mgba: 3)."""
+    elf, worker = engine_paths()
+    command = native_command()
+    size = int(os.environ.get("SIDEDEX_WORKERS") or (max(1, (os.cpu_count() or 4) - 2) if command else 3))
+    key = (str(elf), str(worker), tuple(command or ()), size)
+    with _POOL_LOCK:
+        if key not in _POOLS:
+            _POOLS[key] = rom_pool.EnginePool(lambda d: open_worker(elf, worker, command=command), size=size)
+            _POOLS[key].prewarm()
+        return _POOLS[key]
+
+
 class Rollout:
     """planner rollout over one runner: `Rollout(runner)(root, items)`."""
 
@@ -175,15 +217,17 @@ class Rollout:
 class PoolRollout:
     """The same contract spread over every worker of an `rom_pool.EnginePool` of (client, Runner)."""
 
-    def __init__(self, pool, deadline_s=60.0):
-        self.pool, self.deadline_s = pool, deadline_s
+    def __init__(self, pool, deadline):
+        self.pool, self.deadline = pool, deadline  # absolute time.monotonic()
 
     def __call__(self, root, items):
         size = max(1, -(-len(items) // (self.pool.size * 4)))  # ~4 chunks per worker balances slow items
         chunks = [items[i:i + size] for i in range(0, len(items), size)]
 
         def run(chunk):
-            with self.pool.session(time.monotonic() + self.deadline_s) as (_client, runner):
+            if time.monotonic() >= self.deadline:
+                raise TimeoutError("timeout: rollout deadline expired")
+            with self.pool.session(self.deadline) as (_client, runner):
                 return Rollout(runner)(root, chunk)
 
         with concurrent.futures.ThreadPoolExecutor(self.pool.size) as ex:

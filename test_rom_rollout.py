@@ -31,7 +31,7 @@ class FakeRunner:
     def __init__(self, loss_at=99):
         self.client, self.loss_at, self.seen, self.n = FakeClient(), loss_at, [], 0
 
-    def install(self, blob, key):
+    def install(self, blob, key, hold=0):
         pass
 
     def turn(self, req, handle):
@@ -58,7 +58,7 @@ class FakeRunner:
         return {"binary": {"header": header, "records": records}, "child": child}
 
 
-ROOT_ = rr.Root({"base": 1}, [(0, 1), (1, 1)], "blob", "k")
+ROOT_ = rr.Root({"base": 1}, [(0, 1), (1, 1)], "blob", "k", 0)
 ITEM = {"rng1": (7, 0, 0, 0), "rng2": (0, 0, 0, 0), "max_turns": 60}
 
 

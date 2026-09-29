@@ -1084,51 +1084,22 @@ def ai_card_body(card):
 
 
 def recommendation_card_body(card):
+    """Per-action P(win) with its 95% CI half-width and sample count; the leading set is marked."""
     actions = [action for action in (card.get("actions") or []) if isinstance(action, dict)]
-    recommended_id = card.get("recommended_action") or card.get("recommended_id")
-    if isinstance(recommended_id, dict):
-        recommended_id = recommended_id.get("id")
-    if not recommended_id:
-        recommended_id = next((action.get("id") for action in actions if action.get("recommended")), None)
-    if not recommended_id:
-        scored = [(Fraction(action["score"]["num"], action["score"]["den"]), action.get("id"))
-                  for action in actions if isinstance(action.get("score"), dict)
-                  and type(action["score"].get("num")) is int
-                  and type(action["score"].get("den")) is int and action["score"]["den"]]
-        recommended_id = max(scored)[1] if scored else None
-    if not recommended_id and actions:
-        # The compiled evaluator already sorts its floating score means.
-        recommended_id = actions[0].get("id")
-
-    deterministic = (card.get("deterministic") or card.get("preview") or card.get("method") == "known-seed"
-                     or card.get("status") in ("known-seed", "engine-fixed-seed", "verified-fixed-seed"))
-    uncertain = bool(card.get("ranking_uncertain"))
-    leading = [action for action in actions if action.get("top_option") or action.get("top")]
-    if not leading:
-        leading = [next((action for action in actions if action.get("id") == recommended_id),
-                        actions[0] if actions else None)]
-    shown = [action for action in leading if action]
-    if not uncertain and not deterministic:
-        shown = shown[:1]
-    rows = []
-    for action in shown:
-        risk = (action.get("ranking_death_risk") or {}).get("estimate")
-        basis = "survival"
-        if type(risk) not in (int, float) or not 0 <= risk <= 1:
-            observed = action.get("first_turn_death_risk") or action.get("death_risk") or {}
-            if type(observed.get("num")) is int and type(observed.get("den")) is int and observed["den"] > 0:
-                risk = observed["num"] / observed["den"]
-                basis = "turn survival"
-        survival = (f'<small class="sd-calc-percent">{round(100 * (1 - risk))}% est. {basis}</small>'
-                    if not deterministic and type(risk) in (int, float) and 0 <= risk <= 1 else "")
-        rows.append(
-            f'<li class="sd-calc-prob-row{" sd-calc-recommended" if not uncertain and not deterministic else ""}">'
-            f'<span class="sd-calc-prob-name">{esc(action.get("label") or human(action.get("id")))}</span>'
-            f'{survival}</li>')
     if not actions:
         return '<p class="sd-calc-unavailable">No legal action was available.</p>'
-    if not rows:
-        return '<p class="sd-calc-unavailable">No safe action identified.</p>'
+    uncertain = bool(card.get("ranking_uncertain"))
+    deterministic = bool(card.get("deterministic") or card.get("status") in ("engine-fixed-seed", "verified-fixed-seed"))
+    rows = []
+    for index, action in enumerate(actions):
+        p_win, radius = action.get("p_win"), action.get("half_width")
+        amount = (f"{round(100 * p_win)}% ±{round(100 * radius)} (n={action.get('samples', 0)})"
+                  if not deterministic and type(p_win) in (int, float) and type(radius) in (int, float) else "")
+        css = (" sd-calc-recommended" if index == 0 and not uncertain and not deterministic else
+               " sd-calc-top" if action.get("top_option") else "")
+        rows.append(f'<li class="sd-calc-prob-row{css}">'
+                    f'<span class="sd-calc-prob-name">{esc(action.get("label") or human(action.get("id")))}</span>'
+                    + (f'<small class="sd-calc-percent">{esc(amount)}</small>' if amount else "") + '</li>')
     return '<ol class="sd-calc-rows">' + "".join(rows) + "</ol>"
 
 
