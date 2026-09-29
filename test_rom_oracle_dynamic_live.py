@@ -5,8 +5,6 @@ import hashlib
 import json
 import struct
 import time
-from fractions import Fraction
-from itertools import product
 from pathlib import Path
 
 import pytest
@@ -73,36 +71,6 @@ class _QuerySession:
 
     def close(self):
         self.client.__exit__(None, None, None)
-
-
-def _brute_multi_hit(record, hit_record, rolls, hp):
-    """Independent enumeration of the documented per-hit outcome weights."""
-    mode, min_hits, _max_hits, wn, wc = hit_record
-    outcomes = {}
-    for damage in rolls[(0,)]:
-        outcomes[damage] = outcomes.get(damage, 0) + wn
-    for damage in rolls[(1,)]:
-        outcomes[damage] = outcomes.get(damage, 0) + wc
-    outcomes = {damage: ways for damage, ways in outcomes.items() if ways}
-    total = 16 * (wn + wc)
-    weights = {min_hits: 1} if mode == 4 else rom_query.MODE_WEIGHTS[mode]
-    weight_den = sum(weights.values())
-    protection = bool(record[2] & (rom_query.FOCUS_SASH | rom_query.STURDY))
-    probability = Fraction(0)
-    for count, weight in weights.items():
-        if protection and count < 2:
-            continue
-        steps = count - 1 if protection else count
-        reaching = 0
-        for combo in product(outcomes.items(), repeat=steps):
-            ways, damage_total = 1, 0
-            for damage, ways_per in combo:
-                ways *= ways_per
-                damage_total += damage
-            if damage_total >= hp:
-                reaching += ways
-        probability += Fraction(weight, weight_den) * Fraction(reaching, total ** steps)
-    return Fraction(record[5], 100) * probability
 
 
 def _query(edit=None):
@@ -295,15 +263,7 @@ def test_live_v8_queries_do_not_resolve_a_turn():
     row = next(item for item in cards["player_moves"]["moves"]
                if item["move_id"] == "MOVE_BULLET_SEED")
     assert row["status"] == "engine-exact"
-    assert row["method"] == "engine-enumerated-multi-hit"
-    scanned = rom_query._scan_events(trace)
-    numeric = run_dynamic.numeric_id("moves", "MOVE_BULLET_SEED")
-    expected = _brute_multi_hit(
-        scanned["records"][0][numeric], scanned["hits"][(0, numeric)],
-        {(0,): scanned["rolls"][(0, numeric, 0)], (1,): scanned["rolls"][(0, numeric, 1)]},
-        request["opponent_party"][0]["hp"])
-    assert row["probability"] == {"num": expected.numerator, "den": expected.denominator}
-    assert expected > 0
+    assert row["damage_range"]["max"] >= row["damage_range"]["min"] > 0
 
 
 def test_live_v8_unsupported_mechanic_fails_closed():
@@ -449,40 +409,9 @@ def test_live_v8_normal_critical_policy_is_labelled_and_changes_the_odds():
         # Observed difference: `normal` keeps the real crit rolls, so the crit
         # denominator is the engine crit chance and the range includes crits,
         # while item-ability-only filters ordinary crits out.
-        assert rows["normal"]["outcomes_source"] == "rom"
         assert (rows["normal"]["crit_denominator"]
                 > rows["item-ability-only"]["crit_denominator"])
         assert (rows["normal"]["damage_range"]["max"]
                 > rows["item-ability-only"]["damage_range"]["max"])
     finally:
         session.close()
-
-
-def test_live_v8_outcome_weights_match_the_parsed_probability():
-    target = _staged_or_pinned_v8()
-    if target is None:
-        pytest.skip("staged v8 test ELF is not installed")
-    elf, sha, version = target
-    request = _v8_request(["MOVE_BULLET_SEED", "MOVE_NONE", "MOVE_NONE", "MOVE_NONE"],
-                          [25, 0, 0, 0], opponent_hp=30)
-    request["candidate_action"] = {"kind": "move", "move_id": "MOVE_BULLET_SEED"}
-    request["critical_policy"] = "normal"
-    request["query"] = True
-    trace = run_dynamic.run_turn(elf, sha, request, protocol_version=version)
-    cards = rom_query.parse_damage(trace, rom_query.snapshot_from_request(request), DATA,
-                                   expected_policy="normal")
-    row = next(item for item in cards["player_moves"]["moves"]
-               if item["move_id"] == "MOVE_BULLET_SEED")
-    assert row["outcomes_source"] == "rom"
-    numeric = run_dynamic.numeric_id("moves", "MOVE_BULLET_SEED")
-    ko, denom = 0, None
-    for event in trace:
-        cells = event.split("|")
-        if cells[:3] == ["ROMTRACE", "query", "outcomes"] and cells[3] == "0" \
-                and int(cells[4]) == numeric:
-            denom = int(cells[8])
-            pairs = [int(value) for value in cells[14:]]
-            ko += sum(pairs[i + 1] for i in range(0, len(pairs), 2) if pairs[i] <= 0)
-    assert denom
-    assert Fraction(row["probability"]["num"], row["probability"]["den"]) == Fraction(ko, denom)
-    assert Fraction(ko, denom) > 0

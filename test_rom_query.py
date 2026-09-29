@@ -1,9 +1,7 @@
-"""The query trace must preserve the exact fraction and reject partial traces."""
+"""The query trace must preserve the damage ranges and reject partial traces."""
 
 import json
 import unittest
-from fractions import Fraction
-from itertools import product
 from pathlib import Path
 
 import rom_query
@@ -12,121 +10,42 @@ from tools.rom_oracle import run_dynamic
 
 DATA = json.loads((Path(__file__).parent / "data" / "game_data.json").read_text(encoding="utf-8"))
 
-NONCRIT = [20] * 16
-CRIT = [30] * 16
-WN, WC = 15, 1
-
-
-def _hitroll(side, move, crit, values):
-    return "ROMTRACE|query|hitroll|" + "|".join(
-        str(cell) for cell in (side, move, crit, *values))
-
-
-def _brute_probability(hp, acc, protection):
-    """Independent enumeration of the KO fraction: every hit count times every
-    per-hit roll sequence, instead of the closed-form convolution."""
-    outcomes = {}
-    for damage in NONCRIT:
-        outcomes[damage] = outcomes.get(damage, 0) + WN
-    for damage in CRIT:
-        outcomes[damage] = outcomes.get(damage, 0) + WC
-    outcomes = {damage: ways for damage, ways in outcomes.items() if ways}
-    total = 16 * (WN + WC)
-    weights = rom_query.MODE_WEIGHTS[0]
-    weight_den = sum(weights.values())
-    probability = Fraction(0)
-    for count, weight in weights.items():
-        if protection and count < 2:
-            continue
-        steps = count - 1 if protection else count
-        reaching = 0
-        for combo in product(outcomes.items(), repeat=steps):
-            ways, damage_total = 1, 0
-            for damage, ways_per in combo:
-                ways *= ways_per
-                damage_total += damage
-            if damage_total >= hp:
-                reaching += ways
-        probability += Fraction(weight, weight_den) * Fraction(reaching, total ** steps)
-    return Fraction(acc, 100) * probability
-
-
 class QueryParsing(unittest.TestCase):
-    def _multi_hit_events(self, player="MOVE_BULLET_SEED", flags=8 | 16):
+    def _multi_hit_events(self, player="MOVE_BULLET_SEED", flags=8):
         enemy = "MOVE_ABSORB"
         seed, absorb = run_dynamic.numeric_id("moves", player), run_dynamic.numeric_id("moves", enemy)
         return [
             f"ROMTRACE|query|damage|0|{seed}|0|0|{flags}|40|150|100|16",
-            f"ROMTRACE|query|hits|0|{seed}|0|2|5|{WN}|{WC}",
-            _hitroll(0, seed, 0, NONCRIT),
-            _hitroll(0, seed, 1, CRIT),
-            f"ROMTRACE|query|damage|1|{absorb}|0|1600|0|2|8|100|1",
+            f"ROMTRACE|query|damage|1|{absorb}|0|0|0|2|8|100|1",
             f"ROMTRACE|query|ai|move|{absorb}",
             "ROMTRACE|query|complete", "ROMTRACE|complete|0",
         ]
 
-    def test_multi_hit_move_composes_the_exact_ko_fraction(self):
-        snapshot = {"player": {"party": [{"moves": ["MOVE_BULLET_SEED"]}]},
-                    "enemy": {"party": [{"moves": ["MOVE_ABSORB"], "hp": 90}]}}
-        row = rom_query.parse(self._multi_hit_events(), snapshot, DATA)["player_moves"]["moves"][0]
-        self.assertEqual(row["status"], "engine-exact")
-        self.assertEqual(row["method"], "engine-enumerated-multi-hit")
-        self.assertEqual(row["damage_range"], {"min": 40, "max": 150})
-        self.assertEqual(row["crit_denominator"], WN + WC)
-        self.assertEqual(row["probability"], {"num": 241453, "den": 1310720})
-        self.assertEqual(row["probability"], {
-            "num": _brute_probability(90, 100, False).numerator,
-            "den": _brute_probability(90, 100, False).denominator})
-
-    def test_multi_hit_total_range_without_ko_enumeration(self):
-        # Current ROM: each hit is summed in-engine, so only the range is reported.
-        seed = run_dynamic.numeric_id("moves", "MOVE_BULLET_SEED")
-        events = [line for line in self._multi_hit_events()
-                  if not line.startswith(("ROMTRACE|query|hits", "ROMTRACE|query|hitroll"))]
-        events[0] = f"ROMTRACE|query|damage|0|{seed}|0|0|8|40|150|100|16"
-        events.insert(1, f"ROMTRACE|query|outcomes|0|{seed}|16|0|0|1000000|0|0|1|1|0")
+    def test_multi_hit_total_range(self):
+        # Each hit is summed in-engine, so only the range is reported.
+        events = self._multi_hit_events()
         snapshot = {"player": {"party": [{"moves": ["MOVE_BULLET_SEED"]}]},
                     "enemy": {"party": [{"moves": ["MOVE_ABSORB"], "hp": 90}]}}
         row = rom_query.parse(events, snapshot, DATA)["player_moves"]["moves"][0]
         self.assertEqual(row["status"], "engine-exact")
         self.assertEqual(row["damage_range"], {"min": 40, "max": 150})
+        self.assertEqual(row["crit_denominator"], 16)
         self.assertNotIn("probability", row)
 
-    def test_full_hp_sash_needs_the_cumulative_before_the_last_hit(self):
-        snapshot = {"player": {"party": [{"moves": ["MOVE_BULLET_SEED"]}]},
-                    "enemy": {"party": [{"moves": ["MOVE_ABSORB"], "hp": 60}]}}
-        card = rom_query.parse(self._multi_hit_events(flags=8 | 16 | 2), snapshot, DATA)["player_moves"]
-        row = card["moves"][0]
-        expected = _brute_probability(60, 100, True)
-        self.assertEqual(row["status"], "engine-exact")
-        self.assertEqual(row["probability"], {"num": expected.numerator, "den": expected.denominator})
-        self.assertEqual(row["probability"], {"num": 1543, "den": 5120})
-        self.assertIn("Focus Sash", row["notes"][0])
-
-    def test_enumerated_multi_hit_without_rolls_is_an_engine_error(self):
-        snapshot = {"player": {"party": [{"moves": ["MOVE_BULLET_SEED"]}]},
-                    "enemy": {"party": [{"moves": ["MOVE_ABSORB"], "hp": 90}]}}
-        events = [line for line in self._multi_hit_events()
-                  if not line.startswith("ROMTRACE|query|hitroll")]
-        with self.assertRaisesRegex(ValueError, "engine-error"):
-            rom_query.parse(events, snapshot, DATA)
-
-    def test_exact_fraction_sash_and_ai(self):
+    def test_damage_ranges_and_ai(self):
         player = "MOVE_THUNDER_SHOCK"
         enemy = "MOVE_ABSORB"
         snapshot = {"player": {"party": [{"moves": [player]}]},
                     "enemy": {"party": [{"moves": [enemy]}]}}
         events = [
-            f"ROMTRACE|query|damage|0|{run_dynamic.numeric_id('moves', player)}|240|6400|0|30|45|75|4",
-            f"ROMTRACE|query|damage|1|{run_dynamic.numeric_id('moves', enemy)}|0|1600|2|20|25|100|1",
+            f"ROMTRACE|query|damage|0|{run_dynamic.numeric_id('moves', player)}|0|0|0|30|45|75|4",
+            f"ROMTRACE|query|damage|1|{run_dynamic.numeric_id('moves', enemy)}|0|0|0|20|25|100|1",
             f"ROMTRACE|query|ai|move|{run_dynamic.numeric_id('moves', enemy)}",
             "ROMTRACE|query|complete", "ROMTRACE|complete|0",
         ]
         cards = rom_query.parse(events, snapshot, DATA)
-        self.assertEqual(cards["player_moves"]["moves"][0]["probability"], {"num": 240, "den": 6400})
         self.assertEqual(cards["player_moves"]["moves"][0]["damage_range"], {"min": 30, "max": 45})
-        self.assertEqual(cards["enemy_moves"]["moves"][0]["probability"], {"num": 0, "den": 1600})
-        self.assertIn("Focus Sash", cards["enemy_moves"]["moves"][0]["notes"][0])
+        self.assertEqual(cards["enemy_moves"]["moves"][0]["damage_range"], {"min": 20, "max": 25})
         self.assertEqual(cards["ai_actions"]["actions"][0]["id"], enemy)
         with self.assertRaisesRegex(ValueError, "did not complete"):
             rom_query.parse(events[:-1], snapshot, DATA)
@@ -137,8 +56,8 @@ class QueryParsing(unittest.TestCase):
         snapshot = {"player": {"party": [{"moves": [player]}]},
                     "enemy": {"party": [{"moves": [enemy]}]}}
         events = [
-            f"ROMTRACE|query|damage|0|{run_dynamic.numeric_id('moves', player)}|240|6400|0|30|45|75|4",
-            f"ROMTRACE|query|damage|1|{run_dynamic.numeric_id('moves', enemy)}|0|1600|0|20|25|100|1",
+            f"ROMTRACE|query|damage|0|{run_dynamic.numeric_id('moves', player)}|0|0|0|30|45|75|4",
+            f"ROMTRACE|query|damage|1|{run_dynamic.numeric_id('moves', enemy)}|0|0|0|20|25|100|1",
             f"ROMTRACE|query|ai|item|{item}",
             "ROMTRACE|query|complete", "ROMTRACE|complete|0",
         ]
@@ -202,8 +121,8 @@ class SplitQueryApi(unittest.TestCase):
         seed = run_dynamic.numeric_id("moves", self.PLAYER)
         absorb = run_dynamic.numeric_id("moves", self.ENEMY)
         return [
-            f"ROMTRACE|query|damage|0|{seed}|240|6400|0|30|45|75|4",
-            f"ROMTRACE|query|damage|1|{absorb}|0|1600|0|20|25|100|1",
+            f"ROMTRACE|query|damage|0|{seed}|0|0|0|30|45|75|4",
+            f"ROMTRACE|query|damage|1|{absorb}|0|0|0|20|25|100|1",
             f"ROMTRACE|query|ai|move|{absorb}",
             "ROMTRACE|query|complete", "ROMTRACE|complete|0",
         ]
@@ -215,7 +134,7 @@ class SplitQueryApi(unittest.TestCase):
         self.assertEqual(damage["decode_schema"], "decode-v1")
         self.assertIn("player_moves", damage)
         self.assertNotIn("ai_actions", damage)
-        self.assertEqual(damage["player_moves"]["moves"][0]["probability"], {"num": 240, "den": 6400})
+        self.assertEqual(damage["player_moves"]["moves"][0]["damage_range"], {"min": 30, "max": 45})
 
         ai = rom_query.parse_ai_action(events, DATA)
         self.assertEqual(ai["query_schema"], "sidedex-query-ai-action-v1")
@@ -242,32 +161,6 @@ class SplitQueryApi(unittest.TestCase):
                 self._events() + ["ROMTRACE|critical-policy|always-crit|battle-script-filtered"],
                 self._snapshot(), DATA)
 
-    def test_rom_outcome_weights_are_consumed_and_fail_closed(self):
-        seed = run_dynamic.numeric_id("moves", self.PLAYER)
-        absorb = run_dynamic.numeric_id("moves", self.ENEMY)
-        head = [
-            f"ROMTRACE|query|damage|0|{seed}|0|38400|0|30|45|100|24",
-            f"ROMTRACE|query|damage|1|{absorb}|0|1600|0|20|25|100|1",
-        ]
-        tail = [f"ROMTRACE|query|ai|move|{absorb}",
-                "ROMTRACE|query|complete", "ROMTRACE|complete|0"]
-        complete = head + [f"ROMTRACE|query|outcomes|0|{seed}|1|0|1|1000000|2|0|2|3|100|0|750000|5|250000"] + tail
-        row = rom_query.parse_damage(complete, self._snapshot(enemy_hp=5), DATA)["player_moves"]["moves"][0]
-        self.assertEqual(row["outcomes_source"], "rom")
-        self.assertEqual(row["method"], "engine-enumerated-multi-hit")
-        self.assertEqual(row["probability"], {"num": 3, "den": 4})
-        self.assertEqual(row["distribution"][0],
-                         {"remaining_hp": 0, "damage": 5, "weight": 750000})
-        # A truncated enumeration (declared two branches, one present) fails closed.
-        truncated = head + [f"ROMTRACE|query|outcomes|0|{seed}|1|0|1|1000000|2|0|2|3|100|0|750000"] + tail
-        with self.assertRaisesRegex(ValueError, "lost a branch"):
-            rom_query.parse_damage(truncated, self._snapshot(enemy_hp=5), DATA)
-        # A refused enumeration is an explicit unsupported-mechanic row.
-        refused = head + [f"ROMTRACE|query|outcomes|0|{seed}|17|0|0|1000000|0|0|1|1|0"] + tail
-        row = rom_query.parse_damage(refused, self._snapshot(enemy_hp=5), DATA)["player_moves"]["moves"][0]
-        self.assertEqual(row["status"], "unavailable")
-        self.assertEqual(row["reason"], "unsupported-mechanic")
-
     def test_query_cards_publish_without_rollout_completion(self):
         # The trace carries no transition records (no `phase|N|after-turn`, no
         # `action|`, no `rng|`), so card availability cannot depend on a rollout.
@@ -284,7 +177,7 @@ class SplitQueryApi(unittest.TestCase):
         absorb = run_dynamic.numeric_id("moves", self.ENEMY)
         events = [
             f"ROMTRACE|query|damage|0|{seed}|0|0|1|0|0|0|0",
-            f"ROMTRACE|query|damage|1|{absorb}|0|1600|0|20|25|100|1",
+            f"ROMTRACE|query|damage|1|{absorb}|0|0|0|20|25|100|1",
             f"ROMTRACE|query|ai|move|{absorb}",
             "ROMTRACE|query|complete", "ROMTRACE|complete|0",
         ]

@@ -13,7 +13,6 @@ import json
 import math
 import time
 from dataclasses import dataclass, field
-from fractions import Fraction
 from typing import Any, Mapping, Sequence
 
 from tools.rom_oracle import run_dynamic
@@ -26,35 +25,10 @@ QUERY_FRAME_STEP = 10
 QUERY_DEADLINE_MS = 15_000
 
 UNAVAILABLE = 1
-FOCUS_SASH = 2
-STURDY = 4
 MULTI_HIT_RANGE = 8
-MULTI_HIT_ENUMERATED = 16
-ALLOWED_FLAGS = UNAVAILABLE | FOCUS_SASH | STURDY | MULTI_HIT_RANGE | MULTI_HIT_ENUMERATED
-MAX_ROLL = 0xFFFF
-MODE_WEIGHTS = {0: {2: 7, 3: 7, 4: 3, 5: 3}, 1: {4: 1, 5: 1}, 2: {5: 1}, 3: {3: 1}}
+ALLOWED_FLAGS = UNAVAILABLE | MULTI_HIT_RANGE
 CRITICAL_POLICY = "item-ability-only"  # backwards-compatible default label
 CRITICAL_POLICIES = ("normal", "item-ability-only")
-
-# `ROMTRACE|query|outcomes` (README "Complete outcome weights"): the ROM's
-# complete joint distribution over the target's remaining HP, in integer parts
-# per million, chunked eight branches at a time.
-OUTCOME_MULTI_HIT = 1
-OUTCOME_SASH = 2
-OUTCOME_STURDY = 4
-OUTCOME_LOW_ACCURACY = 8
-OUTCOME_REFUSED = 16
-OUTCOME_AXIS_BOUND = 32
-ALLOWED_OUTCOME_FLAGS = (OUTCOME_MULTI_HIT | OUTCOME_SASH | OUTCOME_STURDY
-                         | OUTCOME_LOW_ACCURACY | OUTCOME_REFUSED | OUTCOME_AXIS_BOUND)
-OUTCOME_DENOMINATOR = 1_000_000
-
-# FALLBACK (package C, phase 2). The v8b ROM emits the `query|outcomes` record
-# and `_outcome_row` consumes it. This Python composition still runs for traces
-# that predate the record (the pinned v7 ELF, and any v8 trace without it), and
-# it is the single place to delete once no supported engine lacks the record.
-LEGACY_OUTCOME_COMPOSITION = True
-
 
 def _ints(cells, label):
     try:
@@ -75,49 +49,6 @@ def _human(source_id):
 def item_label(game_data, source_id):
     """Item name from the data table, falling back to a title-cased source ID."""
     return ((game_data.get("items") or {}).get(source_id) or {}).get("name") or _human(source_id)
-
-
-def _compose_multi_hit_ko(hit_record, non_crit_rolls, crit_rolls, accuracy, hp, protection=False):
-    """Legacy Python composition of an enumerated multi-hit KO fraction.
-
-    `dist` is the integer-weighted per-hit damage histogram (weight `wn` for each
-    non-crit roll, `wc` for each crit roll) over the engine's 16 enumerated
-    damage-modifier rolls, so the per-hit weight total is `T = 16*(wn+wc)`.
-    """
-    mode, min_hits, max_hits, wn, wc = hit_record
-    dist = {}
-    for damage in non_crit_rolls:
-        dist[damage] = dist.get(damage, 0) + wn
-    for damage in crit_rolls:
-        dist[damage] = dist.get(damage, 0) + wc
-    total = 16 * (wn + wc)
-    weights = {min_hits: 1} if mode == 4 else MODE_WEIGHTS[mode]
-    weight_den = sum(weights.values())
-    # A full-HP Focus Sash / Sturdy triggers once: the opponent survives the hit
-    # that first reaches its HP, so a KO needs the cumulative damage to reach `hp`
-    # strictly before the last hit (the final hit then always lands on the 1 HP
-    # survivor, so its own damage roll is unweighted).
-    probability = Fraction(0)
-    for count, weight in weights.items():
-        if protection and count < 2:
-            continue
-        steps = count - 1 if protection else count
-        cumulative = {0: 1}
-        for _ in range(steps):
-            nxt = {}
-            for value, ways in cumulative.items():
-                for damage, damage_ways in dist.items():
-                    nxt[value + damage] = nxt.get(value + damage, 0) + ways * damage_ways
-            cumulative = nxt
-        reaching = sum(ways for value, ways in cumulative.items() if value >= hp)
-        probability += Fraction(weight, weight_den) * Fraction(reaching, total ** steps)
-    return Fraction(accuracy, 100) * probability
-
-
-def _multi_hit_probability(record, hit_record, rolls, hp):
-    """Backwards-compatible wrapper used by the parser tests."""
-    return _compose_multi_hit_ko(hit_record, rolls[(0,)], rolls[(1,)], record[5], hp,
-                                 bool(record[2] & (FOCUS_SASH | STURDY)))
 
 
 def _ai_card(ai, game_data):
@@ -155,52 +86,26 @@ def _scan_events(events, expected_policy=None) -> dict:
     """Validate and collect every query record without building any card."""
     _require_query_complete(events)
     records = {0: {}, 1: {}}
-    hits = {}
-    rolls = {}
     ai = None
     query_context = None
     faints = []
     policy_verified = False
     observed_policy = None
-    outcomes = {}
     query_active = {}
     for line in events:
         cells = line.split("|")
         if cells[:3] == ["ROMTRACE", "query", "damage"]:
             if len(cells) != 12:
                 raise ValueError("engine-error: invalid query damage record")
+            # num/den (cells 5-6) are reserved and must be 0.
             side, move, num, den, flags, minimum, maximum, accuracy, crit_den = _ints(cells[3:], "damage")
             if (side not in records or move <= 0 or flags & ~ALLOWED_FLAGS
                     or not 0 <= minimum <= maximum or not 0 <= accuracy <= 100
-                    or crit_den < 0 or not 0 <= num <= den):
+                    or crit_den < 0 or num != 0 or den != 0):
                 raise ValueError("engine-error: invalid query damage bounds")
-            if not flags & (UNAVAILABLE | MULTI_HIT_RANGE | MULTI_HIT_ENUMERATED) and (den != 1600 * crit_den or crit_den == 0):
-                raise ValueError("engine-error: invalid exact query denominator")
             if move in records[side]:
                 raise ValueError("engine-error: duplicate query move")
-            records[side][move] = (num, den, flags, minimum, maximum, accuracy, crit_den)
-        elif cells[:3] == ["ROMTRACE", "query", "hits"]:
-            if len(cells) != 10:
-                raise ValueError("engine-error: invalid query hits record")
-            side, move, mode, min_hits, max_hits, wn, wc = _ints(cells[3:], "hits")
-            if (side not in records or move <= 0 or not 0 <= mode <= 4
-                    or not 1 <= min_hits <= max_hits or wn < 0 or wc < 0 or wn + wc < 1):
-                raise ValueError("engine-error: invalid query hit count bounds")
-            if (side, move) in hits:
-                raise ValueError("engine-error: duplicate query hit count")
-            hits[(side, move)] = (mode, min_hits, max_hits, wn, wc)
-        elif cells[:3] == ["ROMTRACE", "query", "hitroll"]:
-            # 22 cells = owner, move, crit and the engine's 16 damage rolls.
-            if len(cells) != 22:
-                raise ValueError("engine-error: invalid query hit roll record")
-            side, move, crit = _ints(cells[3:6], "hit roll")
-            damage = _ints(cells[6:], "hit roll")
-            if (side not in records or move <= 0 or crit not in (0, 1)
-                    or any(not 0 <= value <= MAX_ROLL for value in damage)):
-                raise ValueError("engine-error: invalid query hit roll bounds")
-            if (side, move, crit) in rolls:
-                raise ValueError("engine-error: duplicate query hit roll")
-            rolls[(side, move, crit)] = damage
+            records[side][move] = (flags, minimum, maximum, accuracy, crit_den)
         elif cells[:3] == ["ROMTRACE", "query", "ai"]:
             if len(cells) != 5 or cells[3] not in ("move", "switch", "item") or ai is not None:
                 raise ValueError("engine-error: invalid query AI record")
@@ -208,33 +113,6 @@ def _scan_events(events, expected_policy=None) -> dict:
                 ai = (cells[3], int(cells[4]))
             except ValueError as exc:
                 raise ValueError("engine-error: invalid query AI choice") from exc
-        elif cells[:3] == ["ROMTRACE", "query", "outcomes"]:
-            if len(cells) < 14 or (len(cells) - 14) % 2:
-                raise ValueError("engine-error: invalid query outcomes record")
-            owner, move, flags, chunk, chunks, denom, branches, hits_mode, \
-                min_hits, max_hits, accuracy = _ints(cells[3:14], "outcomes")
-            if (owner not in records or move <= 0 or flags & ~ALLOWED_OUTCOME_FLAGS
-                    or denom != OUTCOME_DENOMINATOR or chunks < 0 or chunk < 0
-                    or not 0 <= accuracy <= 100 or not 0 <= min_hits <= max_hits <= 5
-                    or hits_mode > 4 or chunks and chunk >= chunks):
-                raise ValueError("engine-error: invalid query outcomes header")
-            entry = outcomes.setdefault((owner, move), {
-                "flags": flags, "denominator": denom, "hits_mode": hits_mode,
-                "min_hits": min_hits, "max_hits": max_hits, "accuracy": accuracy,
-                "branches": {}, "declared_branches": branches, "pairs": 0,
-                "chunks": chunks, "seen": set()})
-            if (entry["chunks"] != chunks or entry["flags"] != flags
-                    or entry["declared_branches"] != branches):
-                raise ValueError("engine-error: inconsistent query outcomes header")
-            if chunk in entry["seen"]:
-                raise ValueError("engine-error: duplicate query outcomes chunk")
-            entry["seen"].add(chunk)
-            entry["pairs"] += len(range(14, len(cells), 2))
-            for index in range(14, len(cells), 2):
-                hp, weight = _ints(cells[index:index + 2], "outcome branch")
-                if hp < 0 or weight < 0:
-                    raise ValueError("engine-error: invalid query outcome branch")
-                entry["branches"][hp] = entry["branches"].get(hp, 0) + weight
         elif cells[:3] == ["ROMTRACE", "query", "context"]:
             if len(cells) != 4 or cells[3] not in (
                 "current-state", "post-switch", "after-candidate-turn"
@@ -274,61 +152,14 @@ def _scan_events(events, expected_policy=None) -> dict:
                 raise ValueError("engine-error: invalid faint record")
             faints.append({"turn": turn, "battler": battler,
                            "party_slot": party_slot, "species_id": species})
-    for side in records:
-        for move, record in records[side].items():
-            if record[2] & MULTI_HIT_ENUMERATED and not (
-                (side, move) in hits and (side, move, 0) in rolls and (side, move, 1) in rolls
-            ):
-                raise ValueError("engine-error: enumerated multi-hit move lacks hit rolls")
     if expected_policy is not None and observed_policy != expected_policy:
         raise ValueError(
             f"engine-error: critical policy mismatch: trace reports {observed_policy!r}, "
             f"request expected {expected_policy!r}")
-    for entry in outcomes.values():
-        if entry["pairs"] != entry["declared_branches"]:
-            raise ValueError("engine-error: query outcomes record lost a branch")
-        if entry["chunks"] == 0:
-            if not entry["flags"] & OUTCOME_REFUSED or entry["branches"]:
-                raise ValueError("engine-error: empty query outcomes record without a refusal")
-            continue
-        if len(entry["seen"]) != entry["chunks"]:
-            raise ValueError("engine-error: query outcomes record is missing a chunk")
-        if sum(entry["branches"].values()) != entry["denominator"]:
-            raise ValueError("engine-error: query outcomes weights do not sum to the denominator")
-    return {"records": records, "hits": hits, "rolls": rolls, "ai": ai,
+    return {"records": records, "ai": ai,
             "context": query_context, "faints": faints,
-            "outcomes": outcomes,
             "policy": observed_policy or CRITICAL_POLICY,
             "policy_verified": policy_verified, "active": query_active}
-
-
-def _outcome_row(entry, minimum, maximum, crit_den, accuracy, target_hp):
-    """Build an engine-exact row from the ROM's complete outcome enumeration."""
-    if entry["flags"] & OUTCOME_REFUSED:
-        return {"status": "unavailable", "reason": "unsupported-mechanic",
-                "detail": "The ROM declined to enumerate this move's outcome weights."}
-    ko = sum(weight for hp, weight in entry["branches"].items() if hp <= 0)
-    probability = Fraction(ko, entry["denominator"])
-    multi = bool(entry["flags"] & OUTCOME_MULTI_HIT)
-    notes = []
-    if entry["flags"] & OUTCOME_SASH:
-        notes.append("Full-HP Focus Sash is folded into the ROM outcome weights.")
-    if entry["flags"] & OUTCOME_STURDY:
-        notes.append("Full-HP Sturdy is folded into the ROM outcome weights.")
-    row = {"status": "engine-exact",
-           "probability": {"num": probability.numerator, "den": probability.denominator},
-           "num": probability.numerator, "den": probability.denominator,
-           "damage_range": {"min": minimum, "max": maximum},
-           "accuracy_percent": accuracy, "crit_denominator": crit_den,
-           "method": ("engine-enumerated-multi-hit" if multi else
-                      "engine-enumerated-single-hit"),
-           "outcomes_source": "rom", "notes": notes}
-    if target_hp is not None:
-        row["distribution"] = [
-            {"remaining_hp": hp, "damage": target_hp - hp, "weight": weight}
-            for hp, weight in sorted(entry["branches"].items())]
-        row["distribution_denominator"] = entry["denominator"]
-    return row
 
 
 def _damage_row(scanned, side, move_id, target_mon, game_data):
@@ -338,7 +169,7 @@ def _damage_row(scanned, side, move_id, target_mon, game_data):
     record = scanned["records"][side].get(numeric)
     if record is None:
         raise ValueError(f"incomplete-state: missing query for {move_id}")
-    num, den, flags, minimum, maximum, accuracy, crit_den = record
+    flags, minimum, maximum, accuracy, crit_den = record
     target_hp = target_mon.get("hp") if isinstance(target_mon, dict) else None
     target_max_hp = target_mon.get("max_hp") if isinstance(target_mon, dict) else None
     row = {"move_id": move_id, "move_name": title,
@@ -346,59 +177,12 @@ def _damage_row(scanned, side, move_id, target_mon, game_data):
            "target_hp": target_hp, "target_max_hp": target_max_hp}
     if flags & UNAVAILABLE:
         row.update(status="unavailable", reason="unsupported-mechanic",
-                   detail=("KO chance not calculated; range assumes unchanged damage modifiers between hits."
-                           if flags & MULTI_HIT_RANGE else
-                           "Exact single-hit KO probability is unavailable for this move."))
+                   detail="Damage is unavailable for this move.")
         if flags & MULTI_HIT_RANGE:
             row["damage_range"] = {"min": minimum, "max": maximum}
         return row
-    if flags & MULTI_HIT_RANGE and not flags & MULTI_HIT_ENUMERATED:
-        # The ROM sums each hit with its own state (fewest hits at the low roll,
-        # most hits at the high roll); it reports no KO chance for these.
-        row.update(status="engine-exact", damage_range={"min": minimum, "max": maximum},
-                   accuracy_percent=accuracy, crit_denominator=crit_den,
-                   method="engine-multi-hit-range", notes=[])
-        return row
-    outcome = scanned["outcomes"].get((side, numeric))
-    if outcome is not None:
-        result = _outcome_row(outcome, minimum, maximum, crit_den, accuracy, target_hp)
-        if result["status"] == "unavailable" and flags & MULTI_HIT_RANGE:
-            result["damage_range"] = {"min": minimum, "max": maximum}
-        row.update(result)
-        return row
-    if flags & MULTI_HIT_ENUMERATED:
-        if not LEGACY_OUTCOME_COMPOSITION:
-            raise ValueError("unsupported-mechanic: ROM outcome-weight enumeration is not wired up")
-        # LEGACY-FALLBACK (see the module-level constant): single deletion point.
-        hit_record = scanned["hits"][(side, numeric)]
-        probability = _compose_multi_hit_ko(
-            hit_record,
-            scanned["rolls"][(side, numeric, 0)],
-            scanned["rolls"][(side, numeric, 1)],
-            accuracy, target_mon["hp"], bool(flags & (FOCUS_SASH | STURDY)))
-        notes = []
-        if flags & FOCUS_SASH:
-            notes.append("Full-HP Focus Sash prevents a one-hit KO.")
-        if flags & STURDY:
-            notes.append("Full-HP Sturdy prevents a one-hit KO.")
-        row.update(status="engine-exact",
-                   probability={"num": probability.numerator, "den": probability.denominator},
-                   num=probability.numerator, den=probability.denominator,
-                   damage_range={"min": minimum, "max": maximum},
-                   accuracy_percent=accuracy, crit_denominator=hit_record[3] + hit_record[4],
-                   method="engine-enumerated-multi-hit", notes=notes)
-        return row
-    # Single-hit: the ROM already returned the complete fraction including crit
-    # weights and accuracy, so Python only aggregates the integers.
-    notes = []
-    if flags & FOCUS_SASH:
-        notes.append("Full-HP Focus Sash prevents a one-hit KO.")
-    if flags & STURDY:
-        notes.append("Full-HP Sturdy prevents a one-hit KO.")
-    row.update(status="engine-exact", probability={"num": num, "den": den},
-               num=num, den=den, damage_range={"min": minimum, "max": maximum},
-               accuracy_percent=accuracy, crit_denominator=crit_den,
-               method="engine-enumerated-single-hit", notes=notes)
+    row.update(status="engine-exact", damage_range={"min": minimum, "max": maximum},
+               accuracy_percent=accuracy, crit_denominator=crit_den)
     return row
 
 
