@@ -92,11 +92,13 @@ class Runner:
             handle=self.root_handle, request_token=root.hold % 30000 + 2, engine_elf_sha256=self.client.rom_sha256,
             deadline_ms=deadline_ms, request_id=f"n{self.n}", critical_policy=policy)
         out = []
+        size = (len(root.request["player_party"]), len(root.request["opponent_party"]))  # native counts alive mons
         for r in got:
             if r["outcome"] == "error":
                 raise RuntimeError(f"engine-error: {r.get('error')}")
             out.append({"outcome": r["outcome"] if r["outcome"] in ("win", "loss") else "cap", "turns": r["turns"],
-                        "prefix_consumed": r["prefix_consumed"], "leaf": r["leaf"],
+                        "prefix_consumed": r["prefix_consumed"], "leaf": r["leaf"] and {
+                            **r["leaf"], "p_alive": r["leaf"]["p_alive"] / size[0], "o_alive": r["leaf"]["o_alive"] / size[1]},
                         "legal_at_prefix_end": [(0, x[1]) if x[0] == 0 else (1, x[3]) for x in r["legal_at_prefix_end"]
                                                 if x[0] in (0, 1)]})
         return out
