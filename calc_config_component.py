@@ -6,10 +6,13 @@ import streamlit as st
 _HTML = '<div class="sd-config-picker"></div>'
 
 _JS = """
+const outsideHandlers = new WeakMap();
+
 export default function (component) {
   const { data, parentElement, setTriggerValue } = component;
   const root = parentElement.querySelector(".sd-config-picker");
   if (!root) return;
+  outsideHandlers.get(parentElement)?.();
   const state = {open: false};
   root.replaceChildren();
 
@@ -95,6 +98,11 @@ export default function (component) {
     if (state.open) input.focus();
   };
   menu.onkeydown = event => { if (event.key === "Escape") { close(); trigger.focus(); } };
+  const onOutside = event => { if (!root.contains(event.target)) close(); };
+  document.addEventListener("pointerdown", onOutside, true);
+  const cleanup = () => document.removeEventListener("pointerdown", onOutside, true);
+  outsideHandlers.set(parentElement, cleanup);
+  return cleanup;
 }
 """
 

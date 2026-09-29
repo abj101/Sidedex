@@ -16,6 +16,37 @@ function text(parent, tag, className, value) {
   return node;
 }
 
+
+function showDeleteMenu(event, onDelete) {
+  event.preventDefault();
+  event.stopPropagation();
+  document.querySelectorAll(".sd-context-menu").forEach(node => node.remove());
+  const menu = document.createElement("div");
+  menu.className = "sd-context-menu";
+  menu.setAttribute("role", "menu");
+  const item = document.createElement("button");
+  item.type = "button";
+  item.className = "sd-picker-option";
+  item.setAttribute("role", "menuitem");
+  item.textContent = "Delete";
+  menu.append(item);
+  menu.style.left = `${event.clientX}px`;
+  menu.style.top = `${event.clientY}px`;
+  document.body.append(menu);
+  const close = () => {
+    menu.remove();
+    document.removeEventListener("pointerdown", onOutside, true);
+    document.removeEventListener("keydown", onKey, true);
+    window.removeEventListener("scroll", close, true);
+  };
+  const onOutside = e => { if (!menu.contains(e.target)) close(); };
+  const onKey = e => { if (e.key === "Escape") close(); };
+  item.onclick = () => { close(); onDelete(); };
+  document.addEventListener("pointerdown", onOutside, true);
+  document.addEventListener("keydown", onKey, true);
+  window.addEventListener("scroll", close, true);
+}
+
 function icon(parent, url, alt, className) {
   if (!url) return;
   const node = document.createElement("img");
@@ -64,6 +95,7 @@ export default function (component) {
 
     let suppressClick = false;
     if (slotData && data.editable_empty) {
+      trigger.addEventListener("contextmenu", event => showDeleteMenu(event, () => emit("delete", {id: slotData.id})));
       let drag = null;
       const dropAt = (x, y) => {
         const node = document.elementFromPoint(x, y);
@@ -259,4 +291,5 @@ def calc_roster(*, slots, options, key, editable_empty=True):
         on_focus_change=lambda: None,
         on_replace_change=lambda: None,
         on_move_change=lambda: None,
+        on_delete_change=lambda: None,
     )

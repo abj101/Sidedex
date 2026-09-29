@@ -174,7 +174,7 @@ def _scan_events(events, expected_policy=None) -> dict:
                     or not 0 <= minimum <= maximum or not 0 <= accuracy <= 100
                     or crit_den < 0 or not 0 <= num <= den):
                 raise ValueError("engine-error: invalid query damage bounds")
-            if not flags & (UNAVAILABLE | MULTI_HIT_ENUMERATED) and (den != 1600 * crit_den or crit_den == 0):
+            if not flags & (UNAVAILABLE | MULTI_HIT_RANGE | MULTI_HIT_ENUMERATED) and (den != 1600 * crit_den or crit_den == 0):
                 raise ValueError("engine-error: invalid exact query denominator")
             if move in records[side]:
                 raise ValueError("engine-error: duplicate query move")
@@ -351,6 +351,13 @@ def _damage_row(scanned, side, move_id, target_mon, game_data):
                            "Exact single-hit KO probability is unavailable for this move."))
         if flags & MULTI_HIT_RANGE:
             row["damage_range"] = {"min": minimum, "max": maximum}
+        return row
+    if flags & MULTI_HIT_RANGE and not flags & MULTI_HIT_ENUMERATED:
+        # The ROM sums each hit with its own state (fewest hits at the low roll,
+        # most hits at the high roll); it reports no KO chance for these.
+        row.update(status="engine-exact", damage_range={"min": minimum, "max": maximum},
+                   accuracy_percent=accuracy, crit_denominator=crit_den,
+                   method="engine-multi-hit-range", notes=[])
         return row
     outcome = scanned["outcomes"].get((side, numeric))
     if outcome is not None:

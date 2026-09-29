@@ -32,6 +32,10 @@ _GENERATION = {"value": 0}       # invalidate fences older in-flight jobs
 _ROOT = Path(__file__).parent
 _DEFAULT_ELF = _ROOT / "native" / "rom_worker" / "build" / "mingw" / "pokeemerald-test-headless.elf"
 _DISK_PATH = _ROOT / "native" / "rom_worker" / "build" / "calc_cache.json"
+_ROM_CODE_FILES = (*sorted(_ROOT.glob("rom_*.py")), _ROOT / "planner.py",
+                   *(_ROOT / "tools" / "rom_oracle" / name
+                     for name in ("run_dynamic.py", "sdr2.py", "numeric_id_map.json")))
+_ROM_CODE_STAMP = {}            # file stats -> digest of the ROM evaluator source
 
 
 def _elf_sha256():
@@ -78,13 +82,41 @@ def _rom_unavailable(reason, detail, source_sha):
     return result
 
 
+def _rom_code_stamp():
+    """Digest of the ROM evaluator source.
+
+    Streamlit re-imports an edited rom_eval but keeps this module and its caches,
+    so a result computed by older evaluator code must not match the new key.
+    """
+    stats = []
+    for path in _ROM_CODE_FILES:
+        try:
+            info = path.stat()
+            stats.append((path.name, info.st_mtime_ns, info.st_size))
+        except OSError:
+            stats.append((path.name, None, None))
+    stats = tuple(stats)
+    if stats not in _ROM_CODE_STAMP:
+        digest = hashlib.sha256()
+        for path in _ROM_CODE_FILES:
+            digest.update(path.name.encode("utf-8"))
+            try:
+                digest.update(path.read_bytes())
+            except OSError:
+                pass
+        _ROM_CODE_STAMP.clear()
+        _ROM_CODE_STAMP[stats] = digest.hexdigest()
+    return _ROM_CODE_STAMP[stats]
+
+
 def snapshot_key(snapshot):
     """Canonical key including the relevant evaluator identity.
 
     A v2 snapshot is a ROM request and is keyed by the full contract section-1
     `TransitionIdentity` tuple (source, test ELF, worker + version, mGBA,
     wire/ROM-hook protocol, save format, state/decode schemas, execution mode,
-    critical policy, reserved planner identity). Opaque worker-local handles are
+    critical policy, reserved planner identity), plus a digest of the ROM
+    evaluator source (`_rom_code_stamp`). Opaque worker-local handles are
     never part of the snapshot, so nothing worker-local is cached across a
     process restart.
     """
@@ -101,7 +133,8 @@ def snapshot_key(snapshot):
                         ("worker_sha256", getattr(rom_bridge, "WORKER_SHA256", None)),
                         ("worker_version", getattr(rom_bridge, "WORKER_VERSION", None)))
         payload = json.dumps(snapshot, sort_keys=True, separators=(",", ":"), default=str)
-        return hashlib.sha256(repr(("rom-v6", snapshot.get("source_sha"), identity, payload)).encode("utf-8")).hexdigest()
+        return hashlib.sha256(repr(("rom-v7", snapshot.get("source_sha"), identity, _rom_code_stamp(),
+                                    payload)).encode("utf-8")).hexdigest()
     engine, _ = _safe_engine()
     try:
         canonical = engine.normalize_snapshot(snapshot) if engine else snapshot
@@ -270,7 +303,11 @@ def _run(key, snapshot, game_data, generation=None):
         _PARTIAL.pop(key, None)
         if _GENERATION["value"] == generation:
             _CACHE[key] = result
-            if snapshot.get("schema_version") == 2 and result.get("status") != "unavailable":
+            # Engine faults must not outlive a restart; only snapshot-inherent reasons may persist.
+            if snapshot.get("schema_version") == 2 and all(
+                    result.get(kind, {}).get("status") != "unavailable" or result[kind].get("reason") in
+                    {"unsupported-mechanic", "incomplete-state", "no-legal-actions", "invalid-id"}
+                    for kind in ("player_moves", "enemy_moves", "ai_actions", "recommendation")):
                 _save_disk(key, result)
             _CACHE.move_to_end(key)
             while len(_CACHE) > CACHE_LIMIT:

@@ -52,6 +52,14 @@ def enemy_member():
 
 
 class SnapshotTest(unittest.TestCase):
+    def test_item_toggle_callback_updates_flags_before_the_snapshot_rerun(self):
+        from planner_ui import calc_sync_item_flag
+        with patch("planner_ui.st") as st:
+            st.session_state = {"calc_item_flags": {"calc_item_enemy_T_0": True},
+                                "calc_item_enemy_T_0": False}
+            calc_sync_item_flag("calc_item_enemy_T_0")
+            self.assertEqual(st.session_state["calc_item_flags"], {"calc_item_enemy_T_0": False})
+
     def test_build_snapshot_carries_the_entered_battle_state(self):
         state = {"player_active_slot": 0, "enemy_active_index": 0,
                  "planned_action": {"kind": "move", "move_id": "MOVE_TACKLE", "target_index": None},
@@ -434,7 +442,7 @@ class CardTest(unittest.TestCase):
                              "evidence": {"basis": "source-transcribed", "oracle_verified": False},
                              "method": "seed-independent",
                              "moves": [{"move_id": "MOVE_TACKLE", "move_name": "Tackle",
-                                        "probability": {"num": 1, "den": 3},
+                                        "damage_range": {"min": 12, "max": 18}, "target_max_hp": 36,
                                         "method": "seed-independent",
                                         "ko": "damage >= remaining HP of enemy active",
                                         "notes": []}]},
@@ -446,19 +454,20 @@ class CardTest(unittest.TestCase):
     def test_exact_card_shows_percent_without_explanation(self):
         card = calc_result_card("Your moves · KO probability", "player_moves",
                                 card_result(self.result(), "player_moves"))
-        self.assertIn("33%", card)
+        self.assertIn("33–50%", card)
         self.assertNotIn("1/3", card)
         self.assertNotIn("source-transcribed", card)
         self.assertNotIn("damage &gt;= remaining HP", card)
 
-    def test_simulated_outcome_is_not_shown_as_a_ko_probability(self):
+    def test_move_rows_never_show_a_ko_chance(self):
         result = self.result()
         move = result["player_moves"]["moves"][0]
         move["method"] = "known-seed"
         move["probability"] = {"num": 1, "den": 1}
-        card = calc_result_card("Your moves · KO result", "player_moves",
+        card = calc_result_card("Your moves · Damage", "player_moves",
                                 card_result(result, "player_moves"))
-        self.assertIn("KO in this simulation", card)
+        self.assertIn("33–50%", card)
+        self.assertNotIn("KO", card)
         self.assertNotIn("100%", card)
         self.assertNotIn("known-seed", card)
 
@@ -476,7 +485,7 @@ class CardTest(unittest.TestCase):
                                  card_result(result, "player_moves"))
         missing = calc_result_card("Enemy moves · KO probability", "enemy_moves",
                                    card_result(result, "enemy_moves"), ["Tackle"])
-        self.assertIn("33%", exact)
+        self.assertIn("33–50%", exact)
         self.assertIn("Tackle", missing)
         self.assertIn("Calculating", missing)
         self.assertIn("Tackle", missing)
@@ -493,7 +502,7 @@ class CardTest(unittest.TestCase):
              "reason": "unsupported-move", "mechanics": ["sound-based stat drop"]})
         card = calc_result_card("Your moves · KO probability", "player_moves",
                                 card_result(result, "player_moves"))
-        self.assertIn("33%", card)
+        self.assertIn("33–50%", card)
         self.assertIn("Tackle", card)
         self.assertIn("Growl", card)
         self.assertIn("Unavailable", card)
@@ -502,7 +511,7 @@ class CardTest(unittest.TestCase):
         self.assertNotIn("A move marked Not calculated", card)
         self.assertNotIn("sd-calc-result-card\"><strong>Your moves</strong>", card)
 
-    def test_estimate_card_shows_ko_chance_without_sampling_metadata(self):
+    def test_estimate_card_without_damage_shows_no_ko_chance(self):
         card = {"status": "estimated", "sampler_id": "paired-rom-sampler-v1",
                 "num": 3, "den": 10, "effective_samples": 400,
                 "interval_95": {"low": 0.02, "high": 0.25},
@@ -512,7 +521,7 @@ class CardTest(unittest.TestCase):
                            "interval_95": {"low": 0.02, "high": 0.25}}]}
         markup = calc_result_card("Your moves · KO result", "player_moves", card)
         self.assertIn("Tackle", markup)
-        self.assertIn("30%", markup)
+        self.assertNotIn("30%", markup)
         self.assertNotIn("samples", markup)
         self.assertNotIn("interval", markup)
         self.assertNotIn("paired-rom-sampler-v1", markup)
@@ -522,16 +531,20 @@ class CardTest(unittest.TestCase):
         exact = {"status": "engine-exact", "moves": [{"move_id": "MOVE_TACKLE", "move_name": "Tackle",
                  "ko_probability": {"num": 1, "den": 4}, "damage_range": {"min": 12, "max": 18}}]}
         markup = calc_result_card("Moves", "player_moves", exact)
-        self.assertIn("25%", markup)
+        self.assertNotIn("25%", markup)
         self.assertIn("12–18 dmg", markup)
         self.assertNotIn("Damage range", markup)
+        exact["moves"][0].update(target_hp=30, target_max_hp=40)
+        with_hp = calc_result_card("Moves", "player_moves", exact)
+        self.assertIn('<small class="sd-calc-percent">30–45%</small>', with_hp)
+        self.assertNotIn("HKO", with_hp)
         self.assertNotIn("Compiled game engine", markup)
         self.assertIn("12–18", markup)
         sampled = {"status": "estimated", "samples": 24,
                    "moves": [{"move_id": "MOVE_TACKLE", "move_name": "Tackle",
                               "ko_probability": {"num": 1, "den": 4}}]}
         sampled_markup = calc_result_card("Moves", "enemy_moves", sampled)
-        self.assertIn("25%", sampled_markup)
+        self.assertNotIn("25%", sampled_markup)
         self.assertNotIn("Sampled", sampled_markup)
 
     def test_unavailable_move_can_show_its_damage_range(self):
@@ -544,11 +557,11 @@ class CardTest(unittest.TestCase):
 
     def test_status_move_omits_zero_damage_range(self):
         card = {"status": "engine-exact", "moves": [{"move_id": "MOVE_GROWL",
-                "move_name": "Growl", "ko_probability": {"num": 0, "den": 1},
+                "move_name": "Growl", "category": "status", "ko_probability": {"num": 0, "den": 1},
                 "damage_range": {"min": 0, "max": 0}}]}
         markup = calc_result_card("Moves", "player_moves", card)
         self.assertIn("Growl", markup)
-        self.assertIn("0%", markup)
+        self.assertIn('<small class="sd-calc-percent">–</small>', markup)
         self.assertNotIn("0–0 dmg", markup)
 
     def test_ai_predictions_keep_tied_choices_without_sampling_metadata(self):
@@ -567,24 +580,36 @@ class CardTest(unittest.TestCase):
         self.assertIn("Trainer action preview", preview_markup)
         self.assertNotIn("50%", preview_markup)
 
-    def test_recommendation_lists_every_action_with_win_probability_ci_and_samples(self):
+    def test_recommendation_lists_every_action_with_win_faints_and_samples(self):
         actions = [{"id": "MOVE_TACKLE", "kind": "move", "label": "Tackle", "p_win": 0.62,
-                    "half_width": 0.07, "samples": 32, "top_option": True},
+                    "half_width": 0.07, "samples": 32, "hp_left": 0.4, "faints": 0.25, "top_option": True},
                    {"id": 1, "kind": "switch", "label": "Switch to party slot 2", "p_win": 0.58,
                     "half_width": 0.08, "samples": 32, "top_option": True},
                    {"id": "MOVE_GROWL", "kind": "move", "label": "Growl", "p_win": 0.2,
-                    "half_width": 0.06, "samples": 32}]
+                    "half_width": 0.06, "samples": 32, "faints": 2}]
         markup = calc_result_card("Recommendation", "recommendation", {
             "status": "estimated", "ranking_uncertain": True, "actions": actions})
         self.assertIn("Player action options", markup)
-        for text in ("Tackle", "62% ±7 (n=32)", "Switch to party slot 2", "58% ±8 (n=32)", "Growl"):
+        self.assertIn('<div class="sd-calc-rec-head"><strong>Player action options</strong>'
+                      '<small>Win</small><small>Faints</small><small>n</small></div>', markup)
+        cell = '<small class="sd-calc-percent">{}</small>'.format
+        for cells in (("62%", "0.2", "32"), ("58%", "–", "32"), ("20%", "2.0", "32")):
+            self.assertIn("".join(cell(c) for c in cells), markup)
+        for text in ("Tackle", "Switch to party slot 2", "Growl"):
             self.assertIn(text, markup)
+        for text in ("·", "HP left", "n=", "(45–77%)"):
+            self.assertNotIn(text, markup)
         self.assertEqual(markup.count("sd-calc-top"), 2)
         self.assertNotIn("sd-calc-recommended", markup)
         resolved = calc_result_card("Recommendation", "recommendation", {
             "status": "estimated", "ranking_uncertain": False, "actions": actions})
         self.assertEqual(resolved.count("sd-calc-recommended"), 1)
         self.assertNotIn("Player action options", resolved)
+        self.assertIn("<strong>Recommendation</strong><small>Win</small>", resolved)
+        certain = calc_result_card("Recommendation", "recommendation", {"status": "estimated", "actions": [
+            {"id": "MOVE_TACKLE", "label": "Tackle", "p_win": 1.0, "half_width": 0.0, "samples": 8}]})
+        self.assertIn(cell("100%") + cell("–") + cell("8"), certain)
+        self.assertNotIn("±0", certain)
 
     def test_seeded_recommendation_is_an_action_preview_without_probabilities(self):
         card = calc_result_card("Recommendation", "recommendation", {
@@ -593,6 +618,7 @@ class CardTest(unittest.TestCase):
         self.assertIn("Player action preview", card)
         self.assertIn("Tackle", card)
         self.assertNotIn("%", card)
+        self.assertNotIn("sd-calc-rec-head", card)
 
     def test_trainer_bag_items_block_recommendation_with_short_warning(self):
         markup = calc_result_card("Recommendation", "recommendation", {

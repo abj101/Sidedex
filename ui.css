@@ -281,11 +281,10 @@
 }
 .sd-calc-slot-card:hover { background:#d9e3d5; border-color:#598d83; }
 .sd-calc-slot-card:focus-visible,
-.sd-calc-slot-change:focus-visible,
-.sd-calc-picker-search:focus-visible,
-.sd-calc-picker-option:focus-visible { outline:3px solid #d9b93d; outline-offset:2px; z-index:2; }
+.sd-calc-picker-search:focus-visible { outline:none; }
+.sd-calc-picker-option:focus-visible { outline:none; z-index:2; }
 .sd-calc-slot-focused .sd-calc-slot-card { border-color:#d9b93d; box-shadow:inset 0 0 0 1px #fff,0 0 0 1px #d9b93d; }
-.sd-calc-slot-filled .sd-calc-slot-card { padding-right:24px; }
+.sd-calc-slot-filled .sd-calc-slot-card { padding-right:44px; }
 .sd-calc-roster-readonly .sd-calc-slot-filled .sd-calc-slot-card { padding-right:5px; }
 .sd-calc-slot-icon { display:block; flex:none; width:34px; height:34px; object-fit:contain; image-rendering:pixelated; }
 .st-key-calc-own-roster .sd-calc-slot-card { touch-action:none; }
@@ -298,11 +297,11 @@
 .sd-calc-slot-item { display:block; width:14px; height:14px; object-fit:contain; image-rendering:pixelated; }
 .sd-calc-slot-type { padding:1px 3px; color:#fff; background:var(--type,#657382); border:1px solid #23353a; font:700 8px/1.15 monospace; text-shadow:1px 1px #283138; }
 .sd-calc-slot-change {
-  position:absolute; z-index:2; top:4px; right:4px; display:grid; place-items:center;
-  box-sizing:border-box; width:18px; height:18px; padding:0; color:#49616a; background:#f8f5e8;
-  border:1px solid #9bb0a4; border-radius:0; font:900 14px/1 monospace; cursor:pointer;
+  position:absolute; z-index:2; top:50%; right:7px; transform:translateY(-50%); display:grid; place-items:center;
+  box-sizing:border-box; width:30px; height:30px; padding:4px; color:#17303a; background:transparent;
+  border:1px solid #9bb0a4; border-radius:0; font:900 16px/1 monospace; cursor:pointer;
 }
-.sd-calc-slot-change:hover { color:#17303a; background:#f7d85b; border-color:#17303a; }
+.sd-calc-slot-change:is(:hover,:focus-visible) { color:#17303a; background:transparent; border-color:#9bb0a4; outline:1px solid #17303a; outline-offset:1px; }
 .sd-calc-slot-empty .sd-calc-slot-card { justify-content:center; border-style:dashed; color:#526b68; text-align:center; }
 .sd-calc-slot-empty-label { display:block; font:700 24px/1 monospace; }
 .sd-calc-slot-empty.sd-calc-slot-disabled { opacity:.38; }
@@ -343,14 +342,23 @@
 .sd-calc-result-card li > small { flex:none; color:#526b68; font:700 9px/1.3 monospace; }
 .st-key-calc_results .sd-calc-prob-row,
 .st-key-calc_results .sd-calc-unknown { box-sizing:border-box; min-height:26px; }
-.sd-calc-recommendation-card .sd-calc-prob-row {
-  box-sizing:border-box; display:grid; grid-template-columns:minmax(0,1fr) auto;
-  align-items:center; min-height:26px;
+.sd-calc-recommendation-card .sd-calc-prob-row,
+.sd-calc-rec-head {
+  box-sizing:border-box; display:grid; grid-template-columns:minmax(0,1fr) 30px 36px 28px;
+  align-items:center; column-gap:6px; min-height:26px;
 }
 .sd-calc-recommendation-card .sd-calc-prob-name {
   grid-column:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
-.sd-calc-recommendation-card .sd-calc-percent { grid-column:2; white-space:nowrap; }
+.sd-calc-recommendation-card .sd-calc-prob-name:only-child { grid-column:1/-1; }
+.sd-calc-recommendation-card .sd-calc-percent { white-space:nowrap; text-align:right; }
+/* the header reserves the same scrollbar gutter as the card body so its labels line up with the row cells */
+.sd-calc-rec-head {
+  flex:none; align-items:end; min-height:0; margin-bottom:8px; padding-right:7px;
+  overflow:hidden; scrollbar-gutter:stable;
+}
+.sd-calc-rec-head > strong { min-width:0; overflow-wrap:anywhere; color:#17303a; font:800 12px/1.3 monospace; }
+.sd-calc-rec-head > small { color:#526b68; font:700 9px/1.3 monospace; text-align:right; white-space:nowrap; }
 .sd-calc-ai-actions-card .sd-calc-prob-row {
   box-sizing:border-box; display:grid; grid-template-columns:minmax(0,1fr) auto;
   align-items:center; min-height:26px;
@@ -416,7 +424,7 @@
 .sd-calc-panel-heading { margin-bottom:4px; }
 .st-key-calc_grid { min-width:0; }
 .st-key-calc_grid > [data-testid="stHorizontalBlock"] {
-  display:grid; grid-template-columns:minmax(175px,1fr) minmax(300px,2fr) minmax(300px,2fr) minmax(175px,1fr); align-items:stretch; gap:12px;
+  display:grid; grid-template-columns:minmax(117px,.67fr) minmax(300px,2fr) minmax(300px,2fr) minmax(117px,.67fr); align-items:stretch; gap:12px;
 }
 .st-key-calc_grid > [data-testid="stHorizontalBlock"] > [data-testid="column"] { width:auto !important; min-width:0; }
 .st-key-calc_grid [data-testid="column"]:is(:has(.sd-status-menu.is-open),:focus-within) { position:relative; z-index:100; }
@@ -454,18 +462,18 @@
 .st-key-calc_trainer_settings [data-testid="stSelectbox"] button[aria-label="Open"] {
   box-sizing:border-box; height:28px; min-height:0; padding-block:0;
 }
-.react-aria-Popover:has([role="listbox"]) {
-  box-sizing:border-box; padding:4px;
-  color:#17303a; background:#e9eedb; border:1px solid #9bb0a4;
-  border-radius:0; box-shadow:0 3px 0 #071d24;
+[data-testid="stSelectboxVirtualDropdown"] {
+  color:#17303a !important; background:#e9eedb !important; border:1px solid #9bb0a4 !important;
+  border-radius:0 !important; box-shadow:0 3px 0 #071d24 !important;
 }
-.react-aria-ListBox { max-height:180px; overflow-y:auto; }
-.react-aria-ListBox [role="option"] {
-  display:block; box-sizing:border-box; width:100%; padding:6px;
-  color:#17303a; border-radius:0; text-align:left; font:700 11px/1.2 monospace;
+/* Rows are virtualized at a fixed theme height, so style them without changing their size. */
+[data-testid="stSelectboxVirtualDropdown"] [role="option"] {
+  padding:0 6px; color:#17303a !important; background:transparent !important;
+  border-radius:0; text-align:left; font:700 11px/1.2 monospace;
 }
-.react-aria-ListBox [role="option"]:is(:hover,[data-focused="true"],[aria-selected="true"]) {
-  color:#17303a; background:#d8e5dc;
+[data-testid="stSelectboxVirtualDropdown"] [role="option"] * { color:inherit !important; font:inherit; }
+[data-testid="stSelectboxVirtualDropdown"] [role="option"]:is(:hover,[data-hovered],[data-focused],[data-focus-visible],[aria-selected="true"]) {
+  background:#d8e5dc !important; outline:none;
 }
 .st-key-calc_trainer_settings [data-testid^="stNumberInputStep"] { display:none; }
 .st-key-calc_player_trainer_panel .st-key-calc-config-picker { position:absolute; z-index:40; top:7px; right:7px; width:auto; }
@@ -566,6 +574,45 @@
   .st-key-sd_header [data-testid="stHorizontalBlock"] { flex-wrap:wrap; }
 }
 
+/* Add Pokémon dialog styling */
+[data-testid="stDialog"] [role="dialog"] { background:#f5f3e7 !important; border:2px solid #a7c2b4 !important; box-shadow:inset 0 0 0 1px #fff !important; color:#17303a !important; padding:16px !important; }
+[data-testid="stDialog"] { background:rgba(0,0,0,.5) !important; }
+[data-testid="stDialog"] [role="dialog"] > div { background:#f5f3e7 !important; }
+[data-testid="stDialog"] [role="dialog"] h1, [data-testid="stDialog"] [role="dialog"] h2, [data-testid="stDialog"] [role="dialog"] h3, [data-testid="stDialog"] [role="dialog"] h4 { color:#17303a !important; font:800 18px monospace !important; }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stVerticalBlock"] { background:#f5f3e7 !important; }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stForm"] { color:#17303a; }
+[data-testid="stDialog"] [role="dialog"] label { color:#17303a !important; font:700 12px monospace !important; }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stSelectbox"] .react-aria-ComboBox > div:has(> input),
+[data-testid="stDialog"] [role="dialog"] [data-testid="stNumberInputContainer"],
+[data-testid="stDialog"] [role="dialog"] [data-testid="stMultiSelect"] .react-aria-ComboBox > div:has(> input) {
+  min-height:30px; color:#17303a !important; background:#fff !important;
+  border:1px solid #a7c2b4 !important; border-radius:0; box-shadow:inset 0 0 0 1px #fff !important;
+  font:700 11px/1.2 monospace !important; box-sizing:border-box;
+}
+[data-testid="stDialog"] [role="dialog"] [data-testid="stSelectbox"] .react-aria-ComboBox > div:has(> input):is(:hover,:focus-within),
+[data-testid="stDialog"] [role="dialog"] [data-testid="stNumberInputContainer"]:is(:hover,:focus-within),
+[data-testid="stDialog"] [role="dialog"] [data-testid="stMultiSelect"] .react-aria-ComboBox > div:has(> input):is(:hover,:focus-within) {
+  color:#17303a !important; background:#fff !important;
+  border-color:#a7c2b4 !important; outline:3px solid #d9b93d; outline-offset:2px;
+}
+[data-testid="stDialog"] [role="dialog"] input[role="combobox"],
+[data-testid="stDialog"] [role="dialog"] [data-testid="stNumberInputField"] { color:#17303a !important; font:700 11px monospace !important; }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stSelectboxVirtualDropdown"] { color:#17303a !important; background:#f5f3e7 !important; border:2px solid #a7c2b4 !important; box-shadow:0 3px 0 #071d24 !important; }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stSelectboxVirtualDropdown"] [role="option"] { padding:0 6px; color:#17303a !important; background:transparent !important; font:700 11px/1.2 monospace; }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stSelectboxVirtualDropdown"] [role="option"]:is(:hover,[data-hovered],[data-focused],[data-focus-visible],[aria-selected="true"]) { background:#cedccb !important; }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stCheckbox"] { box-sizing:border-box; width:auto; height:23px !important; min-height:23px !important; margin:0; padding:0 5px !important; background:#f5f3e7; border:1px solid #a7c2b4; }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stCheckbox"] label { display:flex; align-items:center !important; height:21px; min-height:0; color:#17303a !important; font:700 10px/1.2 monospace; }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stCheckbox"] label > div:first-of-type { box-sizing:border-box; width:23px; height:13px; border:1px solid #82978c; border-radius:0; background:#d0d8cf; }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stCheckbox"][data-selected="true"] label > div:first-of-type { background:#2e7264; border-color:#245b51; }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stCheckbox"] label > div:first-of-type > div { width:9px; height:9px; margin:1px; border-radius:0; background:#fff5d8; box-shadow:none; }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stCheckbox"][data-selected="true"] label > div:first-of-type > div { transform:translateX(10px); }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stForm"] button { color:#17303a !important; background:#f5f3e7 !important; border:1px solid #a7c2b4 !important; font:700 11px monospace !important; }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stForm"] button:is(:hover,:focus-visible) { background:#cedccb !important; outline:3px solid #d9b93d; outline-offset:2px; }
+[data-testid="stDialog"] [role="dialog"] button[kind="primary"] { color:#fff !important; background:#2e7264 !important; border-color:#245b51 !important; font:700 11px monospace !important; }
+[data-testid="stDialog"] [role="dialog"] button[kind="primary"]:is(:hover,:focus-visible) { background:#245b51 !important; outline:3px solid #d9b93d; outline-offset:2px; }
+dialog [data-testid="stExpanderDetails"] { background:transparent; border-top:1px solid #c5d6c5; }
+dialog [data-testid="stMarkdownContainer"] p, dialog strong { color:#17303a; }
+
 /* Calc result displays */
 .sd-calc-card-label { margin:0 0 9px; color:#17303a; font:800 12px monospace; text-transform:uppercase; letter-spacing:.06em; }
 .sd-calc-rows { display:flex; flex-direction:column; gap:5px; margin:0; padding:0; list-style:none; }
@@ -613,3 +660,84 @@
 .sd-calc-entry-unavailable .sd-calc-unavailable,
 .sd-calc-entry-unavailable .sd-calc-missing,
 .sd-calc-entry-unavailable .sd-calc-mechanics { flex:1 1 100%; }
+
+/* Add Pokémon dialog: same field/dropdown look as the focused-card pickers; no arrow boxes. */
+[data-testid="stDialog"] [role="dialog"] :is([data-testid="stSelectbox"],[data-testid="stMultiSelect"]) .react-aria-ComboBox > div:has(> input),
+[data-testid="stDialog"] [role="dialog"] :is([data-testid="stNumberInputContainer"],[data-testid="stTextInputRootElement"],[data-baseweb="input"],[data-baseweb="select"] > div) {
+  color:#17303a !important; background:#e9eedb !important; border:1px solid #9bb0a4 !important; border-radius:0 !important; box-shadow:none !important;
+}
+[data-testid="stDialog"] [role="dialog"] :is([data-testid="stTextInputRootElement"],[data-baseweb="input"]) input,
+[data-testid="stDialog"] [role="dialog"] :is([data-testid="stTextInputRootElement"],[data-baseweb="input"]) { color:#17303a !important; background:#e9eedb !important; font:700 11px monospace !important; }
+[data-testid="stDialog"] [role="dialog"] :is([data-testid="stSelectbox"],[data-testid="stMultiSelect"]) input[role="combobox"] { background:transparent !important; border:0 !important; }
+[data-testid="stDialog"] [role="dialog"] :is([data-testid="stSelectbox"],[data-testid="stMultiSelect"]) :is(button[aria-label="Open"],button[aria-label="Close"],svg[data-baseweb="icon"]),
+[data-testid="stDialog"] [role="dialog"] [data-testid^="stNumberInputStep"] { display:none !important; }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stMultiSelect"] :is([data-baseweb="tag"],[role="row"],[data-testid="stMultiSelectTag"]) { color:#17303a !important; background:#d8e5dc !important; border:1px solid #9bb0a4 !important; border-radius:0 !important; font:700 10px monospace !important; }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stMultiSelect"] :is([data-baseweb="tag"],[data-testid="stMultiSelectTag"]) * { color:#17303a !important; }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stExpander"] :is(summary,details) { color:#17303a !important; background:#e9eedb !important; border-color:#9bb0a4 !important; border-radius:0 !important; }
+[data-testid="stDialog"] :is([data-testid="stSelectboxVirtualDropdown"],[data-baseweb="popover"] ul,[data-baseweb="menu"]) { background:#e9eedb !important; border:1px solid #9bb0a4 !important; border-radius:0 !important; color:#17303a !important; box-shadow:0 3px 0 #071d24 !important; }
+[data-testid="stDialog"] [role="option"] { color:#17303a !important; background:transparent !important; font:700 11px/1.2 monospace !important; }
+[data-testid="stDialog"] [role="option"]:is(:hover,[data-hovered],[data-focused],[aria-selected="true"]) { background:#d8e5dc !important; }
+[data-testid="stDialog"] .sd-form-portrait { display:grid; place-items:center; width:96px; height:96px; }
+[data-testid="stDialog"] .sd-form-portrait-img { max-width:96px; max-height:96px; object-fit:contain; image-rendering:pixelated; }
+[data-testid="stDialog"] .sd-build-chip,
+[data-testid="stDialog"] .sd-build-menu,
+[data-testid="stDialog"] .sd-picker-menu { border:0 !important; }
+[data-testid="stDialog"] .sd-build-editor { margin-bottom:10px; }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stVerticalBlock"] { gap:.5rem; }
+[data-testid="stDialog"] .sd-build-editor { margin:0; }
+[data-testid="stDialog"] .sd-form-portrait { width:72px; height:72px; margin-top:24px; color:#9bb0a4; background:#e9eedb; font:800 28px monospace; }
+[data-testid="stDialog"] .sd-form-portrait-img { max-width:72px; max-height:72px; }
+[data-testid="stDialog"] [data-testid="stForm"],
+[data-testid="stDialog"] [role="dialog"] [data-testid="stForm"] button,
+[data-testid="stDialog"] [role="dialog"] :is([data-testid="stTextInputRootElement"],[data-baseweb="input"],[data-testid="stNumberInputContainer"],summary,details,[data-testid="stExpander"]) { border:0 !important; }
+[data-testid="stDialog"] [class*="st-key-pf-moves-locked"] { pointer-events:none; opacity:.6; }
+[data-testid="stDialog"] .sd-build-trigger:disabled { pointer-events:none; opacity:.6; }
+[data-testid="stDialog"] [role="dialog"] :is(h1,h2,h3) { margin-bottom:-.4rem !important; }
+[data-testid="stDialog"] .sd-build-editor { margin-bottom:-.4rem; }
+[data-testid="stDialog"] [data-testid="stForm"] { padding:0 !important; background:transparent !important; }
+[data-testid="stDialog"] [role="dialog"] :is([data-testid="stExpander"],[data-testid="stExpander"] summary,[data-testid="stExpander"] details) { background:transparent !important; }
+[data-testid="stDialog"] [role="dialog"] input::placeholder { color:#526b68 !important; opacity:1 !important; -webkit-text-fill-color:#526b68 !important; }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stSelectbox"] :is(input,[class*="value"],span) { color:#17303a !important; }
+[data-testid="stDialog"] .sd-form-portrait { margin-top:0; }
+[data-testid="stDialog"] [data-testid="stExpander"],
+[data-testid="stDialog"] [data-testid="stExpander"] :is(div,summary,details,button,[role="button"]):not([data-testid^="stNumberInput"], [data-testid^="stNumberInput"] *) { background:transparent !important; border:0 !important; box-shadow:none !important; }
+[data-testid="stDialog"] [data-testid="stExpander"] { padding:0 !important; margin:0 !important; width:100% !important; }
+[data-testid="stDialog"] [data-testid="stForm"] { padding:0 !important; border:0 !important; }
+[data-testid="stDialog"] [data-testid="stSelectbox"] *::placeholder { color:#2f4a52 !important; opacity:1 !important; -webkit-text-fill-color:#2f4a52 !important; }
+[data-testid="stDialog"] [data-testid="stSelectbox"] .react-aria-ComboBox * { color:#17303a !important; }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stForm"] button,
+[data-testid="stDialog"] [role="dialog"] [data-testid="stForm"] button:is(:hover,:focus-visible,:active) {
+  color:#17303a !important; background:transparent !important; border:2px solid #17303a !important; border-radius:0 !important; box-shadow:none !important; outline:none;
+}
+[data-testid="stDialog"] [role="dialog"] [data-testid="stForm"] button :is(p,span) { color:#17303a !important; }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stForm"] button {
+  min-height:34px; color:#17303a !important; background:#e9eedb !important; border:1px solid #9bb0a4 !important; border-radius:0 !important; font:800 10px monospace !important; outline:none;
+}
+[data-testid="stDialog"] [role="dialog"] [data-testid="stForm"] button:is(:hover,:focus-visible,:active) {
+  color:#17303a !important; background:#e9eedb !important; border-color:#9bb0a4 !important; outline:1px solid #17303a; outline-offset:1px;
+}
+[data-testid="stDialog"] .sd-build-chip { background:transparent !important; border:1px solid #9bb0a4 !important; }
+[data-testid="stDialog"] .sd-build-menu,[data-testid="stDialog"] .sd-picker-menu { border:1px solid #9bb0a4 !important; }
+[data-testid="stDialog"] [role="dialog"] [data-testid="stSelectbox"] .react-aria-ComboBox > div:has(> input):is(:hover,:focus-within) {
+  background:#e9eedb !important; border-color:#9bb0a4 !important; outline:1px solid #17303a !important; outline-offset:1px !important;
+}
+[data-testid="stDialog"] [role="dialog"] [data-testid="stForm"] button,
+[data-testid="stDialog"] [role="dialog"] [data-testid="stForm"] button:is(:hover,:focus-visible,:active),
+[data-testid="stDialog"] [role="dialog"] [data-testid="stSelectbox"] .react-aria-ComboBox > div:has(> input),
+[data-testid="stDialog"] [role="dialog"] [data-testid="stSelectbox"] .react-aria-ComboBox > div:has(> input):is(:hover,:focus-within) { background:transparent !important; }
+[data-testid="stDialog"] [role="dialog"] > button[aria-label="Close"],
+[data-testid="stDialog"] [role="dialog"] button[aria-label="Close"]:not([data-testid="stSelectbox"] *) {
+  position:absolute !important; top:14px !important; right:14px !important; z-index:5; display:grid !important; place-items:center;
+  width:28px; height:28px; padding:0; color:#17303a !important; background:transparent !important; border:0 !important; border-radius:0 !important; box-shadow:none !important; opacity:1 !important; cursor:pointer;
+}
+[data-testid="stDialog"] [role="dialog"] button[aria-label="Close"] :is(svg,svg *) { color:#17303a !important; fill:#17303a !important; stroke:#17303a !important; opacity:1 !important; }
+[data-testid="stDialog"] [role="dialog"] button[aria-label="Close"]:is(:hover,:focus-visible) { outline:1px solid #17303a; outline-offset:1px; }
+[data-testid="stDialog"] { display:flex !important; align-items:center !important; justify-content:center !important; }
+[data-testid="stDialog"] > div { margin:auto !important; top:auto !important; transform:none !important; background:transparent !important; box-shadow:none !important; }
+[data-testid="stDialog"] [role="dialog"] { width:100% !important; max-width:none !important; box-sizing:border-box; }
+[data-testid="stDialog"] .sd-profile-moves { margin:6px 0 0; padding:0; border:0; }
+[data-testid="stDialog"] .sd-profile-moves > strong { display:none; }
+[data-testid="stDialog"] [data-testid="stSelectbox"] :is(button,[data-testid*="Clear"],[aria-label*="lear"]) { display:none !important; }
+.sd-context-menu { position:fixed; z-index:100000; box-sizing:border-box; min-width:110px; padding:4px; background:#e9eedb; border:1px solid #9bb0a4; box-shadow:0 3px 0 #071d24; }
+.st-key-calc_results .sd-calc-ko-card { height:auto; max-height:none; overflow:visible; }
+.st-key-calc_results .sd-calc-ko-card .sd-calc-card-body { overflow:visible; }

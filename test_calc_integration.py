@@ -442,7 +442,7 @@ class CardRenderIntegration(unittest.TestCase):
         result = be.evaluate_head_to_head(snap, DATA, deadline=time.monotonic() + BUDGET)
         markup = planner_ui.calc_result_card("Your moves · KO probability", "player_moves",
                                             card=result["player_moves"])
-        self.assertIn("100%", markup)
+        self.assertNotIn("OHKO", markup)
         self.assertIn(result["player_moves"]["moves"][0]["move_name"], markup)
         self.assertNotIn("1/1", markup)
         self.assertNotIn("source-transcribed", markup)

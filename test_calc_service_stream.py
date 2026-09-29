@@ -45,6 +45,18 @@ class PartialResultTest(unittest.TestCase):
             self.assertEqual(calc_service.cached(snapshots[2])["value"], 2)
             calc_service.invalidate()
 
+    def test_rom_key_changes_when_evaluator_source_changes(self):
+        snapshot = {"schema_version": 2, "source_sha": "source"}
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "rom_eval.py"
+            source.write_text("old = 1\n", encoding="utf-8")
+            with mock.patch.object(calc_service, "_ROM_CODE_FILES", (source,)), \
+                    mock.patch.object(calc_service, "_ROM_CODE_STAMP", {}):
+                before = calc_service.snapshot_key(snapshot)
+                self.assertEqual(calc_service.snapshot_key(snapshot), before)
+                source.write_text("new = 22\n", encoding="utf-8")
+                self.assertNotEqual(calc_service.snapshot_key(snapshot), before)
+
     def test_poll_sees_refinement_then_final_result(self):
         snapshot = {"schema_version": 2, "source_sha": "source"}
         game_data = {"source": {"commit": "source"}}

@@ -78,6 +78,20 @@ class QueryParsing(unittest.TestCase):
             "num": _brute_probability(90, 100, False).numerator,
             "den": _brute_probability(90, 100, False).denominator})
 
+    def test_multi_hit_total_range_without_ko_enumeration(self):
+        # Current ROM: each hit is summed in-engine, so only the range is reported.
+        seed = run_dynamic.numeric_id("moves", "MOVE_BULLET_SEED")
+        events = [line for line in self._multi_hit_events()
+                  if not line.startswith(("ROMTRACE|query|hits", "ROMTRACE|query|hitroll"))]
+        events[0] = f"ROMTRACE|query|damage|0|{seed}|0|0|8|40|150|100|16"
+        events.insert(1, f"ROMTRACE|query|outcomes|0|{seed}|16|0|0|1000000|0|0|1|1|0")
+        snapshot = {"player": {"party": [{"moves": ["MOVE_BULLET_SEED"]}]},
+                    "enemy": {"party": [{"moves": ["MOVE_ABSORB"], "hp": 90}]}}
+        row = rom_query.parse(events, snapshot, DATA)["player_moves"]["moves"][0]
+        self.assertEqual(row["status"], "engine-exact")
+        self.assertEqual(row["damage_range"], {"min": 40, "max": 150})
+        self.assertNotIn("probability", row)
+
     def test_full_hp_sash_needs_the_cumulative_before_the_last_hit(self):
         snapshot = {"player": {"party": [{"moves": ["MOVE_BULLET_SEED"]}]},
                     "enemy": {"party": [{"moves": ["MOVE_ABSORB"], "hp": 60}]}}

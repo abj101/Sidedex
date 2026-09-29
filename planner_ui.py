@@ -51,6 +51,8 @@ NATURES = {
 
 CALC_STATE_VERSION = 4
 CALC_DIFFICULTIES = ("Easy", "Normal")
+CALC_WEATHERS = {"Clear": None, "Rain": "WEATHER_RAIN", "Sun": "WEATHER_SUN",
+                 "Sandstorm": "WEATHER_SANDSTORM", "Hail": "WEATHER_HAIL", "Snow": "WEATHER_SNOW"}
 CALC_ITEM_PREFIX = {"player": "calc_item_player_", "enemy": "calc_item_enemy_"}
 STAT_KEYS = tuple(key for key, _ in STAT_FIELDS)
 STAT_STAGE_FIELDS = (("attack", "Attack"), ("defense", "Defense"), ("sp_attack", "Sp. Atk"),
@@ -230,6 +232,7 @@ def box_grid(rows, selected_id, data, box_no, db, move_box_slot, *, select_on_cl
                 st.rerun(scope="fragment")
         except (ValueError, TypeError, KeyError) as exc:
             st.error(str(exc))
+    handle_delete(db, result.delete, f"pc_delete_token_{select_on_click}")
     if result.box is not None and result.box != box_no:
         st.session_state["pc_box_number"] = result.box
         st.rerun(scope="fragment")
@@ -505,8 +508,31 @@ def known_moves(row, data):
     return [move for move in moves if move in allowed and move in data.get("moves", {})]
 
 
-@st.dialog("Add Pokémon", width="small")
+def delete_pokemon(db, entry_id):
+    db.execute("DELETE FROM owned WHERE id=?", (entry_id,))
+    db.commit()
+    for key in ("selected_pokemon_id", "calc_player_focus_id"):
+        if st.session_state.get(key) == entry_id:
+            st.session_state.pop(key)
+    if str(st.query_params.get("pokemon")) == str(entry_id):
+        st.query_params.pop("pokemon", None)
+
+
+def handle_delete(db, event, token_key):
+    if event and event.get("token") != st.session_state.get(token_key):
+        st.session_state[token_key] = event["token"]
+        if isinstance(event.get("id"), int):
+            delete_pokemon(db, event["id"])
+            st.rerun()
+
+
 def edit_pokemon(connect, data, save_entry, entry_id=None, default_in_party=False, default_box=1):
+    st.session_state.pop(f"pf_{entry_id or 'new'}", None)
+    _edit_pokemon_dialog(connect, data, save_entry, entry_id, default_in_party, default_box)
+
+
+@st.dialog("Add Pokémon", width="medium")
+def _edit_pokemon_dialog(connect, data, save_entry, entry_id=None, default_in_party=False, default_box=1):
     with closing(connect()) as db:
         _edit_pokemon(db, data, save_entry, entry_id, default_in_party, default_box)
 
@@ -522,47 +548,84 @@ def _edit_pokemon(db, data, save_entry, entry_id=None, default_in_party=False, d
         st.error("Species data is unavailable.")
         return
     default = existing["species"] if existing and existing["species"] in species else None
-    chosen = st.selectbox("Pokémon", species_ids, index=species_ids.index(default) if default else None,
-                          placeholder="Search Pokémon", format_func=lambda sid: species_name(sid, data),
-                          key=f"pokemon_species_{entry_id or 'new'}")
+    portrait_col, name_col = st.columns([1, 6], gap="xxsmall")
+    with name_col:
+        chosen = st.selectbox("Pokémon", species_ids, index=species_ids.index(default) if default else None,
+                              placeholder="Search Pokémon", label_visibility="collapsed", format_func=lambda sid: species_name(sid, data),
+                              key=f"pokemon_species_{entry_id or 'new'}")
     move_choices = legal_moves(chosen, data)
-    if not existing and not default_in_party:
-        default_box = st.session_state.get("new_pokemon_box_target", default_box)
-    box_key = (f"pokemon_box_{entry_id}" if existing else
-               f"pokemon_box_new_{'party' if default_in_party else st.session_state.get('new_pokemon_dialog_id', 0)}")
-    with st.form(f"pokemon_form_{entry_id or 'new'}", enter_to_submit=False):
-        left, right = st.columns(2)
-        level = left.number_input("Level", min_value=1, max_value=100, value=int(existing["level"] or 1) if existing else 1)
-        statuses = ("alive", "dead", "unavailable")
-        status = right.selectbox("Status", statuses, index=statuses.index(existing["status"]) if existing else 0, format_func=str.title)
-        in_party = st.checkbox("Put in party", value=bool(existing["in_party"]) if existing else default_in_party)
-        box_no = st.selectbox("Box", range(1, 15), index=(existing["box_no"] if existing else default_box) - 1,
-                              format_func=lambda number: f"Box {number}", key=box_key)
-        st.markdown("**Battle build**")
-        left, right = st.columns(2)
-        ability_choices = species.get(chosen, {}).get("abilities") or []
-        if ability_choices:
-            default_ability = existing["ability"] if existing and existing["ability"] in ability_choices else random.choice(ability_choices)
-            ability = left.selectbox("Ability", ability_choices, index=ability_choices.index(default_ability), format_func=human)
-        else:
-            ability = None
-            left.selectbox("Ability", [""], format_func=lambda value: "Unknown", disabled=True)
-        item_choices = options_from_trainers(data, "item", existing["item"] if existing else None)
-        item = right.selectbox("Held item", item_choices, index=item_choices.index(existing["item"]) if existing and existing["item"] in item_choices else 0, format_func=lambda value: human(value) if value else "None", accept_new_options=True)
-        default_nature = (existing["nature"] if existing else None) or "NATURE_SERIOUS"
-        nature_choices = options_from_trainers(data, "nature", default_nature)
-        nature = st.selectbox("Nature", nature_choices, index=nature_choices.index(default_nature), format_func=lambda value: human(value) if value else "Unknown", accept_new_options=True)
+    abilities = list(dict.fromkeys(species.get(chosen, {}).get("abilities") or []))
+    draft = st.session_state.setdefault(f"pf_{entry_id or 'new'}", {})
+    if not draft:
+        draft.update(level=int(existing["level"] or 1) if existing else 1,
+                     nature=(existing["nature"] if existing else None) or "NATURE_SERIOUS",
+                     item=(existing["item"] if existing else None) or "", owner=(existing["owner"] if existing else None) or "", pair=(existing["pair_id"] if existing else None) or "", species=None, moves=[], ability="")
         try:
-            old_moves = json.loads(existing["moves"]) if existing else []
+            draft["moves"] = json.loads(existing["moves"]) if existing else []
         except (TypeError, json.JSONDecodeError):
-            old_moves = []
-        known = [mid for mid in old_moves if mid in move_choices]
-        if existing and len(known) != len(old_moves):
-            st.warning("Stored moves this Pokémon cannot learn are excluded from the move list.")
-        moves = st.multiselect("Known moves, up to four", move_choices, default=known, max_selections=4, format_func=lambda mid: data["moves"][mid].get("name") or human(mid))
-        left, right = st.columns(2)
-        owner = left.text_input("Owner", value=existing["owner"] or "" if existing else "")
-        pair = right.text_input("Soul Link pair", value=existing["pair_id"] or "" if existing else "")
+            pass
+        draft["ability"] = existing["ability"] if existing and existing["ability"] else ""
+    if draft["species"] != chosen:
+        draft["species"] = chosen
+        draft["moves"] = [mid for mid in draft["moves"] if mid in move_choices][:4]
+        if draft["ability"] not in abilities:
+            draft["ability"] = random.choice(abilities) if abilities else ""
+    if existing and existing["ability"] == draft["ability"] and draft["ability"] not in abilities:
+        abilities.append(draft["ability"])
+    nature_choices = [f"NATURE_{name.upper()}" for name in NATURES]
+    if draft["nature"] not in nature_choices:
+        nature_choices.append(draft["nature"])
+    portrait_col.html(f'<div class="sd-form-portrait">{pokemon_icon(chosen, data, "sd-form-portrait-img") if chosen else "<span>?</span>"}</div>')
+    picked = bool(chosen)
+    with name_col:
+      change = focused_build(
+        level=draft["level"], nature=draft["nature"], nature_label=human(draft["nature"]) if picked else "Nature",
+        nature_options=[{"value": v, "label": human(v), "effect": nature_option(v).partition(" · ")[2]} for v in nature_choices],
+        item=draft["item"], item_label=("Item" if not picked else human(draft["item"]) if draft["item"] else "None"),
+        item_options=[{"value": v, "label": human(v) if v else "None", "icon": item_icon(v) or ""}
+                      for v in options_from_trainers(data, "item", draft["item"])],
+        item_icon_url=item_icon(draft["item"]) or "",
+        ability=draft["ability"], ability_options=[{"value": v, "label": human(v)} for v in abilities], show_ability=True, ability_locked=not picked,
+        owner=draft["owner"], owner_options=[{"value": "1", "label": "Owner 1"}, {"value": "2", "label": "Owner 2"}],
+        pair=draft["pair"], pair_options=[{"value": n, "label": n} for n in dict.fromkeys(
+            species_name(r["species"], data) for r in db.execute(
+                "SELECT species FROM owned WHERE owner IN ('1','2') AND owner != ? AND id IS NOT ? ORDER BY species",
+                (draft["owner"], entry_id)) if draft["owner"])],
+        key=f"pf-build-{entry_id or 'new'}",
+      ).changed
+    with st.container(key=f"pf-moves-{'ready' if picked else 'locked'}"):
+     move_change = focused_profile(
+        markup=f'<div class="sd-profile-moves"><strong>Known moves</strong>{move_cards_markup(draft["moves"], data)}</div>',
+        ability="", abilities=[], known_moves=draft["moves"],
+        moves=[{"value": value, "label": data["moves"][value].get("name") or human(value),
+                "type": human(data["moves"][value].get("type")), "power": data["moves"][value].get("power"),
+                "accuracy": data["moves"][value].get("accuracy"), "pp": data["moves"][value].get("pp"),
+                "description": (data["moves"][value].get("description") or "").replace("\n", " ")}
+               for value in move_choices],
+        key=f"pf-moves-{entry_id or 'new'}", locked=not picked,
+    ).changed
+    token_key = f"pf_tokens_{entry_id or 'new'}"
+    for source, event in (("build", change), ("moves", move_change)):
+        if not event or event.get("token") == st.session_state.get(f"{token_key}_{source}"):
+            continue
+        st.session_state[f"{token_key}_{source}"] = event["token"]
+        field, value, slot = event.get("field"), event.get("value"), event.get("slot")
+        if field == "level" and isinstance(value, int) and 1 <= value <= 100:
+            draft["level"] = value
+        elif field in {"nature", "item"} or (field == "owner" and value in {"1", "2"}) or field == "pair":
+            draft[field] = value
+        elif field == "ability" and value in abilities:
+            draft["ability"] = value
+        elif field == "move_remove" and isinstance(slot, int) and 0 <= slot < len(draft["moves"]):
+            draft["moves"].pop(slot)
+        elif field == "move_add" and value in move_choices and value not in draft["moves"] and len(draft["moves"]) < 4:
+            draft["moves"].append(value)
+        elif field == "move_replace" and value in move_choices and isinstance(slot, int) and 0 <= slot < len(draft["moves"]):
+            draft["moves"][slot] = value
+        st.rerun(scope="fragment")
+    level, ability, item, nature, moves, owner = draft["level"], draft["ability"] or None, draft["item"], draft["nature"], draft["moves"], draft["owner"]
+    pair = draft["pair"]
+    with st.form(f"pokemon_form_{entry_id or 'new'}", enter_to_submit=False):
         with st.expander("Advanced details"):
             old_ivs = json_dict(existing["ivs"] if existing else "{}")
             old_evs = json_dict(existing["evs"] if existing else "{}")
@@ -582,12 +645,16 @@ def _edit_pokemon(db, data, save_entry, entry_id=None, default_in_party=False, d
                 raise ValueError("Choose only moves this Pokémon can learn.")
             ivs = old_ivs | {key: value for key, value in iv_inputs.items() if value or key in old_ivs}
             evs = old_evs | {key: value for key, value in ev_inputs.items() if value or key in old_evs}
+            status = existing["status"] if existing else "alive"
+            in_party = bool(existing["in_party"]) if existing else False
+            box_no = existing["box_no"] if existing else default_box
             saved_id = save_entry(db, {"species": chosen, "level": level, "ability": ability,
                                        "item": item or None, "nature": nature or None, "moves": moves,
                                        "ivs": ivs, "evs": evs, "status": status, "in_party": in_party,
                                        "owner": owner or None, "pair_id": pair or None, "box_no": box_no}, entry_id)
             st.session_state["selected_pokemon_id"] = saved_id
             st.session_state["pc_box_number"] = box_no
+            st.session_state.pop(f"pf_{entry_id or 'new'}", None)
             st.rerun()
         except (ValueError, json.JSONDecodeError) as exc:
             st.error(str(exc))
@@ -759,6 +826,10 @@ def seed_choice(key, options, default):
 
 def item_enabled(flags, key, default=True):
     return bool(flags.get(key, default)) if isinstance(flags, dict) else bool(default)
+
+
+def calc_sync_item_flag(key):
+    st.session_state.setdefault("calc_item_flags", {})[key] = bool(st.session_state.get(key, True))
 
 
 def player_use_item(row, flags):
@@ -984,7 +1055,8 @@ def card_unavailable_markup(card):
         message = "Trainer may use a bag item. No recommendation."
     elif reason == "missing-input":
         missing = card.get("missing") or []
-        message = ("Enter the opponent's current HP." if any(
+        message = (detail if detail and any(str(field).endswith(".moves") for field in missing)
+                   else "Enter the opponent's current HP." if any(
                    str(field).startswith("enemy.party") and str(field).endswith(".hp") for field in missing)
                    else "Enter your Pokémon's current HP." if any(
                    str(field).startswith("player.party") and str(field).endswith(".hp") for field in missing)
@@ -1005,41 +1077,48 @@ def calc_spinner(label="Calculating"):
     return f'<span class="sd-calc-spinner" role="status" aria-label="{esc(label)}"></span>'
 
 
+def span_text(low, high, suffix=""):
+    return f"{low}{suffix}" if low == high else f"{low}–{high}{suffix}"
+
+
+def damage_range_markup(move, damage_range):
+    """Raw damage range (every hit of a multi-hit move included)."""
+    return f'<small class="sd-calc-damage-range">{esc(span_text(damage_range["min"], damage_range["max"], " dmg"))}</small>'
+
+
+def damage_percent_text(move, damage_range):
+    """Headline badge: damage as a share of the opposing Pokémon's max HP."""
+    max_hp = move.get("target_max_hp")
+    low, high = damage_range["min"], damage_range["max"]
+    if type(max_hp) is not int or max_hp <= 0:
+        return span_text(low, high)
+    return span_text(round(100 * low / max_hp), round(100 * high / max_hp), "%")
+
+
 def move_entry_row(move, pending=False):
     """One gated move entry: an exact row, or that move's own unavailability."""
     name = move.get("move_name") or human(move.get("move_id"))
     if move.get("status") == "unavailable":
         damage_range = move.get("damage_range") or move.get("damage")
-        damage_text = (f'<small class="sd-calc-damage-range">'
-                        f'{esc(damage_range["min"])}–{esc(damage_range["max"])} dmg</small>'
+        damage_text = (damage_range_markup(move, damage_range)
                         if isinstance(damage_range, dict) and damage_range.get("min") is not None
                         and damage_range.get("max") not in (None, 0) else "")
         return (f'<li class="sd-calc-prob-row sd-calc-move-row sd-calc-entry-unavailable">'
                 f'<span class="sd-calc-prob-name">{esc(name)}</span>'
                 f'{damage_text}<small class="sd-calc-percent">Unavailable</small>'
                 f'</li>')
-    probability = next((move.get(key) for key in ("ko_probability", "probability")
-                        if isinstance(move.get(key), dict)), None)
-    if probability is None and type(move.get("num")) is int and type(move.get("den")) is int:
-        probability = {"num": move["num"], "den": move["den"]}
-    method = move.get("method") or move.get("status") or ""
-    outcome = ("KO in this simulation" if probability and probability.get("num") else
-               "No KO in this simulation") if method in ("known-seed", "verified-fixed-seed") else probability_text(probability)
     damage_range = move.get("damage_range") or move.get("damage")
     has_damage_range = (isinstance(damage_range, dict)
-                        and damage_range.get("min") is not None
-                        and damage_range.get("max") is not None)
-    has_probability = (isinstance(probability, dict)
-                       and type(probability.get("num")) is int
-                       and type(probability.get("den")) is int
-                       and probability["den"] > 0)
-    row_pending = pending and not (has_probability and has_damage_range)
-    damage_text = (f'<small class="sd-calc-damage-range">'
-                   f'{esc(damage_range["min"])}–{esc(damage_range["max"])} dmg</small>'
+                        and type(damage_range.get("min")) is int
+                        and type(damage_range.get("max")) is int)
+    row_pending = pending and not has_damage_range
+    status_move = move.get("category") == "status"
+    badge = damage_percent_text(move, damage_range) if has_damage_range and not status_move else "–"
+    damage_text = (damage_range_markup(move, damage_range)
                    if has_damage_range and damage_range["max"] != 0 else "")
     return (
         f'<li class="sd-calc-prob-row sd-calc-move-row{" sd-calc-move-pending" if row_pending else ""}"><span class="sd-calc-prob-name">{esc(name)}</span>'
-        f'<small class="sd-calc-percent">{esc(outcome)}</small>'
+        f'<small class="sd-calc-percent">{esc(badge)}</small>'
         f'{damage_text}'
         + (calc_spinner() if row_pending else "") + "</li>")
 
@@ -1083,8 +1162,26 @@ def ai_card_body(card):
     return '<ol class="sd-calc-rows">' + "".join(rows) + "</ol>"
 
 
+RECOMMENDATION_COLUMNS = ("Win", "Faints", "n")
+
+
+def recommendation_stats(action):
+    """(win %, mean player faints, sample count) cells for one sampled action, or None."""
+    p, n = action.get("p_win"), action.get("samples")
+    if type(p) not in (int, float) or type(n) is not int or n < 1:
+        return None
+    faints = action.get("faints")
+    return f"{round(100 * p)}%", f"{faints:.1f}" if type(faints) in (int, float) else "–", str(n)
+
+
+def sampled_recommendation(card):
+    return (isinstance(card, dict) and card.get("status") == "estimated" and not card.get("deterministic")
+            and not card.get("preview")
+            and any(isinstance(a, dict) and recommendation_stats(a) for a in card.get("actions") or []))
+
+
 def recommendation_card_body(card):
-    """Per-action P(win) with its 95% CI half-width and sample count; the leading set is marked."""
+    """Per-action win %, mean player faints, and sample count; the leading set is marked."""
     actions = [action for action in (card.get("actions") or []) if isinstance(action, dict)]
     if not actions:
         return '<p class="sd-calc-unavailable">No legal action was available.</p>'
@@ -1092,14 +1189,13 @@ def recommendation_card_body(card):
     deterministic = bool(card.get("deterministic") or card.get("status") in ("engine-fixed-seed", "verified-fixed-seed"))
     rows = []
     for index, action in enumerate(actions):
-        p_win, radius = action.get("p_win"), action.get("half_width")
-        amount = (f"{round(100 * p_win)}% ±{round(100 * radius)} (n={action.get('samples', 0)})"
-                  if not deterministic and type(p_win) in (int, float) and type(radius) in (int, float) else "")
+        cells = None if deterministic else recommendation_stats(action)
         css = (" sd-calc-recommended" if index == 0 and not uncertain and not deterministic else
                " sd-calc-top" if action.get("top_option") else "")
         rows.append(f'<li class="sd-calc-prob-row{css}">'
                     f'<span class="sd-calc-prob-name">{esc(action.get("label") or human(action.get("id")))}</span>'
-                    + (f'<small class="sd-calc-percent">{esc(amount)}</small>' if amount else "") + '</li>')
+                    + "".join(f'<small class="sd-calc-percent">{esc(cell)}</small>' for cell in cells or ())
+                    + '</li>')
     return '<ol class="sd-calc-rows">' + "".join(rows) + "</ol>"
 
 
@@ -1143,7 +1239,8 @@ def calc_card_body(kind, card, moves=None, pending=False):
 
 def calc_result_card(title, kind=None, card=None, moves=None, pending=False):
     modifier = {"recommendation": " sd-calc-recommendation-card",
-                "ai_actions": " sd-calc-ai-actions-card"}.get(kind, "")
+                "ai_actions": " sd-calc-ai-actions-card",
+                "player_moves": " sd-calc-ko-card", "enemy_moves": " sd-calc-ko-card"}.get(kind, "")
     if isinstance(card, dict):
         preview = (card.get("deterministic") or card.get("preview") or
                    card.get("status") in ("engine-fixed-seed", "verified-fixed-seed", "known-seed"))
@@ -1153,7 +1250,11 @@ def calc_result_card(title, kind=None, card=None, moves=None, pending=False):
             title = "Player action preview"
         elif kind == "recommendation" and card.get("ranking_uncertain"):
             title = "Player action options"
-    return (f'<div class="sd-calc-result-card{modifier}"><strong>{esc(title)}</strong>'
+    heading = f'<strong>{esc(title)}</strong>'
+    if kind == "recommendation" and sampled_recommendation(card):
+        heading = (f'<div class="sd-calc-rec-head">{heading}'
+                   + "".join(f'<small>{esc(label)}</small>' for label in RECOMMENDATION_COLUMNS) + '</div>')
+    return (f'<div class="sd-calc-result-card{modifier}">{heading}'
             f'<div class="sd-calc-card-body">{calc_card_body(kind, card, moves, pending)}</div></div>')
 
 
@@ -1349,7 +1450,7 @@ def simulate_highest_level(party_rows, level_cap, data):
 def calc_trainer_items(trainer):
     items = {}
     for item_id in (trainer or {}).get("items") or []:
-        if isinstance(item_id, str) and item_id:
+        if isinstance(item_id, str) and item_id and item_id != "ITEM_NONE":
             items[item_id] = items.get(item_id, 0) + 1
     return items
 
@@ -1740,7 +1841,7 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
         grid_area = st.container(key="calc_grid")
 
         with grid_area:
-            own_col, own_focus_col, enemy_focus_col, enemy_col = st.columns([1, 2, 2, 1], gap="small")
+            own_col, own_focus_col, enemy_focus_col, enemy_col = st.columns([0.67, 2, 2, 0.67], gap="small")
             with own_col:
                 player_trainer_area = st.container(key="calc_player_trainer_panel")
             with own_focus_col:
@@ -1779,7 +1880,7 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
             if record:
                 calc_delete_dialog(connect, record["id"], record["name"])
         with trainer_settings_area:
-            st.markdown("**Trainer selector**")
+            st.markdown("**Settings**")
             level_cap = level_cap_widget()
             if level_cap_id_for(data, level_cap) is None:
                 st.caption(f"Level {level_cap} is not a ROM progression milestone; compiled battle calculations are unavailable at this cap.")
@@ -1787,6 +1888,8 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
             simulated_level = simulate_highest_level(party, level_cap, data)
             trainer_id, trainer, trainer_group, highest_level = trainer_selection(
                 trainer_rows, party, resolve_level, stacked=True, highest_level=simulated_level)
+            weather = st.selectbox("Weather", list(CALC_WEATHERS), key="calc_weather",
+                                   persist_state="session")
         previous_state = st.session_state.get("calc_battle_state")
         trainer_changed = not isinstance(previous_state, dict) or previous_state.get("_trainer_id") != trainer_id
         if trainer_changed:
@@ -1866,6 +1969,7 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
 
         calc_state_for_focused_battle(battle_state, player_focus, enemy_focus)
 
+        battle_state.setdefault("field", {})["weather"] = CALC_WEATHERS.get(weather)
         item_flags = st.session_state.get("calc_item_flags")
         snapshot = build_calc_snapshot(
             data, party_slots, enemies, battle_state, trainer_id=trainer_id,
@@ -1892,7 +1996,7 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
                 st.caption("Focus a Pokémon on each side to calculate a battle result.")
             player_ko_col, recommendation_col, trainer_action_col, trainer_ko_col = st.columns(4, gap="small")
             with player_ko_col:
-                st.html(calc_result_card("Your moves · KO chance", "player_moves",
+                st.html(calc_result_card("Your moves · Damage", "player_moves",
                                          card_result(result, "player_moves"),
                                          names["player_moves"], pending))
             with recommendation_col:
@@ -1902,7 +2006,7 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
                 st.html(calc_result_card("Trainer predicted action", "ai_actions",
                                          card_result(result, "ai_actions"), pending=pending))
             with trainer_ko_col:
-                st.html(calc_result_card("Trainer's moves · KO chance", "enemy_moves",
+                st.html(calc_result_card("Trainer's moves · Damage", "enemy_moves",
                                          card_result(result, "enemy_moves"),
                                          names["enemy_moves"], pending))
             if pending:
@@ -1944,6 +2048,7 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
                             st.rerun()
                         except ValueError as exc:
                             st.error(str(exc))
+                handle_delete(db, own_result.delete, "calc_own_delete_token")
                 move = own_result.move
                 if move and move.get("token") != st.session_state.get("calc_own_move_token"):
                     st.session_state["calc_own_move_token"] = move["token"]
@@ -1984,6 +2089,7 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
                             focused_fields(selected, data, connect, save_entry)
                             active = st.toggle("Use Item", value=flags.get(item_key, True),
                                                key=item_key, persist_state="session",
+                                               on_change=calc_sync_item_flag, args=(item_key,),
                                                help="Off simulates the held item being absent in the calculation.")
                         flags[item_key] = active
                         st.html('<div class="sd-detail-divider"></div>')
@@ -2013,6 +2119,7 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
                                     f'{held_item_icon_markup}{esc(held_item_name)}</span>')
                             active = st.toggle("Use Item", value=flags.get(item_key, True),
                                                key=item_key, persist_state="session",
+                                               on_change=calc_sync_item_flag, args=(item_key,),
                                                help="Off simulates the held item being absent in the calculation.")
                         flags[item_key] = active
                         st.html('<div class="sd-detail-divider"></div>')
@@ -2041,13 +2148,30 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
                     if isinstance(slot, int) and 0 <= slot < len(order):
                         st.session_state["calc_enemy_focus"] = order[slot]
                         st.rerun()
+# Streamlit's selectbox popup is non-modal and only closes when its input blurs,
+# so clicks that don't move focus would leave it open.
+_SELECTBOX_DISMISS_JS = """<script>
+if (!window.sdSelectboxDismiss) {
+  window.sdSelectboxDismiss = true;
+  document.addEventListener("pointerdown", event => {
+    if (event.target.closest?.('[data-testid="stSelectboxVirtualDropdown"]')) return;
+    for (const input of document.querySelectorAll('[data-testid="stSelectbox"] input[aria-expanded="true"]')) {
+      if (input.closest('[data-testid="stSelectbox"]').contains(event.target)) continue;
+      input.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+    }
+  }, true);
+}
+</script>"""
+
+
 def render_page(db, data, save_entry, resolve_level, connect, move_box_slot, apply_party_slots,
                 move_party_to_box):
     active = st.session_state.setdefault("active_tab", "Calc")
     with st.container(key="sd_header"):
         brand_col, nav_col = st.columns([2, 1], vertical_alignment="center")
         with brand_col:
-            st.html('<div class="sd-wordmark">Sidedex</div>')
+            st.html('<div class="sd-wordmark">Sidedex</div>' + _SELECTBOX_DISMISS_JS,
+                    unsafe_allow_javascript=True)
         with nav_col:
             with st.container(horizontal=True, horizontal_alignment="right"):
                 if st.button("Pokedex", key=f"nav_pokedex_{active.lower()}"):

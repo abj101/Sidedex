@@ -24,6 +24,37 @@ const titleHandlers = new WeakMap();
 const resizeObservers = new WeakMap();
 const pendingMoves = new WeakMap();
 
+
+function showDeleteMenu(event, onDelete) {
+  event.preventDefault();
+  event.stopPropagation();
+  document.querySelectorAll(".sd-context-menu").forEach(node => node.remove());
+  const menu = document.createElement("div");
+  menu.className = "sd-context-menu";
+  menu.setAttribute("role", "menu");
+  const item = document.createElement("button");
+  item.type = "button";
+  item.className = "sd-picker-option";
+  item.setAttribute("role", "menuitem");
+  item.textContent = "Delete";
+  menu.append(item);
+  menu.style.left = `${event.clientX}px`;
+  menu.style.top = `${event.clientY}px`;
+  document.body.append(menu);
+  const close = () => {
+    menu.remove();
+    document.removeEventListener("pointerdown", onOutside, true);
+    document.removeEventListener("keydown", onKey, true);
+    window.removeEventListener("scroll", close, true);
+  };
+  const onOutside = e => { if (!menu.contains(e.target)) close(); };
+  const onKey = e => { if (e.key === "Escape") close(); };
+  item.onclick = () => { close(); onDelete(); };
+  document.addEventListener("pointerdown", onOutside, true);
+  document.addEventListener("keydown", onKey, true);
+  window.addEventListener("scroll", close, true);
+}
+
 function addText(parent, tag, className, value) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -221,6 +252,8 @@ export default function (component) {
         };
         setTimeout(complete, 160);
       };
+      tile.addEventListener("contextmenu", event => showDeleteMenu(event, () =>
+        setTriggerValue("delete", {id: row.id, token: `${Date.now()}-${Math.random()}`})));
       tile.addEventListener("pointerdown", event => {
         if (event.button !== 0) return;
         drag = {x: event.clientX, y: event.clientY, started: false, tile};
@@ -312,4 +345,5 @@ def pc_box(rows, selected_id=None, hovered_id=None, *, box_no=1, key="pc-box", c
         on_selected_change=lambda: None,
         on_box_change=lambda: _box_changed(key),
         on_move_change=lambda: None,
+        on_delete_change=lambda: None,
     )

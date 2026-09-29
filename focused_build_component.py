@@ -5,6 +5,11 @@ import streamlit as st
 
 _HTML = """<div class="sd-build-editor">
   <span class="sd-build-chip sd-build-level">Level <input class="sd-build-level-number" type="number" min="1" max="100" step="1" aria-label="Level"></span>
+  <div class="sd-build-combo" data-field="ability" hidden>
+    <button class="sd-build-chip sd-build-trigger" type="button" aria-label="Change Ability" aria-expanded="false"><span class="sd-build-value"></span></button>
+    <input class="sd-build-chip sd-build-edit" type="text" aria-label="Search Ability" autocomplete="off" hidden>
+    <div class="sd-build-menu" hidden><div class="sd-build-options" role="listbox" aria-label="Ability"></div></div>
+  </div>
   <div class="sd-build-combo" data-field="nature">
     <button class="sd-build-chip sd-build-trigger" type="button" aria-label="Change Nature" aria-expanded="false"><span class="sd-build-value"></span></button>
     <input class="sd-build-chip sd-build-edit" type="text" aria-label="Search Nature" autocomplete="off" hidden>
@@ -16,13 +21,26 @@ _HTML = """<div class="sd-build-editor">
     <input class="sd-build-chip sd-build-edit" type="text" aria-label="Search Item" autocomplete="off" hidden>
     <div class="sd-build-menu" hidden><div class="sd-build-options" role="listbox" aria-label="Item"></div></div>
   </div>
+  <div class="sd-build-combo" data-field="owner" hidden>
+    <button class="sd-build-chip sd-build-trigger" type="button" aria-label="Change Owner" aria-expanded="false"><span class="sd-build-value"></span></button>
+    <input class="sd-build-chip sd-build-edit" type="text" aria-label="Search Owner" autocomplete="off" hidden>
+    <div class="sd-build-menu" hidden><div class="sd-build-options" role="listbox" aria-label="Owner"></div></div>
+  </div>
+  <div class="sd-build-combo" data-field="pair" hidden>
+    <button class="sd-build-chip sd-build-trigger" type="button" aria-label="Change Soul Link pair" aria-expanded="false"><span class="sd-build-value"></span></button>
+    <input class="sd-build-chip sd-build-edit" type="text" aria-label="Soul Link pair" autocomplete="off" hidden>
+    <div class="sd-build-menu" hidden><div class="sd-build-options" role="listbox" aria-label="Soul Link pair"></div></div>
+  </div>
 </div>"""
 
 _CSS = """
-.sd-build-editor { display:flex; align-items:center; gap:6px; min-height:23px; color:#17303a; font:700 11px/1.2 monospace; }
+.sd-build-combo[data-field="owner"] { margin-left:auto; }
+.sd-build-combo[data-field="owner"] .sd-build-menu,.sd-build-combo[data-field="pair"] .sd-build-menu { left:auto; right:0; }
+.sd-build-combo[hidden] { display:none; }
+.sd-build-editor { display:flex; flex-wrap:wrap; align-items:center; gap:6px; min-height:23px; color:#17303a; font:700 11px/1.2 monospace; }
 .sd-build-chip { box-sizing:border-box; display:inline-flex; align-items:center; gap:7px; height:23px; padding:3px 5px; color:#17303a; background:#e9eedb; border:1px solid #9bb0a4; border-radius:0; font:inherit; white-space:nowrap; }
 .sd-build-level { gap:1ch; }
-.sd-build-level:focus-within { outline:1px solid #17303a; outline-offset:1px; }
+.sd-build-level:hover,.sd-build-level:focus-within { outline:1px solid #17303a; outline-offset:1px; }
 .sd-build-level-number { box-sizing:content-box; min-width:1ch; height:100%; padding:0; margin:0; color:inherit; background:transparent; border:0; border-radius:0; outline:none; font:inherit; text-align:left; appearance:textfield; -moz-appearance:textfield; }
 .sd-build-level-number::-webkit-inner-spin-button,.sd-build-level-number::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
 .sd-build-trigger { cursor:pointer; max-width:180px; }
@@ -32,7 +50,8 @@ _CSS = """
 .sd-build-combo { position:relative; }
 .sd-build-combo[data-field="item"] :is(.sd-build-trigger,.sd-build-edit) { padding-left:5px; }
 .sd-build-combo[data-field="item"][data-has-icon="true"] :is(.sd-build-trigger,.sd-build-edit) { padding-left:25px; }
-.sd-build-edit { width:100%; outline:none; }
+.sd-build-edit { width:calc((var(--sd-chars, 8) + 1) * 1ch + 12px); max-width:260px; outline:none; }
+.sd-build-combo[data-field="item"][data-has-icon="true"] .sd-build-edit { width:calc((var(--sd-chars, 8) + 1) * 1ch + 32px); }
 .sd-build-edit[hidden] { display:none; }
 .sd-build-edit:focus { color:#17303a; background:#e9eedb; border-color:#9bb0a4; outline:none; }
 .sd-build-menu { position:absolute; z-index:20; top:calc(100% + 2px); left:0; box-sizing:border-box; width:max-content; min-width:205px; max-width:275px; padding:4px; color:#17303a; background:#e9eedb; border:1px solid #9bb0a4; box-shadow:0 3px 0 #071d24; }
@@ -93,20 +112,23 @@ export default function (component) {
       const trigger = combo.querySelector(".sd-build-trigger");
       trigger.hidden = false;
       trigger.setAttribute("aria-expanded", "false");
-      combo.querySelector(".sd-build-edit").hidden = true;
-      combo.style.width = "";
+      const edit = combo.querySelector(".sd-build-edit");
+      edit.hidden = true;
+      edit.style.width = "";
     }
   };
 
   for (const combo of combos) {
     const field = combo.dataset.field;
     const choices = data[`${field}_options`] || [];
+    if (field === "ability" || field === "owner" || field === "pair") combo.hidden = !data[`show_${field}`];
     const current = data[field] || "";
     const trigger = combo.querySelector(".sd-build-trigger");
     const menu = combo.querySelector(".sd-build-menu");
     const search = combo.querySelector(".sd-build-edit");
     const list = combo.querySelector(".sd-build-options");
-    trigger.querySelector(".sd-build-value").textContent = field === "nature" ? data.nature_label : data.item_label;
+    if (field === "ability") trigger.disabled = Boolean(data.ability_locked);
+    trigger.querySelector(".sd-build-value").textContent = data[`${field}_label`];
 
     const commit = value => {
       closeAll();
@@ -140,6 +162,7 @@ export default function (component) {
         option.onclick = () => commit(choice.value);
         list.append(option);
       }
+      menu.hidden = !choices.length;
       if (!matches.length && query) {
         const custom = document.createElement("button");
         custom.type = "button";
@@ -149,22 +172,24 @@ export default function (component) {
         list.append(custom);
       }
     };
+    const sizeSearch = () => {};
     trigger.onclick = () => {
       const opening = menu.hidden;
       closeAll();
       if (opening) {
-        combo.style.width = `${trigger.getBoundingClientRect().width}px`;
+        search.style.width = `${trigger.getBoundingClientRect().width}px`;
         trigger.hidden = true;
         search.hidden = false;
         menu.hidden = false;
         trigger.setAttribute("aria-expanded", "true");
-        search.value = field === "nature" ? data.nature_label : data.item_label;
+        search.value = data[`${field}_label`];
+        sizeSearch();
         renderChoices("");
         search.focus();
         search.select();
       }
     };
-    search.oninput = () => renderChoices();
+    search.oninput = () => { sizeSearch(); renderChoices(); };
     search.onkeydown = event => {
       if (event.key === "Escape") { closeAll(); trigger.focus(); }
       if (event.key === "Enter") {
@@ -173,7 +198,7 @@ export default function (component) {
         const match = choices.find(choice => choice.label.toLowerCase() === query)
           || choices.find(choice => choice.label.toLowerCase().includes(query));
         if (match) commit(match.value);
-        else if (query) commit(search.value.trim());
+        else if (query || field === "pair") commit(search.value.trim());
       }
     };
     trigger.onkeydown = event => {
@@ -199,11 +224,19 @@ _FOCUSED_BUILD = st.components.v2.component(
 )
 
 
-def focused_build(*, level, nature, nature_label, nature_options, item, item_label, item_options, item_icon_url, key):
+def focused_build(*, level, nature, nature_label, nature_options, item, item_label, item_options, item_icon_url, key,
+                  ability="", ability_options=(), show_ability=None, ability_locked=False, owner="", owner_options=(), pair="", pair_options=None):
     return _FOCUSED_BUILD(
         key=key,
         data={"level": level, "nature": nature, "nature_label": nature_label,
               "nature_options": nature_options, "item": item, "item_label": item_label,
-              "item_options": item_options, "item_icon": item_icon_url},
+              "item_options": item_options, "item_icon": item_icon_url,
+              "ability": ability, "ability_label": next((o["label"] for o in ability_options if o["value"] == ability), "Ability"),
+              "ability_options": list(ability_options),
+              "show_ability": bool(ability_options) if show_ability is None else show_ability,
+              "show_owner": bool(owner_options), "ability_locked": ability_locked, "owner": owner,
+              "owner_label": owner and f"Owner {owner}" or "Owner", "owner_options": list(owner_options),
+              "show_pair": pair_options is not None, "pair": pair,
+              "pair_label": pair or "Soul Link Pair Name", "pair_options": list(pair_options or [])},
         on_changed_change=lambda: None,
     )

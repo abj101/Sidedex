@@ -110,6 +110,7 @@ export default function (component) {
       }
     };
     const openPicker = trigger => {
+      if (data.locked) return;
       const opening = menu.hidden;
       closeMenus();
       menu.hidden = !opening;
@@ -150,10 +151,10 @@ export default function (component) {
 )
 
 
-def focused_profile(*, markup, ability, abilities, known_moves, moves, key):
+def focused_profile(*, markup, ability, abilities, known_moves, moves, key, locked=False):
     return _PROFILE(
         key=key,
         data={"markup": markup, "ability": ability, "abilities": abilities,
-              "known_moves": known_moves, "moves": moves},
+              "known_moves": known_moves, "moves": moves, "locked": locked},
         on_changed_change=lambda: None,
     )
