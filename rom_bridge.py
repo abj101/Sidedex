@@ -33,6 +33,9 @@ from rom_identity import (
     ROM_SHA256,
     ENGINE_ELF_SHA256,
     WORKER_SHA256,
+    NATIVE_ENGINE_SHA256,
+    NATIVE_WORKER_VERSION,
+    NATIVE_CORE,
 )  # noqa: F401  (re-exported)
 
 # Contract Appendix B (v2 execution amendment). Gate V1 retired wire 2: the
@@ -198,6 +201,7 @@ class RomWorkerClient:
     # (object.__new__ in the tests) still validates identity predictably.
     wire_protocol = PROTOCOL_VERSION
     worker_version = WORKER_VERSION
+    core_version = MGBA_VERSION
 
     def __init__(
         self,
@@ -221,6 +225,10 @@ class RomWorkerClient:
             raise ValueError(f"wire_protocol must be {PROTOCOL_VERSION}")
         self.wire_protocol = wire_protocol
         self.worker_version = WORKER_VERSION
+        native = isinstance(expected_artifact_sha256, str) and expected_artifact_sha256.upper() == NATIVE_ENGINE_SHA256
+        if native:  # the native engine is one binary: it is the artifact, the worker and the ROM its status reports
+            self.worker_version, self.core_version = NATIVE_WORKER_VERSION, NATIVE_CORE
+            expected_worker_sha256, worker = NATIVE_ENGINE_SHA256, rom
         self._lock = threading.Lock()
         self._closed = False
         self._stderr_lines: queue.Queue = queue.Queue(maxsize=16)
@@ -353,7 +361,7 @@ class RomWorkerClient:
         reply = _parse_reply(self._read_line(), self.wire_protocol)
         required = {
             "worker": self.worker_version,
-            "mgba": MGBA_VERSION,
+            "mgba": self.core_version,
             "platform": "gba",
         }
         for key, expected in required.items():
@@ -412,7 +420,7 @@ class RomWorkerClient:
             return reply
 
     def _validate_status_reply(self, reply: dict[str, Any]) -> dict[str, Any]:
-        if reply.get("worker") != self.worker_version or reply.get("mgba") != MGBA_VERSION:
+        if reply.get("worker") != self.worker_version or reply.get("mgba") != self.core_version:
             raise WorkerProtocolError("worker identity changed during the session")
         if reply.get("platform") != "gba":
             raise WorkerProtocolError("worker returned a non-GBA core")
@@ -480,7 +488,7 @@ class RomWorkerClient:
             raise WorkerProtocolError("worker state slot is missing its identity")
         for key, expected in (
             ("worker_version", self.worker_version),
-            ("mgba_version", MGBA_VERSION),
+            ("mgba_version", self.core_version),
             ("wire_protocol", self.wire_protocol),
             ("save_format", SAVE_FORMAT_ID),
         ):
@@ -707,6 +715,29 @@ class RomWorkerClient:
                 "turn_p95_ms": _percentile([turn["elapsed_ms"] for turn in timed_turns], 0.95) if timed_turns else None,
                 "restore_p50_ms": _percentile([turn["restore_ms"] for turn in timed_turns], 0.50) if timed_turns else None,
                 "restore_p95_ms": _percentile([turn["restore_ms"] for turn in timed_turns], 0.95) if timed_turns else None}
+
+    def rollout(self, address: int, result_address: int, result_capacity: int, items: list, *,
+                mailbox_bytes: int, handle: str, request_token: int, engine_elf_sha256: str,
+                deadline_ms: int, request_id: str, max_frames: int = 24_000, critical_policy: int = 0) -> list:
+        """Native engine only: the fused `rollout` op (see rom_native.Engine.rollout) -> the per-item results.
+        Turn i of every item uses request token `request_token + i`."""
+        if not self.worker_version == NATIVE_WORKER_VERSION:
+            raise WorkerProtocolError("rollout needs the native engine")
+        if engine_elf_sha256.upper() != self.rom_sha256:
+            raise RomIdentityError("rollout engine identity differs from the artifact loaded by this worker")
+        remaining = (deadline_ms - int(time.monotonic() * 1000)) / 1000
+        if remaining <= 0:
+            raise WorkerTimeoutError("rollout deadline has expired")
+        reply = self._request(
+            "rollout", _timeout=min(self._timeout, remaining), handle=self._validate_handle(handle), items=items,
+            address=address, result_address=result_address, result_capacity=result_capacity,
+            mailbox_bytes=mailbox_bytes, budget_ms=max(1, int(remaining * 1000)), max_frames=max_frames,
+            request_id=request_id, request_token=request_token, source_sha=SOURCE_SHA,
+            engine_elf_sha256=engine_elf_sha256.lower(), worker_sha256=self.worker_sha256, mode=0,
+            critical_policy=critical_policy)
+        if not isinstance(reply.get("items"), list) or len(reply["items"]) != len(items):
+            raise WorkerProtocolError("rollout response has a mismatched item count")
+        return reply["items"]
 
     def batch_turns_v3(
         self, address: int, result_address: int, result_capacity: int,

@@ -1,5 +1,10 @@
 # Calc interface contract
 
+Engine label: the default native engine is verified byte-equal to the mGBA test ELF (Gate N2: every
+green fixture row plus 300 random chained battles, SDR2 identical each turn); the source with the hook
+compiled out reproduces the release ROM hash (H1: `0CCAAAD0...`). Results are labelled compiled-engine,
+not release-ROM verified, until H2 passes.
+
 ## v5 risk-first local compiled-engine contract (2026-09-27)
 
 Schema-v2 snapshots remain the saved UI format. Move cards use the pinned
