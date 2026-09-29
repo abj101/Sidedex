@@ -31,9 +31,8 @@ import rom_native  # noqa: E402
 from rom_native import Engine  # noqa: E402
 from tools.rom_oracle import run_dynamic  # noqa: E402
 
-ORACLE_WORKER = Path(r"C:\Users\Abj1\.codex\worktrees\rom-transition-orchestrator\Sidedex"
-                     r"\native\rom_worker\build\mingw\rom_worker.exe")
-ORACLE_ELF = Path(r"C:\Users\Abj1\.codex\artifacts\O\native-oracle\163395c52d\pokeemerald-test-headless.elf")
+ORACLE_WORKER = ROOT / "native/rom_worker/build/mingw/rom_worker.exe"
+ORACLE_ELF = ROOT / "native/rom_worker/build/mingw/pokeemerald-test-headless.elf"  # the active pin
 NATIVE_BIN, NATIVE_BIN_WIN = rom_native.NATIVE_BIN, Path(rom_native.NATIVE_BIN_WIN)
 FIXTURE = ROOT / "tools/rom_oracle/fixtures/p01_physical_neutral.json"
 
