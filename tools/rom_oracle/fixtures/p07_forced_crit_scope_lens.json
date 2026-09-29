@@ -1,0 +1,264 @@
+{
+  "id": "P7",
+  "row": "P7",
+  "scenario": "forced critical class (Scope Lens crit stage)",
+  "status": "green-target",
+  "critical_policy": "normal",
+  "root": {
+    "ai_flags": 16391,
+    "candidate_action": {
+      "kind": "move",
+      "move_id": "MOVE_TACKLE"
+    },
+    "replay_turns": [],
+    "rng_main": [
+      305419896,
+      2596069104,
+      195948557,
+      1
+    ],
+    "rng_secondary": [
+      1,
+      2,
+      3,
+      29
+    ],
+    "player_party": [
+      {
+        "species": "SPECIES_BULBASAUR",
+        "level": 50,
+        "ability": "ABILITY_OVERGROW",
+        "item": "ITEM_SCOPE_LENS",
+        "moves": [
+          "MOVE_TACKLE",
+          "MOVE_GROWL",
+          "MOVE_HYDRO_PUMP",
+          "MOVE_SLASH"
+        ],
+        "nature": "NATURE_HARDY",
+        "hp": 105,
+        "max_hp": 105,
+        "status1": "STATUS1_NONE",
+        "ivs": [
+          31,
+          31,
+          31,
+          31,
+          31,
+          31
+        ],
+        "evs": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "pp": [
+          35,
+          40,
+          5,
+          20
+        ]
+      },
+      {
+        "species": "SPECIES_CHARIZARD",
+        "level": 50,
+        "ability": "ABILITY_BLAZE",
+        "item": "ITEM_NONE",
+        "moves": [
+          "MOVE_TACKLE",
+          "MOVE_NONE",
+          "MOVE_NONE",
+          "MOVE_NONE"
+        ],
+        "nature": "NATURE_HARDY",
+        "hp": 138,
+        "max_hp": 138,
+        "status1": "STATUS1_NONE",
+        "ivs": [
+          31,
+          31,
+          31,
+          31,
+          31,
+          31
+        ],
+        "evs": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "pp": [
+          35,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "opponent_party": [
+      {
+        "species": "SPECIES_GYARADOS",
+        "level": 50,
+        "ability": "ABILITY_INTIMIDATE",
+        "item": "ITEM_NONE",
+        "moves": [
+          "MOVE_TACKLE",
+          "MOVE_NONE",
+          "MOVE_NONE",
+          "MOVE_NONE"
+        ],
+        "nature": "NATURE_HARDY",
+        "hp": 155,
+        "max_hp": 155,
+        "status1": "STATUS1_NONE",
+        "ivs": [
+          31,
+          31,
+          31,
+          31,
+          31,
+          31
+        ],
+        "evs": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "pp": [
+          35,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "species": "SPECIES_BLASTOISE",
+        "level": 50,
+        "ability": "ABILITY_TORRENT",
+        "item": "ITEM_NONE",
+        "moves": [
+          "MOVE_TACKLE",
+          "MOVE_NONE",
+          "MOVE_NONE",
+          "MOVE_NONE"
+        ],
+        "nature": "NATURE_HARDY",
+        "hp": 139,
+        "max_hp": 139,
+        "status1": "STATUS1_NONE",
+        "ivs": [
+          31,
+          31,
+          31,
+          31,
+          31,
+          31
+        ],
+        "evs": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "pp": [
+          35,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "field": {
+      "weather": "WEATHER_NONE",
+      "terrain": "TERRAIN_NONE",
+      "trick_room": false,
+      "player_screens": 0,
+      "enemy_screens": 0,
+      "player_hazards": 0,
+      "enemy_hazards": 0
+    }
+  },
+  "inject_rng": {
+    "main": [
+      2027808452,
+      4386,
+      13124,
+      7
+    ],
+    "secondary": [
+      4,
+      29,
+      54,
+      71
+    ]
+  },
+  "actions": [
+    {
+      "label": "tackle-scope-lens-crit",
+      "action": {
+        "kind": "move",
+        "move_id": "MOVE_TACKLE"
+      },
+      "expect": {
+        "stop": "boundary",
+        "crit": true
+      }
+    }
+  ],
+  "evidence": {
+    "same_seed_no_item_damage": 13,
+    "same_seed_scope_lens_damage": 20,
+    "no_item_crit_seeds": [
+      12,
+      29,
+      63
+    ],
+    "scope_lens_crit_seeds": [
+      4,
+      8,
+      12,
+      21,
+      25,
+      29,
+      38,
+      42,
+      55,
+      59,
+      63,
+      72,
+      76,
+      89,
+      93,
+      106,
+      110,
+      123,
+      127,
+      140,
+      144,
+      157
+    ],
+    "method": "same injected RNG on both roots: Scope Lens crits are a strict superset (19 gained crits), proving the held-item crit stage is represented",
+    "gate_note": "wave-2: re-verified against the pinned v8c ELF under mailbox RNG injection"
+  },
+  "gate": {
+    "source_sha": "2576d0f3f4c861c760f0c55198e37e6d7b91683e",
+    "elf_sha256": "422ade3e159916f9cc8bc1350ad274201b6af6cb9b9d38c14d073f85e982bc77",
+    "worker_sha256": "0601297e8bed7ca1319dc9be86a547aa01b16624ce0de5431093e6b59d7e5122",
+    "wire_protocol": 2,
+    "rom_hook_protocol": 8,
+    "state_schema": "sidedex-state-v1",
+    "mode": "normal|logic-only",
+    "critical_policy": "normal"
+  }
+}

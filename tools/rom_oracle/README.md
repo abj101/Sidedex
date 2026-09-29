@@ -59,14 +59,496 @@ At switch settlement and after the next turn, the trace records all six party sl
 
 The trace does not snapshot every global byte or prove that the release ROM follows the same path. It is a deterministic, broad state capture for this bounded test scenario, not a full RAM snapshot, universal replay format, or the complete calculation contract.
 
-## Dynamic battle request v7
+## Dynamic battle request v9
+
+The v9 test hook keeps the v8 request bytes through offset 863 and appends
+`resultAddress:u32`, `resultCapacity:u32`, `resultVersion:u16=1`, and
+`flags:u16` at 864, 868, 872, and 874 (876 bytes total). The hook announces
+`ROMTRACE|ready|<request_addr>|876|9|3|<result_addr>|8192`; the result array
+is an aligned 8192-byte allocation from `gHeap`, and requests must echo that exact address
+and capacity with compact-result bit 0 set. The ELF announces its runtime
+address so the worker never guesses its location.
+
+The reserved result buffer is transport storage, not a decoded state or a
+replacement savestate. A transition result uses `SDR2`, format version 1 and a
+64-byte header: `magic` 0, `format:u16=1` 4, `header_bytes:u16=64` 6,
+`total_bytes:u32` 8, `crc32:u32` 12, `request_id:u16` 16, `status:u16` 18,
+`boundary:u16` 20, `mode:u16` 22, `critical_policy:u16` 24, `record_count:u16`
+26, `turn:u32` 28, `rng_main:u32[4]` 32 and `rng_secondary:u32[4]` 48. Records
+follow as `tag:u16, payload_bytes:u16, payload`, zero-padded to four bytes;
+`payload_bytes` excludes the padding. The CRC is the zlib CRC-32 of
+`buffer[12:total_bytes]` with the CRC field zeroed.
+
+At each held boundary the hook completes the projection, commits the header and
+CRC, emits `ROMTRACE|boundary|...`, and ends with
+`ROMTRACE|binary-ready|<addr>|<len>` (which stays last). The commit precedes the
+boundary marker so the worker's batch stop on `ROMTRACE|boundary|` can never
+observe a half-written result. A nonzero status carries exactly one tag 11
+`reason:u16, source:u16` record and nothing else (contract C.3); the exporter
+fails closed with `reason=3 source=6` (unsupported-mechanic / non-singles
+battle) and `reason=2 source=5` (unrepresentable-state / trainer item use).
+
+#### v9 compact result record schema
+
+Typed records use `entry_count:u16, words_per_entry:u16` followed by little-endian
+`u32` words:
+
+| Tag | Count and field order |
+|---|---|
+| 1 party | 12 × 32: side, slot, species, level, HP, max HP, status1, item, ability number, form, nature, moves 1–4, PP 1–4, six IVs (hp/atk/def/spe/spa/spd), six EVs, present bit |
+| 2 active | two × 37 for singles: battler, party slot, species, HP, max HP, status1/status2/status3, ability, item, form, three types, seven stat stages, four moves, four PP, volatile flags, disabled move, disable timer, protect flags, special-status flags, substitute HP, encore timer, taunt timer |
+| 3 field | one × 6: weather, weather timer, terrain, terrain timer, trick room, trick-room timer |
+| 4 side | two × 12: side, screens, hazards, hazard layers, conditions, reflect, light screen, aurora veil, mist, safeguard, tailwind, follow-me timers |
+| 5 battle | one × 10: turn, outcome, battle type flags, battler count, trainer AI flags, item count, four trainer item IDs |
+| 6 RNG | one × 8: main and secondary four-word streams; duplicates the header pair |
+| 7 legal | N × 4: `kind,id,pp_or_species,target_or_slot`; kind 0 move, 1 switch, 2 item |
+| 8 trainer action | one × 3: kind, id, target |
+| 9 events | concatenated `event_kind:u16,payload_words:u16,payload:u32[]` subrecords |
+| 10 terminal | one × 2: result and reason code |
+| 11 unsupported | one × 2: reason code and source code |
+
+Tags 1–9 are required for a successful nonterminal result and tags 1–6, 8, 9,
+10 for terminal success (no tag 7 at terminal). Tag 9 may be empty.
+
+#### v9 flag words and field sources
+
+Every word is read from a named C source at the boundary; nothing is zero-filled.
+Unreadable values fail the transition with tag 11 instead.
+
+| Word (active/side index) | Bit meaning and source |
+|---|---|
+| `volatile_flags` (active 29) | `struct DisableStruct` one-bit persistent trackers (`gDisableStructs[]`, `include/battle.h`): 0 `truantCounter`, 1 `truantSwitchInHack`, 2 `noRetreat`, 3 `tarShot`, 4 `octolock`, 5 `cudChew`, 6 `spikesDone`, 7 `toxicSpikesDone`, 8 `stickyWebDone`, 9 `stealthRockDone`, 10 `syrupBombIsShiny`, 11 `steelSurgeDone`, 12 `weatherAbilityDone`, 13 `terrainAbilityDone`, 14 `usedProteanLibero` |
+| `protect_flags` (active 32) | low 32-bit bitfield of `struct ProtectStruct` (`gProtectStructs[]`) in declaration order: 0 `protected`, 1 `spikyShielded`, 2 `kingsShielded`, 3 `banefulBunkered`, 4 `obstructed`, 5 `endured`, 6 `noValidMoves`, 7 `helpingHand`, 8 `bounceMove`, 9 `stealMove`, 10 `prlzImmobility`, 11 `confusionSelfDmg`, 12 `targetAffected`, 13 `chargingTurn`, 14–15 `fleeType`, 16 `usedImprisonedMove`, 17 `loveImmobility`, 18 `usedDisabledMove`, 19 `usedTauntedMove`, 20 `flag2Unknown`, 21 `flinchImmobility`, 22 `notFirstStrike`, 23 `palaceUnableToUseMove`, 24 `usedHealBlockedMove`, 25 `usedGravityPreventedMove`, 26 `powderSelfDmg`, 27 `usedThroatChopPreventedMove`, 28 `statRaised`, 29 `usedCustapBerry`, 30 `touchedProtectLike`. The secondary `u16` bitfield (`disableEjectPack`..`padding`) is not carried in this word. |
+| `special_status_flags` (active 33) | the four flag bytes of `struct SpecialStatus` (`gSpecialStatuses[]`): 0 `statLowered`, 1 `lightningRodRedirected`, 2 `restoredBattlerSprite`, 3 `faintedHasReplacement`, 4 `focusBanded`, 5 `focusSashed`, 8 `sturdied`, 9 `stormDrainRedirected`, 10 `switchInAbilityDone`, 11 `switchInItemDone`, 12–14 `instructedChosenTarget`, 15 `berryReduced`, 16 `gemBoost`, 17 `rototillerAffected`, 18–19 `parentalBondState`, 20 `multiHitOn`, 21 `announceNeutralizingGas`, 22 `neutralizingGasRemoved`, 23 `affectionEndured`, 24–27 `damagedMons`, 28 `dancerUsedMove`, 29–31 `dancerOriginalTarget`. The trailing byte (`emergencyExited`, `afterYou`, `preventLifeOrbDamage`, `oraoraoraoraState`, `distortedTypeMatchups`) is not carried in this word. |
+| `screens` (side 1) | `gSideStatuses[side] & SIDE_STATUS_SCREEN_ANY`: 0 reflect, 1 light screen, 11 aurora veil (`include/constants/battle.h`) |
+| `hazards` (side 2) | `gSideStatuses[side] & SIDE_STATUS_HAZARDS_ANY`: 2 sticky web, 4 spikes, 13 toxic spikes, 14 stealth rock, 22 steel surge |
+| `hazard_layers` (side 3) | nibble-packed `struct SideTimer` counts (`gSideTimers[]`): 0–3 `spikesAmount`, 4–7 `toxicSpikesAmount`, 8–11 `stealthRockAmount`, 12–15 `stickyWebAmount`, 16–19 `steelsurgeAmount` |
+| `conditions` (side 4) | the full `gSideStatuses[side]` word |
+
+| Field | Source |
+|---|---|
+| party species/level/HP/max HP/status1/item/ability/nature/moves/PP/IVs/EVs | `GetMonData` on `gPlayerParty`/`gEnemyParty`; `GetNature`; `present = species != SPECIES_NONE` |
+| party and active `form` | `GetFormIdFromFormSpeciesId(species)` (`include/pokemon.h`) |
+| active HP/max HP/status1/status2/ability/item/types/stat stages/moves/PP | `struct BattlePokemon gBattleMons[]` |
+| active `status3` | `gStatuses3[battler]` |
+| active disabled move, disable/encore/taunt timers, substitute HP | `struct DisableStruct gDisableStructs[]` |
+| field `weather` | `gBattleWeather` |
+| field `weather_timer` | `gWishFutureKnock.weatherDuration` |
+| field terrain/timers, trick room/timer | `gFieldStatuses` masks and `gFieldTimers` |
+| side timers | `struct SideTimer gSideTimers[]` |
+| battle turn/outcome/type flags/battler count | `gBattleResults.battleTurnCounter`, `gBattleOutcome`, `gBattleTypeFlags`, `gBattlersCount` |
+| battle `ai_flags` | `AI_THINKING_STRUCT->aiFlags[opponent battler]` |
+| battle item count/items | `gBattleResources->battleHistory->itemsNo` / `trainerItems[]` |
+| `rng` | `gRngValue` and `gRng2Value` (must equal the header pair) |
+| `legal` | the ROM's own move/switch enumeration, the same source as the v8 `ROMTRACE|legal|` lines |
+| `trainer action` | the AI side's most recently chosen action captured in `TestRunner_Battle_CheckChosenMove` / `CheckSwitch` |
+| `events` | tagged from `RecordHP`/`RecordStatus1`/`RecordAbilityPopUp`/`CheckChosenMove`/`CheckSwitch`/`TraceChosenItem`/`TraceSwitchOut` |
+
+Event kinds emitted: 1 move used, 2 damage, 3 heal, 6 faint, 7 switch out, 8 switch
+in, 11 ability activated, 12 item used/consumed. Kind 7 is recorded in
+`Cmd_getswitchedmondata` (`src/battle_script_commands.c`) while the outgoing
+party slot is still readable, and only when the departing battler is alive — a
+faint replacement leaves as kind 6 (faint) instead. No green fixture exercises
+it: the only switch row, P25, is `unsupported-mechanic` (`a mailbox switch
+candidate … emits no ROMTRACE|boundary|`, see `FIXTURE_MATRIX.md`), so kind 7 is
+compiled and guarded but not demonstrated live. The other C.3 kinds have no ROM
+callback wired yet and are omitted rather than invented.
+
+#### Commit ordering (hard rule)
+
+The native worker stops a batch at the first `ROMTRACE|boundary|`,
+`ROMTRACE|terminal|` or `ROMTRACE|complete|` line, and `ROMTRACE|binary-ready|`
+is not on the worker's slim filter. The header and CRC must therefore be written
+*before* the first stop marker of a transition. For a boundary that order is
+projection → header+CRC → `boundary` → `binary-ready`; for a terminal it is
+projection → tag 10 → header+CRC → `terminal` → `binary-ready` → `complete`.
+Getting this wrong yields a decoded result with a zero CRC and record count, or
+no result at all (P27/P28 did exactly that before the fix).
+
+#### IWRAM headroom is a hard constraint (task for A2)
+
+The test ELF's IWRAM is effectively full: `.iwram.sbss` sits at the stack
+boundary, and a 1280-byte static array added to `test/test_runner_battle.c`
+corrupted the stack and crashed the ROM before the first turn (`arm-none-eabi-
+readelf` still reported the old section size, so per-symbol addresses from
+`arm-none-eabi-nm` are the dependable check). The tag 9 event ring therefore
+lives in the upper half of the 8192-byte result reservation
+(`SIDEDEX_EVENT_SCRATCH` 4096, `SIDEDEX_EVENT_STRIDE` 20). Any A2 change that
+adds statics here must rebuild the test ELF and re-run a driven turn to confirm
+the boundary hold still fires. The release ROM is unaffected (IWRAM 26,488 B of
+32 KiB, 80.83%).
+
+Also note: the standard build recipe runs the release (`TEST=0`) and test
+(`TEST=1`) builds in the *same* `build/modern` objdir, and `make` does not track
+flag changes, so after a `TEST=0` build the objects that depend on
+`-DTESTING` must be deleted before relinking the test ELF or the link fails on
+`sBattlerAbilities` (static under `TEST=0`, global under `TEST=1`).
+
+#### Compact-vs-`ROMTRACE` diagnostic equality
+
+Unless the request sets compact-result bit 0, the hook mirrors every compact
+record word-for-word to ROMTRACE as
+`ROMTRACE|phase|<turn>|state|c<tag>|<base index>|<up to 16 words>` with names
+`cparty`, `cactive`, `cfield`, `cside`, `cbattle`, `crng`, `clegal`, `ctrainer`
+and `cterminal`. `test_rom_oracle_dynamic.py` reassembles the chunks and asserts
+that binary tags 1–8 and 10 equal their textual counterparts for P1, P26, P27,
+P28 and P29's first move. The test is live (it drives the pinned worker and a
+staged candidate ELF) and skips cleanly when no candidate is present; point
+`SIDEDEX_V9_ELF` at one to force it.
+
+Accepted rows against `pokeemerald-test-headless.elf` (WSL `5b72eec`, sha256
+`c6271a8b248fb0ca12dfad814a8ef6c1a3f9b927e2316297c83d7700491eff2b`): every row
+decodes with a valid CRC, the required tags for its boundary kind, and zero
+compact-vs-trace mismatches.
+
+| Fixture | Boundary | status | total | tags | events | compact==trace |
+| --- | --- | --- | --- | --- | --- | --- |
+| P1 tackle | choice | 0 | 2312 | 1–9 | 1, 2 | yes |
+| P26 growl | forced-switch | 0 | 2240 | 1–9 | 1, 2, 6 | yes |
+| P27 tackle-ko | terminal | 0 | 2232 | 1–6, 8–10 | 1, 2, 6 | yes |
+| P28 growl-into-ko | terminal | 0 | 2232 | 1–6, 8–10 | 1, 2, 6 | yes |
+| P29 branch-tackle | choice | 0 | 2312 | 1–9 | 1, 2 | yes |
+| P29 branch-growl | choice | 0 | 2296 | 1–9 | 1, 2 | yes |
+
+Tag 10 codes match Appendix C.3: P27 `{result: 1 (win), reason: 0 (normal)}`,
+P28 `{result: 2 (loss), reason: 0 (normal)}`. A draw or escape is out of scope —
+no fixture produces one.
+
+In compact mode the state records (and the v8 `state|` diagnostic lines) are
+suppressed. Measured per-transition cost, 30 runs each on the P1 boundary:
+trace p50 123.7 ms / p95 133.4 ms with 70 trace lines, compact p50 122.8 ms /
+p95 129.7 ms with 2 lines — a 0.9 ms p50 delta, i.e. inside noise. Compact
+transport is worth using for the 70 → 2 line reduction in the worker trace
+buffer, not for latency.
+## Dynamic battle request v8
+
+The mailbox layout below is unchanged by the A2/A3 revisions (the A2 artifact
+is `native/rom_worker/build/mingw/pokeemerald-test-v8b.elf`; the corrected A3
+artifact is `native/rom_worker/build/mingw/pokeemerald-test-v8c.elf`, sha256
+`422ade3e159916f9cc8bc1350ad274201b6af6cb9b9d38c14d073f85e982bc77`,
+pre-patchelf `pokeemerald-test.elf` sha256
+`23c34b8357eba2cc6a1b486d444a56fcd50852acb8846a9e585d3fdbce7ae3c1`; the byte
+layout and `SIDEDEX_DYNAMIC_VERSION` 8 are identical, so package C's encoder
+needs no change).
+
+### v8c: hold-release RNG re-seed (contract section 6.2)
+
+A released boundary now overwrites BOTH `gRngValue` and `gRng2Value` from the
+mailbox pair before the trainer AI chooses. The mGBA savestate carries the RNG
+as of the held boundary, so without this a restored node kept the saved pair and
+the injected pair was ignored (measured on v8b: two different injected pairs
+produced byte-identical `rng|1|` records and identical HP). Verified on v8c from
+one saved node: injected main/secondary pairs P1 and P2 give different
+next-boundary `rng|1|` records and different player HP (68 vs 69); the emitted
+gRng2Value equals the injected secondary exactly (0 advances that turn) and the
+emitted gRngValue is the injected main advanced by exactly 12 sfc32 steps
+(ctr 1->13 and 7->19). Harness: `work/a3_rng_restore.py` (not committed),
+reports `work/a3_rng_v8c.json` / `work/a3_rng_v8b.json`.
+
+### v8c: release-ROM neutrality
+
+The recorded-player injection call sites (`src/battle_controller_recorded_player.c`)
+and the recorded-battle cursor guard (`src/recorded_battle.c`) are now
+`#if TESTING`/`#else` guarded, so a `TEST=0` build of the pinned source plus
+`dynamic_request.patch` is byte-identical to the pinned release ROM. Verified in
+a scratch worktree: `make -j12 rom` then `sha256sum pokeemerald.gba` =
+`0ccaaad0878a9cbfb36fbefff800e9b6dd66055924b7595038ede1e8771ec5a2`. The A2
+recorded-battle fix and the recorded-player injection remain active in the test
+ELF only; the release ROM is unchanged.
 
 `dynamic_request.patch` applies to the pinned source on its own; it already
 contains the trace hooks, so `trace_hooks.patch` is only used for the separate
-170-record oracle. It adds a test-only, versioned 856-byte EWRAM mailbox.
-Build the pinned test ELF with the recipe in `pinned_source.json`; do not
-commit either generated ELF. The host runner checks the pinned headless ELF
-hash and source-derived IDs before writing any request.
+170-record oracle. It adds a test-only, versioned **864-byte** EWRAM mailbox.
+The exact byte-offset table is frozen in `ROM_TRANSITION_CONTRACT.md`
+Appendix A. Build the pinned test ELF with the recipe in `pinned_source.json`;
+do not commit either generated ELF. The host runner checks the pinned headless
+ELF hash and source-derived IDs before writing any request.
+
+**v8 is a protocol bump.** The v7 host path (`tools/rom_oracle/run_dynamic.py`,
+`rom_bridge.RomWorkerClient.batch_turns`, `send_rom_request`) writes a 7-version
+document and 856 bytes and is rejected by the v8 ELF (`ROMTRACE|invalid|1`).
+The worker/transport package must update those writers; package A only owns the
+ROM side. The v7 fields keep their v7 offsets; the v8 extension appends
+`op` (856), `mode` (858), `criticalPolicy` (860), `requestId` (862).
+
+### Operations, modes, and critical policy
+
+- `op` (u16, offset 856): `0` `SIMULATE_TURN`, `1` `QUERY_DAMAGE`,
+  `2` `QUERY_AI_ACTION`. A legacy request that leaves `op` at 0 and sets the v7
+  `secondPresent` byte to `2` still reaches the query path.
+- `mode` (u16, 858): `0` `normal`, `1` `logic-only`.
+- `criticalPolicy` (u16, 860): `0` `normal` (real engine crit rolls, the parity
+  mode), `1` `item-ability-only` (the previous default; ordinary crits are
+  filtered and the engine-derived record is labelled
+  `ROMTRACE|critical-policy|item-ability-only|battle-script-filtered`). The
+  query damage path applies the same policy to its crit weights.
+- `requestId` (u16, 862): caller-chosen monotonic token. The boundary hold
+  releases only when a submitted request carries a different `requestId`.
+- The v7 `secondPresent` byte (842) still selects the historical paths: `0` a
+  plain candidate turn, `1` a second scripted turn, `2` the pre-choice query.
+  A2 adds `3`: a **forced-switch scenario** where the candidate turn is expected
+  to faint the player's active monster and `secondSlot` (840) is the recorded
+  compulsory-replacement party index (the ROM holds at the forced-switch
+  boundary and injects the real choice).
+
+### Choice-point boundary (v8 SIMULATE_TURN)
+
+The ROM stops at the decision boundary defined by contract section 3: after
+entry/end-of-turn effects and compulsory faint replacement have settled, at the
+start of the next turn's action selection and **before the AI chooses**. At that
+point it emits the legal-action records, the complete state export, and then
+
+```
+ROMTRACE|boundary|player-choice|<turn>|<legal-action-count>
+ROMTRACE|phase|<turn>|boundary|player-choice|<count>   (legacy slim filter)
+```
+
+**Wire contract: the boundary marker is the LAST record of the boundary
+emission.** The worker's `batch_turns` stop treats `ROMTRACE|boundary|` as "this
+turn's evidence is complete" and breaks the frame loop as soon as it sees one,
+so anything emitted after it is truncated. Emitting it first (the original v8
+order) returned only 4 of 34 records through a real batch; emitting it last
+returns all 37 (v8b, measured). The same rule applies to `terminal|`: `complete`
+is emitted before the terminal marker. Both marker spellings are unchanged.
+
+The machine then holds: `HandleTurnActionSelectionState` returns without
+advancing until a submitted request with a different `requestId` arrives. The
+hold is what makes the node snapshot-able — the mGBA worker saves the savestate
+while the machine is stopped, so the boundary is exact. A forced switch after a
+faint emits `boundary|forced-switch-player|...` and holds the pokémon-choice
+controller the same way (switches only, `legal-action-count` counts switchable
+party slots). If the battle has ended, the ROM emits
+`ROMTRACE|terminal|win|loss|draw|<reason>` plus `ROMTRACE|complete|<turn>` and
+never a boundary; a terminal/faint path finishes without the 24,000-frame
+fallback (measured: win 325 frames, loss 415 frames).
+
+### Legal player actions at a decision point
+
+Contract section 2 requires the ROM-derived `legal_player_actions` list, so the
+boundary reports each action explicitly (not just the count), for both a
+player-choice boundary and the pre-choice query path:
+
+```
+ROMTRACE|legal|move|<move_id>|<pp>|<target>
+ROMTRACE|legal|switch|<slot>|<species>
+ROMTRACE|phase|<turn>|legal|move|<move_id>|<pp>|<target>   (slim-filter mirror)
+ROMTRACE|phase|<turn>|legal|switch|<slot>|<species>       (slim-filter mirror)
+```
+
+`<target>` is the battler the move would hit (opponent-left in singles). At a
+forced-switch boundary only `legal|switch` is emitted. The `legal|item` spelling
+is reserved for a ROM that would allow a player item, but this build never emits
+it: the fixture models no player bag, and a trainer battle outside easy mode
+forbids item actions outright (`src/battle_main.c`).
+
+Note for the worker owner (package B): `ROMTRACE|legal|` is **not** in
+`worker.c`'s slim allow-list, so the canonical records are dropped in
+`batch_turns`; only the `phase|<turn>|legal|...` mirrors survive. Add
+`ROMTRACE|legal|` to the allow-list to carry the canonical spelling.
+
+### Decoded state export at the boundary
+
+Every boundary emits the complete contract 2.2 field set. Records are prefixed
+`ROMTRACE|phase|<turn>|state|` so the pinned worker's slim filter keeps them
+(the canonical markers `boundary|`, `terminal|`, `unrepresentable|`,
+`instruction-budget-exceeded|` are kept by the updated worker filter; the
+`phase|<turn>|...` mirror is what the pinned v1 worker can carry):
+
+| Record | Fields after the prefix | C source |
+| --- | --- | --- |
+| `state|party` | side, slot, species, level, HP, maxHP, status1, item, abilityNum, speciesOrEgg, nature, move1-4, pp1-4, ivHp/Atk/Def/Spd (23) | `struct Pokemon` via `GetMonData`, `gPlayerParty`/`gEnemyParty` |
+| `state|active` | battler, partySlot, species, HP, maxHP, status1, status2, `gStatuses3`, ability, item, types 0-2, 7 stat stages, moves 0-3, pp 0-3 (28) | `struct BattlePokemon gBattleMons[]`, `gStatuses3[]` |
+| `state|field` | weather, field statuses, trick room, screens p/e, hazards p/e, side statuses p/e (9) | `gBattleWeather`, `gFieldStatuses`, `gSideStatuses[]` |
+| `state|side-timer` | side, reflect, light screen, aurora veil, mist, safeguard, tailwind, follow-me (8) | `struct SideTimer gSideTimers[]` |
+| `state|battle` | turn counter, outcome, `itemsNo`, battle type flags, battler count, `requestId` (6) | `gBattleResults`, `gBattleOutcome`, `gBattleResources->battleHistory` |
+| `state|ai-flags` | battler, flags (2) | `AI_THINKING_STRUCT->aiFlags[]` |
+| `state|trainer-item` | index, item id, `itemsNo` (3) | `gBattleResources->battleHistory->trainerItems[]` |
+
+The both-RNG-stream pair is emitted at each boundary as
+`ROMTRACE|rng|<turn>|a|b|c|ctr|a2|b2|c2|ctr2`, so consecutive boundaries give
+the before/after pair for the transition. `state|restore-source` records that
+the stable-restore bytes are the mGBA savestate taken at the held boundary
+(measured 528,448 bytes for this test ELF), not the decoded projection.
+
+Fields the exporter cannot read through an accessor are reported, never
+defaulted:
+
+```
+ROMTRACE|unrepresentable|recorded-battle-cursor
+ROMTRACE|unrepresentable|controller-exec-flags
+ROMTRACE|unrepresentable|ai-scoring-scratch
+```
+
+(each also mirrored under `phase|<turn>|unrepresentable|`).
+
+### Complete outcome weights (query, contract phase 2)
+
+For every candidate move the query enumerates the COMPLETE joint distribution
+over the target's remaining HP, so the Python layer only has to sum integers
+instead of composing mechanics. The mechanics folded in-ROM are: the engine's
+damage roll spread (16 rolls through `CalculateMoveDamage`), the real crit odds
+(`GetCritHitOdds`), the composed accuracy percent (`GetTotalAccuracy`),
+per-hit crit/damage independence, the engine's multi-hit count distribution
+(`src/battle_util.c SetRandomMultiHitCounter`: `RandomWeighted` 7/7/3/3 for
+2/3/4/5 hits, Loaded Dice `RandomUniform 4..5`, Skill Link 5), hit-count weights,
+miss-ends-the-sequence, and Focus Sash / Sturdy at full HP (single-hit moves
+only — a multi-hit move KOs through both).
+
+```
+ROMTRACE|query|outcomes|<owner>|<move>|<flags>|<chunk>|<chunks>|<denom>|
+        <branches>|<hitsMode>|<minHits>|<maxHits>|<accuracy>|<hp>|<weight>|...
+```
+
+One record per chunk of at most 8 `(<hp>,<weight>)` branches; every record
+repeats the self-describing header. `denom` is 1000000 (parts per million) and
+the weights sum to it exactly (the largest branch absorbs integer rounding).
+`flags` bits: 1 multi-hit, 2 Focus Sash folded in, 4 Sturdy folded in,
+8 accuracy<100, 16 enumeration refused (0 branches), 32 an HP/damage value hit
+the internal 256 axis bound (not reachable with these fixtures). `hitsMode`:
+0 standard 2-5, 1 Loaded Dice, 2 Skill Link, 3 Battle Bond, 4 fixed.
+
+Verified with the sample request (opponent Gyarados at 10/10 HP, Focus Sash):
+Tackle (100% acc) → 1 branch HP 1 weight 1000000 (sash folded in, flags 2);
+Growl (status) → 1 branch HP 10 weight 1000000; Fury Attack (2-5 hits) → HP 0,
+flags 1; Hydro Pump (80% acc) → HP 1 weight 800000 and HP 10 weight 200000,
+flags 10. All records sum to 1000000.
+
+### Transition from a saved decision state (what a caller must supply)
+
+Root creation still uses the mailbox party builder plus at most one replayed
+turn. A **deeper** transition does not replay: the caller must
+
+1. restore the saved decision state (the mGBA savestate taken while the ROM was
+   held at that boundary) with the worker's named state slot,
+2. write a fresh mailbox document with `op=SIMULATE_TURN`, a new `requestId`,
+   the injected RNG pair (`mainRng`/`secondaryRng`), and the validated player
+   action (`candidateKind`/`playerMove`/`playerSlot`),
+3. let the machine run: the hold releases, the player action is injected into
+   the recorded-player controller (the recorded bytes are still consumed so the
+   playback cursor stays aligned), the real trainer AI chooses, the turn runs
+   with switch-in and faint follow-ups, and the ROM holds at the next boundary
+   with a fresh state export.
+
+`replayCount > 1` is still rejected; >1 replay remains an unrepresentable
+history. The one-replay dependency is no longer on the transition path.
+
+Verified: one root boundary, then Tackle and Growl injected from the **same**
+saved node. Both branches restore byte-for-byte the same state and RNG
+(`rng|0|1764359885|589825119|1761919851|3|1|2|3|29`), the trainer AI chooses the
+same `move|33` in both (no player-action leakage), and the next boundary differs
+as the rules require (opponent HP 143 vs 155 and Attack stage 5 vs 6). Replaying
+the same branch twice reproduces the identical boundary and RNG.
+
+### Logic-only mode
+
+`mode=logic-only` selects the bounded pump in `BattleMainCB1`: up to four
+synchronous `gBattleMainFunc` + controller advances per emulated frame, stopping
+at a boundary, a terminal, an unmechanical dependency, or the 2,000,000
+instruction budget (`ROMTRACE|instruction-budget-exceeded|<n>`). Normal mode is
+exactly one advance per frame, so it stays the differential baseline. Measured
+on the same scenario: normal 205 frames to the next boundary, logic-only 130
+frames (~37% fewer), no error and the same boundary/state/RNG. Deviation from
+contract 5: the runtime mode switch is present but there is no separate
+`SIDEDEX_LOGIC_ONLY` compile-time define — the whole hook only exists in the test
+build, so the test ELF is already the gate.
+
+**Presentation audit (A2-4): attempted, not achieved; the 4× pump stands.**
+Measured on the same scenario (branch A, Tackle from the root boundary):
+
+| mode | frames to next boundary | wall ms |
+| --- | --- | --- |
+| normal | 205 | 43.5 |
+| logic-only (4×, shipped) | 130 | 51.3 |
+| logic-only (controller-flags gate) | 180 | 59.8 |
+
+So logic-only genuinely reduces EMULATED FRAMES (~37%), which is what the
+contract's 24,000-frame cap and frame-based budgets care about, but it does
+**not** reduce wall time: the extra same-frame advances are CPU work on top of
+the fixed per-frame emulation, and the waits it collapses are frame-counted, so
+130 frames × 4 advances (520) does more total work than 205 × 1. This is a
+frame-budget optimisation, not a latency optimisation, and callers should not
+expect logic-only to be faster in wall-clock terms.
+
+The attempted gate — yield as soon as `gBattleControllerExecFlags != 0` ("a
+controller is still executing") — was tried, built and measured, and it is
+strictly worse: frames rose 130 → 180 and latency rose to 59.8 ms, while still
+not beating normal. It was reverted (the rebuilt ELF hashes identically to the
+4× version, which also demonstrates the build is deterministic).
+
+What blocks the stronger version is that the remaining frame cost is not a
+classification problem the ROM hook can solve locally:
+
+- The presentation handlers are `static` in `src/battle_controllers.c` and
+  `src/battle_interface.c` (`BtlController_HandlePrintString`,
+  `BtlController_HandleHealthBarUpdate`, ability pop-ups, move animations), so a
+  hook cannot compare `gBattlerControllerFuncs[battler]` against them or tag them
+  without editing every controller (a large, behaviour-risking change).
+- The already-headless paths short-circuit the obvious cases (`gTestRunnerHeadless`
+  returns early from print-string, ability pop-up and animation), so the residual
+  waits are frame-counted `waitstate`/`waitmessage` counters whose semantics are
+  per-command, not per-controller — collapsing them is exactly what the 4×
+  iteration already does.
+- `BattleMainCB2` still does real per-frame video/sprite work between
+  `BattleMainCB1` calls; raising the iteration count without a proven-safe
+  classification risks skipping side effects the battle logic depends on.
+
+The honest status: coarse pump kept, stronger per-command audit blocked on
+controller-handler attribution, with the table above as the baseline to beat.
+
+### Trainer items in a resolved turn (root-caused and fixed)
+
+A2 root-caused the v8 stall. It was a **base-code bug**, not an item-decision
+problem: `RecordedBattle_ClearBattlerAction(battler, 1)` (called when the ROM
+ruleset refuses an AI item action) decremented a `u16` record cursor that was
+already 0 for the live-AI battler of a non-link recorded battle, underflowing to
+65535 and executing `sBattleRecords[battler][65535] = 0xFF` — a write ~64 KiB
+past the end of a `u8[MAX_BATTLERS_COUNT][BATTLER_RECORD_SIZE]` array, corrupting
+EWRAM and wedging the turn. Fixed in `src/recorded_battle.c` by guarding the
+cursor before the decrement (clear nothing when the cursor is already 0).
+
+That guard is part of the v8c release-neutral hook and **must stay on the
+branch**: an early v9 WIP commit dropped it (it made
+`RecordedBattle_ClearBattlerAction` flag-independent), which silently re-opened
+the 64 KiB out-of-bounds write. Any diff that shows
+`src/recorded_battle.c` as changed against `sidedex/base-v8c` is a regression.
+
+With that fixed, a resolved `SIMULATE_TURN` now carries the request's
+`trainer_items` like a query does, so the AI makes the **real** item decision.
+The ROM's own ruleset still refuses the resulting `B_ACTION_USE_ITEM` in a
+trainer battle outside easy mode (`src/battle_main.c`), so the resolved turn
+cannot *execute* the item: the AI falls back to a move and the ROM reports the
+divergence, visibly and once per request, as
+
+```
+ROMTRACE|unrepresentable|trainer-item-decision
+ROMTRACE|phase|<turn>|unrepresentable|trainer-item-decision
+ROMTRACE|phase|<turn>|item-refused|<battler>|<item_id>
+```
+
+The turn then TERMINATES (measured: next boundary in 43 ms / 205 frames, no
+stall). Callers must treat a transition carrying
+`unrepresentable|trainer-item-decision` as `unsupported-mechanic`, because the
+resolved AI action is the fallback move, not the item the query predicts.
+Making the item actually execute would require forcing
+`VAR_GAME_SETTING_DIFFICULTY_MODE` to easy, which also changes boss-trainer
+behaviour (`src/battle_main.c` 2075/2087) and so is deliberately not done.
+
+### Forced-switch boundary and terminal paths (verified)
+
+`secondPresent == 3` declares a forced-switch scenario: the candidate turn is
+expected to faint the player's active monster, and `secondSlot` is the recorded
+compulsory-replacement party index (the ROM holds at the boundary and injects
+the real choice, so the recorded slot is overridden). Verified end to end with
+the sample request (player slot 0 at 1 HP, slot 1 healthy): the candidate Tackle
+faints slot 0 (`hp|0|0|1|0`), the ROM emits
+`ROMTRACE|boundary|forced-switch-player|0|1` plus `ROMTRACE|legal|switch|1|6` and
+the full state export at 280 frames, then the injected switch (slot 1) advances
+to the next `boundary|player-choice|1|2` at 230 frames with the new active
+monster (species 6, 138/138) in the state export. Terminal win (opponent single
+mon at 1 HP) and terminal loss (player single mon at 1 HP) both emit
+`ROMTRACE|terminal|...` with no 24,000-frame fallback.
+
+### Bounded fixtures and unsupported boundaries
 
 The bounded fixtures are `dynamic_sample.json` (opening),
 `dynamic_switch.json` (candidate switch), and `dynamic_replay.json` (one
@@ -75,36 +557,33 @@ party slots per side carry species, level, natural ability, item and an
 authoritative `held_item_enabled` switch, nature, HP, status, moves/PP, IVs,
 EVs, and seven active stat stages (Attack, Defense, Speed, Special Attack,
 Special Defense, accuracy, evasion; each ranges from 0 through 12, neutral 6).
-Requests carry both RNG states, source-mapped
-AI flags, and a verified clear battle-start field. Calc sends no
-`second_action`; the mailbox field may remain in the hook for compatibility.
-The compiled hook
-validates party state and the second action, and emits bounded ROMTRACE
-records; the host checks for a completed turn and required action, party,
-active, and RNG records. A first-turn KO finishes `AfterLastTurn` while
-`battleTurnCounter` is still 0 and used to skip `ROMTRACE|complete`; the hook
-now emits complete for that case, and the worker also stops on the following
-`ROMTRACE|ready` so an older ELF does not spin to `max_frames`. Focused host tests cover encoding, switch/replay
-shape, second-turn encoding, and invalid IDs/state.
+Requests carry both RNG states, source-mapped AI flags, and a verified clear
+battle-start field. The initial active slot is fixed at party index 0 on both
+sides; explicit nonzero active indices are rejected. Only clear
+weather/terrain, no trick room, no screens/hazards, and at most one replayed
+turn are supported as root construction. When a replayed player switch changes
+the active monster, a candidate move is validated against that slot's moves.
+Set `post_switch_query: true` with a replayed player switch and the opponent's
+response to query the next turn after entry effects. Query active records
+include current party slot, species, HP, Max HP, and moves. The result exposes
+the bounded raw ROMTRACE event list; the Python transition/query adapter is
+package B/C work. These boundaries are explicit and must not be treated as
+trainer-battle parity or full state coverage.
 
-The initial active slot is fixed at party index 0 on both sides. Any explicit nonzero
-`player_active_index` or `opponent_active_index` is rejected. Trainer identity
-is not applied by the hook; a trainer's item list (`trainer_items`, expanded to
-at most four slots with the counts carried in the request tail) is copied into
-the battle history for the pre-choice query turn only. The resolved-turn
-sampling path deliberately leaves items unapplied, because this harness cannot
-safely re-run the AI item decision inside a resolved turn; the query therefore
-carries the item prediction and the sampling-derived recommendation fails closed
-(`unsupported-mechanic`) whenever the predicted action is an item.
-Only clear weather/terrain, no trick room, no screens/hazards,
-and at most one replayed turn are supported. When a replayed player switch
-changes the active monster, a candidate move is validated against that slot's
-moves. Set `post_switch_query: true` with a replayed player switch and the
-opponent's response to query the next turn after entry effects. Query active
-records include current party slot, species, HP, Max HP, and moves.
-The result currently exposes the bounded raw ROMTRACE event list rather than a
-normalized full-contract outcome. These boundaries are explicit and must not be
-treated as trainer-battle parity or full state coverage.
+### Reproducing the v8b/v8c evidence
+
+The A2 verification harness lives outside the repository (`work/v8b_verify.py`,
+`work/priority0_batch.py`, and the A3 `work/a3_rng_restore.py`, not committed).
+It drives the v8b/v8c ELF through the pinned protocol-2 worker via `rom_bridge`
+(`run_frames`/`write_memory`/`save_checkpoint`/`restore_state`) and, for the
+wire-contract check, through a real `batch_turns`. Raw reports:
+`work/v8b_report.json`, `work/priority0_batch.json`, `work/a3_rng_v8c.json`.
+The v8c batch check returns the complete 37-record boundary set with
+`ROMTRACE|boundary|` last of the boundary emission, matching v8b. The build
+recipe is unchanged: `make -j4 pokeemerald-test.elf TESTS='Sidedex oracle:
+dynamic AI singles request'`, copy to the new artifact name, then
+`tools/patchelf/patchelf <elf> gTestRunnerHeadless '\x01' gTestRunnerSkipIsFail
+"\x00"`.
 
 ## Query mode
 

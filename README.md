@@ -101,7 +101,8 @@ flowchart TD
 Python port of the battle formulas (`battle_engine.py`). It stayed exact only
 for a narrow slice and each new mechanic needed a hand port. The current path
 builds the pinned game source's headless battle-test ELF with a small hook
-patch, then runs it under an embedded mGBA core. Damage, accuracy, abilities,
+patch and runs it on an embedded mGBA core or, by default, on a native i386 build of the same
+code (`sidedex-native`, verified byte-equal to the mGBA test ELF, see `ROM_NATIVE_PLAN.md` section 7). Damage, accuracy, abilities,
 items, and the trainer AI all come from the compiled game code. Python only
 builds requests, parses traces, and does statistics.
 
@@ -362,13 +363,22 @@ Current constraints:
    at the pinned source. The build recipe is `dynamic_oracle.recipe` in
    `tools/rom_oracle/pinned_source.json`.
 2. Build `pokeemerald-test-headless.elf`. Its SHA-256 must equal
-   `rom_bridge.ENGINE_ELF_SHA256` (currently `B26561E3…`).
+   `rom_bridge.ENGINE_ELF_SHA256` (currently `2186323F…`, hook protocol 9; query cards use its trace path, request flags bit0 clear).
 3. Copy it to `native/rom_worker/build/mingw/pokeemerald-test-headless.elf`, or
    set `SIDEDEX_ENGINE_ELF_PATH`.
 4. Build the worker with `native/rom_worker/build.ps1` (MSYS2 MinGW64; see
    `native/rom_worker/README.md`). Its hash is pinned in
    `rom_bridge.WORKER_SHA256`; set `SIDEDEX_ROM_WORKER_EXE` to use another
    path.
+
+The recommendation card is `planner.plan` (open-loop UCT) over `rom_rollout.py`, which needs a v9 hook ELF:
+`SIDEDEX_V9_ELF` (default: the pinned ELF path). `SIDEDEX_ENGINE=mgba` (default) rolls out on mGBA;
+`SIDEDEX_ENGINE` unset picks `native` when the native i386 engine (`rom_native.NATIVE_BIN`, WSL
+`/home/abj1/rom-n1/sidedex-native`, sha256 pinned as `rom_identity.NATIVE_ENGINE_SHA256`) is reachable and matches
+the pin, else `mgba` with a logged reason. Set `native` or `mgba` to force one. Query cards and the recommendation
+both run on the chosen engine; native uses the fused `rollout` op (one call per worker per batch).
+`SIDEDEX_NATIVE_CMD` overrides the launch command, `SIDEDEX_NATIVE_BIN` the Windows-visible binary path.
+`SIDEDEX_WORKERS` sets the rollout pool size (mgba 3, native `max(1, cores - 2)`). `python bench.py` compares engines.
 
 Set `SIDEDEX_ROM_PATH` only for the real-ROM checks. When a new ELF or worker is
 built, update the pins in `rom_bridge.py` and `pinned_source.json` before

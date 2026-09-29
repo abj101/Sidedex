@@ -317,14 +317,17 @@ def main():
     if not game_data:
         st.error(f"Game data not found at {DATA_PATH.relative_to(ROOT)}.")
         return
-    if Path(os.environ.get("SIDEDEX_ENGINE_ELF_PATH", DEFAULT_ENGINE_ELF)).is_file():
-        @st.cache_resource
-        def prewarm_rom_once():
-            import rom_eval
+    @st.cache_resource
+    def prewarm_rom_once():
+        # Best effort for either engine (native needs no ELF file); Calc reports real failures itself.
+        import rom_eval
+        try:
             rom_eval.prewarm()
-            return True
+        except (OSError, RuntimeError):
+            return False
+        return True
 
-        prewarm_rom_once()
+    prewarm_rom_once()
     planner()
 
 

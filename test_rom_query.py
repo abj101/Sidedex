@@ -172,5 +172,146 @@ class QueryParsing(unittest.TestCase):
         self.assertFalse(cards["critical_policy_verified"])
 
 
+class SplitQueryApi(unittest.TestCase):
+    """Contract section 7: separate versioned QUERY_DAMAGE / QUERY_AI_ACTION paths."""
+
+    PLAYER = "MOVE_THUNDER_SHOCK"
+    ENEMY = "MOVE_ABSORB"
+
+    def _snapshot(self, player_hp=100, enemy_hp=90):
+        return {"player": {"party": [{"moves": [self.PLAYER], "hp": player_hp,
+                                        "max_hp": player_hp}]},
+                "enemy": {"party": [{"moves": [self.ENEMY], "hp": enemy_hp,
+                                       "max_hp": enemy_hp}]}}
+
+    def _events(self):
+        seed = run_dynamic.numeric_id("moves", self.PLAYER)
+        absorb = run_dynamic.numeric_id("moves", self.ENEMY)
+        return [
+            f"ROMTRACE|query|damage|0|{seed}|240|6400|0|30|45|75|4",
+            f"ROMTRACE|query|damage|1|{absorb}|0|1600|0|20|25|100|1",
+            f"ROMTRACE|query|ai|move|{absorb}",
+            "ROMTRACE|query|complete", "ROMTRACE|complete|0",
+        ]
+
+    def test_damage_and_ai_are_separate_versioned_paths(self):
+        events = self._events()
+        damage = rom_query.parse_damage(events, self._snapshot(), DATA)
+        self.assertEqual(damage["query_schema"], "sidedex-query-damage-v1")
+        self.assertEqual(damage["decode_schema"], "decode-v1")
+        self.assertIn("player_moves", damage)
+        self.assertNotIn("ai_actions", damage)
+        self.assertEqual(damage["player_moves"]["moves"][0]["probability"], {"num": 240, "den": 6400})
+
+        ai = rom_query.parse_ai_action(events, DATA)
+        self.assertEqual(ai["query_schema"], "sidedex-query-ai-action-v1")
+        self.assertNotIn("player_moves", ai)
+        self.assertEqual(ai["ai_actions"]["label"], "deterministic")
+        self.assertFalse(ai["ai_actions"]["distribution"])
+        self.assertEqual(ai["ai_actions"]["predicted_action"]["id"], self.ENEMY)
+
+    def test_critical_policy_label_is_carried_and_never_conflated(self):
+        normal = self._events() + ["ROMTRACE|critical-policy|normal|real-crit-rolls"]
+        result = rom_query.parse_damage(normal, self._snapshot(), DATA, expected_policy="normal")
+        self.assertEqual(result["critical_policy"], "normal")
+        self.assertTrue(result["critical_policy_verified"])
+        self.assertEqual(result["enemy_moves"]["critical_policy"], "normal")
+        # The legacy four-card wrapper reports the observed label as-is.
+        self.assertEqual(rom_query.parse(normal, self._snapshot(), DATA)["critical_policy"],
+                         "normal")
+        # A requested policy that the trace does not echo fails closed.
+        with self.assertRaisesRegex(ValueError, "critical policy mismatch"):
+            rom_query.parse_damage(normal, self._snapshot(), DATA,
+                                   expected_policy="item-ability-only")
+        with self.assertRaisesRegex(ValueError, "unsupported critical policy"):
+            rom_query.parse_damage(
+                self._events() + ["ROMTRACE|critical-policy|always-crit|battle-script-filtered"],
+                self._snapshot(), DATA)
+
+    def test_rom_outcome_weights_are_consumed_and_fail_closed(self):
+        seed = run_dynamic.numeric_id("moves", self.PLAYER)
+        absorb = run_dynamic.numeric_id("moves", self.ENEMY)
+        head = [
+            f"ROMTRACE|query|damage|0|{seed}|0|38400|0|30|45|100|24",
+            f"ROMTRACE|query|damage|1|{absorb}|0|1600|0|20|25|100|1",
+        ]
+        tail = [f"ROMTRACE|query|ai|move|{absorb}",
+                "ROMTRACE|query|complete", "ROMTRACE|complete|0"]
+        complete = head + [f"ROMTRACE|query|outcomes|0|{seed}|1|0|1|1000000|2|0|2|3|100|0|750000|5|250000"] + tail
+        row = rom_query.parse_damage(complete, self._snapshot(enemy_hp=5), DATA)["player_moves"]["moves"][0]
+        self.assertEqual(row["outcomes_source"], "rom")
+        self.assertEqual(row["method"], "engine-enumerated-multi-hit")
+        self.assertEqual(row["probability"], {"num": 3, "den": 4})
+        self.assertEqual(row["distribution"][0],
+                         {"remaining_hp": 0, "damage": 5, "weight": 750000})
+        # A truncated enumeration (declared two branches, one present) fails closed.
+        truncated = head + [f"ROMTRACE|query|outcomes|0|{seed}|1|0|1|1000000|2|0|2|3|100|0|750000"] + tail
+        with self.assertRaisesRegex(ValueError, "lost a branch"):
+            rom_query.parse_damage(truncated, self._snapshot(enemy_hp=5), DATA)
+        # A refused enumeration is an explicit unsupported-mechanic row.
+        refused = head + [f"ROMTRACE|query|outcomes|0|{seed}|17|0|0|1000000|0|0|1|1|0"] + tail
+        row = rom_query.parse_damage(refused, self._snapshot(enemy_hp=5), DATA)["player_moves"]["moves"][0]
+        self.assertEqual(row["status"], "unavailable")
+        self.assertEqual(row["reason"], "unsupported-mechanic")
+
+    def test_query_cards_publish_without_rollout_completion(self):
+        # The trace carries no transition records (no `phase|N|after-turn`, no
+        # `action|`, no `rng|`), so card availability cannot depend on a rollout.
+        events = self._events()
+        self.assertFalse(any("after-turn" in event or event.startswith("ROMTRACE|action|")
+                             or event.startswith("ROMTRACE|rng|") for event in events))
+        cards = rom_query.parse(events, self._snapshot(), DATA)
+        self.assertEqual(cards["player_moves"]["status"], "engine-exact")
+        self.assertEqual(cards["enemy_moves"]["status"], "engine-exact")
+        self.assertEqual(cards["ai_actions"]["status"], "engine-fixed-seed")
+
+    def test_unsupported_mechanic_fails_closed_with_a_reason(self):
+        seed = run_dynamic.numeric_id("moves", self.PLAYER)
+        absorb = run_dynamic.numeric_id("moves", self.ENEMY)
+        events = [
+            f"ROMTRACE|query|damage|0|{seed}|0|0|1|0|0|0|0",
+            f"ROMTRACE|query|damage|1|{absorb}|0|1600|0|20|25|100|1",
+            f"ROMTRACE|query|ai|move|{absorb}",
+            "ROMTRACE|query|complete", "ROMTRACE|complete|0",
+        ]
+        damage = rom_query.parse_damage(events, self._snapshot(), DATA)
+        row = damage["player_moves"]["moves"][0]
+        self.assertEqual(row["status"], "unavailable")
+        self.assertEqual(row["reason"], "unsupported-mechanic")
+        self.assertTrue(row["detail"])
+        self.assertNotIn("probability", row)
+        self.assertEqual(damage["unsupported"][0]["move_id"], self.PLAYER)
+
+    def test_token_is_frozen_and_identity_is_checked(self):
+        import dataclasses
+
+        token = rom_query.DecisionStateToken(
+            handle="a" * 32, sha256="b" * 64, bytes=1234,
+            identity={"test_elf_sha256": "C" * 64, "worker_sha256": "D" * 64,
+                      "rom_hook_protocol": 8},
+            rng={"main": [1, 2, 3, 4], "secondary": [5, 6, 7, 8]},
+            request={})
+        before = token.fingerprint()
+        self.assertEqual(len(before), 64)
+        with self.assertRaises(dataclasses.FrozenInstanceError):
+            token.turn = 3
+        self.assertEqual(token.fingerprint(), before)
+
+        class _Client:
+            rom_sha256 = "C" * 64
+            worker_sha256 = "D" * 64
+
+        rom_query._assert_identity(_Client(), token, 8)
+        with self.assertRaisesRegex(ValueError, "identity-mismatch"):
+            rom_query._assert_identity(_Client(), token, 7)
+
+    def test_latency_percentiles_are_nearest_rank(self):
+        stats = rom_query.latency_percentiles([10.0, 20.0, 30.0, 40.0])
+        self.assertEqual(stats["count"], 4)
+        self.assertEqual(stats["p50"], 20.0)
+        self.assertEqual(stats["p95"], 40.0)
+        self.assertEqual(rom_query.latency_percentiles([])["p50"], None)
+
+
 if __name__ == "__main__":
     unittest.main()

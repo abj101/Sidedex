@@ -1,0 +1,10 @@
+{
+ "bytes": 2280,
+ "capacity": 8192,
+ "expect_request_id": 1,
+ "name": "bad_crc",
+ "reject": "bad_crc",
+ "sha256": "258613c635904a8b83fd0581a1d7027931d31a84a3a94017ef35dc9f622e45c2",
+ "synthetic": true,
+ "valid": false
+}

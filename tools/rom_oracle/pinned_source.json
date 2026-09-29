@@ -17,14 +17,79 @@
   "test_headless_elf_sha256": "44bdbe5aa7a071064a1dca20c411b0e3ab56c8e4d8fca00857f3b50d56c5bd93",
   "raw_trace_sha256": "e4051f1eb74a2dc61089c0bf15cf98a5472ad3b985a19f178235dfb98ae38034",
   "dynamic_oracle": {
-    "protocol_version": 7,
-    "test_elf_sha256": "de9041115179f18ae702b4bffff8774ff0c399ddc56c4ef5a8fdfe3bf7dc9aa8",
-    "headless_elf_sha256": "b26561e3f0590de47167730f93ed11427450dbc835a306272c9b898d39b473db",
+    "protocol_version": 9,
+    "wsl_branch": "sidedex/native",
+    "wsl_commit": "8be1722bbd",
+    "patch": "tools/rom_oracle/dynamic_request.patch",
+    "headless_elf_sha256": "2186323f7fb9f6279e6868f96dc76942ec8ecb1e425538052651daac20ca5cb7",
+    "release_neutral_sha256": "0CCAAAD0878A9CBFB36FBEFFF800E9B6DD66055924B7595038EDE1E8771EC5A2",
     "recipe": [
-      "apply dynamic_request.patch to the pinned source (it already contains the trace hooks; trace_hooks.patch is only for the separate 170-record oracle)",
-      "make -j4 pokeemerald-test.elf TESTS='Sidedex oracle: dynamic AI singles request'",
+      "apply dynamic_request.patch to the pinned source (git diff 2576d0f3f4 of WSL sidedex/native; it already contains the trace hooks)",
+      "make -f make_tools.mk; make rom (TEST=0 must hash to release_neutral_sha256)",
+      "make TEST=1 pokeemerald-test.elf TESTS='Sidedex oracle: dynamic AI singles request' (TEST=1 selects build/modern-test; delete -DTESTING objects before relinking either)",
       "copy pokeemerald-test.elf to pokeemerald-test-headless.elf",
-      "tools/patchelf/patchelf pokeemerald-test-headless.elf gTestRunnerHeadless '\\x01' gTestRunnerSkipIsFail \"\\x00\""
+      "tools/patchelf/patchelf pokeemerald-test-headless.elf gTestRunnerHeadless '\u0001' gTestRunnerSkipIsFail \"\u0000\""
     ]
+  },
+  "release_evidence": {
+    "date": "2026-09-28",
+    "worker_sha256": "0601297e8bed7ca1319dc9be86a547aa01b16624ce0de5431093e6b59d7e5122",
+    "wire_protocol": 2,
+    "rom_hook_protocol": 8,
+    "mgba": "0.10.5+26b7884",
+    "h1_release_neutrality": {
+      "status": "pass",
+      "method": "git worktree add --detach at the pinned source commit + dynamic_request.patch, TEST=0 make rom",
+      "scratch_sha256": "0CCAAAD0878A9CBFB36FBEFFF800E9B6DD66055924B7595038EDE1E8771EC5A2",
+      "pinned_sha256": "0CCAAAD0878A9CBFB36FBEFFF800E9B6DD66055924B7595038EDE1E8771EC5A2",
+      "note": "byte-for-byte equal to the pinned release ROM; scratch worktree removed"
+    },
+    "h4_offline_blob_patch": {
+      "status": "pass",
+      "rom_sha256": "0CCAAAD0878A9CBFB36FBEFFF800E9B6DD66055924B7595038EDE1E8771EC5A2",
+      "payload_bytes": 528448,
+      "ewram_probe": {
+        "address": "0x02030000",
+        "wrote": "0xabcd1234",
+        "read": "0xabcd1234"
+      },
+      "iwram_probe": {
+        "address": "0x0300627c",
+        "wrote": "0x55667788",
+        "read": "0x55667788"
+      },
+      "source_blob_unchanged": true
+    },
+    "h5_worker_iwram_write": {
+      "status": "pass",
+      "gRngValue": {
+        "address": "0x0300627c",
+        "wrote": "0xd0d1d2d3",
+        "read": "0xd0d1d2d3"
+      },
+      "gRng2Value": {
+        "address": "0x0300628c",
+        "wrote": "0x11121314",
+        "read": "0x11121314"
+      }
+    },
+    "h2_release_vs_test_elf": {
+      "status": "blocked",
+      "blocker": "root-capture-unavailable",
+      "detail": "release_input_script.json reaches the gender/naming callback loop (gMain.callback2 0x08188e15 <-> 0x0815b181) at frame 15528 and never sets gBattleTypeFlags; no battle savestate exists to patch, and cross-ROM blobs are rejected identity-mismatch. H2 was not executed, so no scenario below is claimed.",
+      "scenarios_run": [],
+      "label": "compiled-engine"
+    },
+    "h3_boundary_detection": {
+      "test_elf": {
+        "status": "pass",
+        "detail": "gBattleCommunication 0x02000000-range bytes flip 0000000000010000 -> 0000000000000000 at frame 751 while gMain.callback2 stays constant"
+      },
+      "release_rom": {
+        "status": "blocked",
+        "detail": "no battle entry; gBattleCommunication stays 0 and the callback stays the boot/menu callback"
+      }
+    },
+    "narrow_claim": "The patched source is byte-for-byte release-neutral (H1) and the pinned release ROM supports savestate RAM patching and worker IWRAM writes (H4/H5). No release-vs-test-ELF battle comparison is claimed (H2 blocked); the product stays labelled compiled-engine."
   }
 }

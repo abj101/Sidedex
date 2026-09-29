@@ -1,0 +1,139 @@
+{
+  "name": "release-h2-scenarios",
+  "version": 1,
+  "release_rom_sha256": "<<rom_identity.ROM_SHA256>>",
+  "elf_sha256": "<<rom_identity.ENGINE_ELF_SHA256>>",
+  "worker_sha256": "<<rom_identity.WORKER_SHA256>>",
+  "claim": "H2 only: a release battle resolves to the same observable projection as the test ELF from the equivalent injected state (party + both RNG streams), one turn, compared on HP/maxHP/status1/PP, battle outcome and both RNG streams.",
+  "not_claimed": [
+    "ordered mechanical event streams",
+    "per-hit / crit-flag records",
+    "query mode",
+    "pre-choice AI preview",
+    "trainer-item AI",
+    "arbitrary AI scripts beyond aiFlags",
+    "in-turn intermediate observation",
+    "SIDEDEX_LOGIC_ONLY semantics",
+    "cross-build state transfer",
+    "full-state byte comparison"
+  ],
+  "scenarios": [
+    {
+      "id": "R-P1",
+      "fixture": "P1",
+      "release_ready": false,
+      "note": "physical damage, neutral"
+    },
+    {
+      "id": "R-P2",
+      "fixture": "P2",
+      "release_ready": false,
+      "note": "special damage, neutral"
+    },
+    {
+      "id": "R-P3",
+      "fixture": "P3",
+      "release_ready": false,
+      "note": "physical resisted"
+    },
+    {
+      "id": "R-P4",
+      "fixture": "P4",
+      "release_ready": false,
+      "note": "special super effective"
+    },
+    {
+      "id": "R-P5",
+      "fixture": "P5",
+      "release_ready": false,
+      "note": "accuracy miss"
+    },
+    {
+      "id": "R-P6",
+      "fixture": "P6",
+      "release_ready": false,
+      "note": "normal crit"
+    },
+    {
+      "id": "R-P10",
+      "fixture": "P10",
+      "release_ready": false,
+      "note": "paralysis skip"
+    },
+    {
+      "id": "R-P11",
+      "fixture": "P11",
+      "release_ready": false,
+      "note": "sleep wake"
+    },
+    {
+      "id": "R-P14",
+      "fixture": "P14",
+      "release_ready": false,
+      "note": "damage ability"
+    },
+    {
+      "id": "R-P15",
+      "fixture": "P15",
+      "release_ready": false,
+      "note": "immunity ability"
+    },
+    {
+      "id": "R-P16",
+      "fixture": "P16",
+      "release_ready": false,
+      "note": "held item damage"
+    },
+    {
+      "id": "R-P17",
+      "fixture": "P17",
+      "release_ready": false,
+      "note": "Focus Sash"
+    },
+    {
+      "id": "R-P18",
+      "fixture": "P18",
+      "release_ready": false,
+      "note": "Sturdy"
+    },
+    {
+      "id": "R-P26",
+      "fixture": "P26",
+      "release_ready": false,
+      "note": "faint / forced replacement"
+    },
+    {
+      "id": "R-P27",
+      "fixture": "P27",
+      "release_ready": false,
+      "note": "terminal win"
+    },
+    {
+      "id": "R-P28",
+      "fixture": "P28",
+      "release_ready": false,
+      "note": "terminal loss"
+    }
+  ],
+  "status": {
+    "root_capture": "captured",
+    "root_sha256": "9FB8096553028B770A9959DF29C559BD244A9B18269176D063F145DDF4B3EAAA",
+    "root_frame": 13236,
+    "root_reproducible_runs": 2,
+    "h2": "blocked",
+    "blocker": "release-ready-scenario-matrix-not-enumerated",
+    "scenarios_run": [],
+    "label": "compiled-engine",
+    "save_probe": {
+      "sector_format_valid": true,
+      "rom_save_status": "SAVE_STATUS_OK",
+      "save_sha256": "642f97b89cb4acc48d31e997f2b8933609cbf34a9401cc57a60f2ba5f8851d52",
+      "player_party_count": 0,
+      "usable_as_battle_root": false,
+      "note": "The valid-sector fixture has zeroed SaveBlock payloads. It validates loading only and does not contain a playable game."
+    },
+    "boundary_kind": 1,
+    "boundary_note": "root captured at the release-side H3 choice boundary; detected from gBattleMainFunc=HandleTurnActionSelectionState and gBattlerControllerFuncs[0]=HandleInputChooseAction",
+    "h3": "release-side-detectable"
+  }
+}
