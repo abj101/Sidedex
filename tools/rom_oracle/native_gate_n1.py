@@ -169,6 +169,8 @@ def main() -> int:
     pct = lambda xs, q: xs[min(len(xs) - 1, int(q * len(xs)))]  # noqa: E731
     print(f"transition ms p50 {statistics.median(ms):.3f} p95 {pct(ms, .95):.3f} (n={len(ms)}); "
           f"IPC wall ms p50 {statistics.median(wall):.3f} p95 {pct(wall, .95):.3f}")
+    save = sorted(t["save_ms"] for t in turns)
+    print(f"  of which child save (snapshot copy + sha256) ms p50 {statistics.median(save):.3f}")
     print(f"frames p50 {statistics.median(frames)}; restore us p50 {statistics.median(restore_us):.0f} "
           f"p95 {pct(restore_us, .95):.0f}; snapshot bytes {snapshot_bytes}")
     print(f"determinism: sdr2 equal {det[0]['sdr2'] == det[1]['sdr2'] == n_branch}; "
