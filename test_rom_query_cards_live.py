@@ -1,9 +1,9 @@
-"""Live: the v9 trace-path query cards equal the v8c recording, and native equals mGBA.
+"""Live: the query cards equal the recording, and native equals mGBA.
 
 `tools/rom_oracle/query_cards_expected.json` holds the trace/card hashes recorded on the
-v8c ELF (hook 8) for every green fixture row and both query operations
-(`query_cards_record.py`). The active v9 ELF must reproduce them through the rom_eval
-request path, and so must the native binary (when present) speaking the same op.
+pinned v9 ELF (engine 174b474209, after the KO-odds removal) for every green fixture row
+and both query operations (`query_cards_record.py`). The active ELF must reproduce them
+through the rom_eval request path, and so must the native binary (when present).
 """
 import copy
 import hashlib
@@ -60,7 +60,7 @@ def native():
     engine.close()
 
 
-def test_v9_query_cards_equal_the_v8c_recording(mgba):
+def test_query_cards_equal_the_recording(mgba):
     assert rec.collect(mgba) == EXPECTED
 
 

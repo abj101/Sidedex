@@ -93,9 +93,9 @@ def clean_c_strings(raw):
     return "".join(bytes(value, "utf-8").decode("unicode_escape") for value in literals) if literals else None
 
 
-def ability_descriptions(text):
+def ability_descriptions(text, prefix="ABILITY_"):
     descriptions = {}
-    for key, body in blocks(strip_comments(text), r"\[\s*(ABILITY_\w+)\s*\]\s*=\s*\{"):
+    for key, body in blocks(strip_comments(text), rf"\[\s*({prefix}\w+)\s*\]\s*=\s*\{{"):
         # The pinned build uses the first branch for Snow Warning (Gen 9 Snow).
         match = re.search(r'\.description\s*=\s*COMPOUND_STRING\s*\(\s*((?:"(?:\\.|[^"\\])*"\s*)+)\)', body, re.S)
         if match:
@@ -887,6 +887,7 @@ def extract(source):
             moves[alias] = {**moves[target_name], "alias_of": target_name}
 
     abilities = ability_descriptions(read(source / "src/data/abilities.h"))
+    item_descriptions = ability_descriptions(read(source / "src/data/items.h"), "ITEM_")
 
     # Evaluate the pinned build's type chart, including its generation-dependent macros.
     type_text = strip_comments(read(source / "src/data/types_info.h"))
@@ -955,6 +956,7 @@ def extract(source):
         "trainers": trainers,
         "species": species,
         "abilities": abilities,
+        "item_descriptions": item_descriptions,
         "moves": moves,
         "types": type_labels,
         "type_chart": type_chart,

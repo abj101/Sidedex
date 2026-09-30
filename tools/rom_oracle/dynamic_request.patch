@@ -1,3 +1,43 @@
+diff --git a/include/gba/defines.h b/include/gba/defines.h
+index 0bf7110810..7a490b6f07 100644
+--- a/include/gba/defines.h
++++ b/include/gba/defines.h
+@@ -13,7 +13,11 @@
+ #define COMMON_DATA __attribute__((section("common_data")))
+ #define UNUSED __attribute__((unused))
+ 
++#ifdef SIDEDEX_NATIVE
++#define ARM_FUNC
++#else
+ #define ARM_FUNC __attribute__((target("arm")))
++#endif
+ 
+ #if MODERN
+ #define NOINLINE __attribute__((noinline))
+diff --git a/include/gba/macro.h b/include/gba/macro.h
+index 052b49099e..00bccb90c4 100644
+--- a/include/gba/macro.h
++++ b/include/gba/macro.h
+@@ -90,6 +90,11 @@
+ 
+ #define CpuFastCopy(src, dest, size) CpuFastSet(src, dest, ((size)/(32/8) & 0x1FFFFF))
+ 
++#ifdef SIDEDEX_NATIVE
++void NativeDmaSet(u32 dmaNum, u32 src, u32 dest, u32 control);
++#define DmaSetUnchecked(dmaNum, src, dest, control) \
++    NativeDmaSet(dmaNum, (u32)(src), (u32)(dest), (u32)(control))
++#else
+ #define DmaSetUnchecked(dmaNum, src, dest, control) \
+ {                                                 \
+     vu32 *dmaRegs = (vu32 *)REG_ADDR_DMA##dmaNum; \
+@@ -101,6 +106,7 @@
+     register u32 r_ctl asm("r2") = eval_ctl;      \
+     asm volatile("stmia %0!, {%1, %2, %3}" : "+l" (dmaRegs) : "l" (r_src), "l" (r_dst), "l" (r_ctl) : "memory");  \
+ }
++#endif
+ 
+ #if MODERN
+ // NOTE: Assumes 16-bit DMAs.
 diff --git a/include/test/sidedex_dynamic.h b/include/test/sidedex_dynamic.h
 new file mode 100644
 index 0000000000..bc03530307
@@ -141,10 +181,10 @@ index 0000000000..bc03530307
 +
 +#endif
 diff --git a/include/test_runner.h b/include/test_runner.h
-index f61f26b66e..ad0ef67b6c 100644
+index f61f26b66e..73563109fc 100644
 --- a/include/test_runner.h
 +++ b/include/test_runner.h
-@@ -16,11 +16,37 @@ void TestRunner_Battle_RecordStatus1(u32 battlerId, u32 status1);
+@@ -16,11 +16,38 @@ void TestRunner_Battle_RecordStatus1(u32 battlerId, u32 status1);
  void TestRunner_Battle_AfterLastTurn(void);
  void TestRunner_Battle_CheckChosenMove(u32 battlerId, u32 moveId, u32 target);
  void TestRunner_Battle_CheckSwitch(u32 battlerId, u32 partyIndex);
@@ -152,6 +192,7 @@ index f61f26b66e..ad0ef67b6c 100644
 +void TestRunner_Battle_TraceSwitchOut(u32 battlerId, u32 outgoingSlot);
 +bool32 TestRunner_Battle_RunQuery(u32 battlerId);
 +void TestRunner_Battle_ApplyTrainerItems(void);
++void TestRunner_Battle_ApplyWeather(void);
 +void TestRunner_Battle_TraceChosenItem(u32 battlerId, u32 itemId);
 +void TestRunner_Battle_ApplyDynamicStages(void);
 +bool32 TestRunner_Battle_UsesCriticalPolicy(void);
@@ -182,7 +223,7 @@ index f61f26b66e..ad0ef67b6c 100644
  void TestRunner_Battle_CheckBattleRecordActionType(u32 battlerId, u32 recordIndex, u32 actionType);
  
  u32 TestRunner_Battle_GetForcedAbility(u32 side, u32 partyIndex);
-@@ -37,10 +63,29 @@ u32 TestRunner_Battle_GetChosenGimmick(u32 side, u32 partyIndex);
+@@ -37,10 +64,30 @@ u32 TestRunner_Battle_GetChosenGimmick(u32 side, u32 partyIndex);
  #define TestRunner_Battle_AfterLastTurn(...) (void)0
  #define TestRunner_Battle_CheckChosenMove(...) (void)0
  #define TestRunner_Battle_CheckSwitch(...) (void)0
@@ -190,6 +231,7 @@ index f61f26b66e..ad0ef67b6c 100644
 +#define TestRunner_Battle_TraceSwitchOut(...) (void)0
 +#define TestRunner_Battle_RunQuery(...) FALSE
 +#define TestRunner_Battle_ApplyTrainerItems(...) (void)0
++#define TestRunner_Battle_ApplyWeather(...) (void)0
 +#define TestRunner_Battle_TraceChosenItem(...) (void)0
 +#define TestRunner_Battle_ApplyDynamicStages(...) (void)0
 +#define TestRunner_Battle_UsesCriticalPolicy(...) FALSE
@@ -239,7 +281,7 @@ index 27f0cb6c38..569c810089 100644
  {
      u8 currentMoveArray[MAX_MON_MOVES];
 diff --git a/src/battle_ai_util.c b/src/battle_ai_util.c
-index 92cf38db65..cf0b91f5aa 100644
+index 92cf38db65..e9cab70c33 100644
 --- a/src/battle_ai_util.c
 +++ b/src/battle_ai_util.c
 @@ -110,7 +110,7 @@ bool32 BattlerHasAi(u32 battlerId)
@@ -251,6 +293,19 @@ index 92cf38db65..cf0b91f5aa 100644
              return TRUE;
      default:
          return FALSE;
+@@ -2293,6 +2293,12 @@ bool32 HasMoveToStopSetup(u32 battlerId, u32 noOfHitsToFaint, u32 aiIsFaster)
+                 if (GetMovePriority(battlerId, moves[i]) > 0)
+                     return TRUE;
+ 
++#ifdef SIDEDEX_NATIVE
++                // Indexed by move slot, not effect: a move without effects reads NULL[i], which the GBA
++                // serves from BIOS open bus (an ARM opcode half, never a speed-drop effect).
++                if (!gMovesInfo[moves[i]].additionalEffects)
++                    continue;
++#endif
+                 switch (gMovesInfo[moves[i]].additionalEffects[i].moveEffect)
+                 {
+                     case MOVE_EFFECT_SPD_MINUS_1:
 diff --git a/src/battle_controller_opponent.c b/src/battle_controller_opponent.c
 index f1ff1a2e4d..ab9aafb3c4 100644
 --- a/src/battle_controller_opponent.c
@@ -363,7 +418,7 @@ index 2bb64f3066..6fe15a8545 100644
      BtlController_EmitChosenMonReturnValue(battler, BUFFER_B, *(gBattleStruct->monToSwitchIntoId + battler), NULL);
      RecordedPlayerBufferExecCompleted(battler);
 diff --git a/src/battle_controllers.c b/src/battle_controllers.c
-index f537ceecb0..2bb2969bb3 100644
+index f537ceecb0..3a80507852 100644
 --- a/src/battle_controllers.c
 +++ b/src/battle_controllers.c
 @@ -77,6 +77,7 @@ void SetUpBattleVarsAndBirchZigzagoon(void)
@@ -374,11 +429,44 @@ index f537ceecb0..2bb2969bb3 100644
  
      if (gBattleTypeFlags & BATTLE_TYPE_FIRST_BATTLE)
      {
+@@ -1350,7 +1351,12 @@ void BtlController_EmitChosenMonReturnValue(u32 battler, u32 bufferId, u8 partyI
+     gBattleResources->transferBuffer[0] = CONTROLLER_CHOSENMONRETURNVALUE;
+     gBattleResources->transferBuffer[1] = partyId;
+     for (i = 0; i < (int)ARRAY_COUNT(gBattlePartyCurrentOrder); i++)
++#ifdef SIDEDEX_NATIVE
++        // The recorded player passes NULL; on the GBA that reads BIOS bytes nothing consumes.
++        gBattleResources->transferBuffer[2 + i] = battlePartyOrder ? battlePartyOrder[i] : 0;
++#else
+         gBattleResources->transferBuffer[2 + i] = battlePartyOrder[i];
++#endif
+     PrepareBufferDataTransfer(battler, bufferId, gBattleResources->transferBuffer, 5);
+ }
+ 
 diff --git a/src/battle_main.c b/src/battle_main.c
-index 43cad76a64..72b7677dce 100644
+index 43cad76a64..71a3efbb96 100644
 --- a/src/battle_main.c
 +++ b/src/battle_main.c
-@@ -3141,11 +3141,26 @@ bool32 InBattleRunningActions()
+@@ -519,6 +519,11 @@ static void CB2_InitBattleInternal(void)
+ 
+     if (!DEBUG_OVERWORLD_MENU || (DEBUG_OVERWORLD_MENU && !gIsDebugBattle))
+     {
++#ifdef SIDEDEX_NATIVE
++        // Test battles have no map: the GBA reads BIOS open bus through a NULL
++        // mapLayout here, and the RECORDED override below discards the result.
++        if (!(gBattleTypeFlags & BATTLE_TYPE_RECORDED))
++#endif
+         gBattleTerrain = BattleSetup_GetTerrainId();
+     }
+     if (gBattleTypeFlags & BATTLE_TYPE_RECORDED)
+@@ -3124,6 +3129,7 @@ void BeginBattleIntroDummy(void)
+ void BeginBattleIntro(void)
+ {
+     BattleStartClearSetData();
++    TestRunner_Battle_ApplyWeather();
+     gBattleCommunication[1] = 0;
+     gBattleStruct->introState = 0;
+     gBattleMainFunc = DoBattleIntro;
+@@ -3141,11 +3147,26 @@ bool32 InBattleRunningActions()
  
  static void BattleMainCB1(void)
  {
@@ -405,7 +493,7 @@ index 43cad76a64..72b7677dce 100644
  }
  
  static void ClearSetBScriptingStruct(void)
-@@ -4363,11 +4378,18 @@ static void HandleTurnActionSelectionState(void)
+@@ -4363,11 +4384,18 @@ static void HandleTurnActionSelectionState(void)
      for (battler = 0; battler < gBattlersCount; battler++)
      {
          u32 position = GetBattlerPosition(battler);
@@ -424,7 +512,7 @@ index 43cad76a64..72b7677dce 100644
              //enum SwitchType switchType = (AI_THINKING_STRUCT->aiFlags[battler] & AI_FLAG_RISKY) ? SWITCH_AFTER_KO : SWITCH_MID_BATTLE;
  
              // Do AI score computations here so we can use them in AI_TrySwitchOrUseItem
-@@ -4390,9 +4412,12 @@ static void HandleTurnActionSelectionState(void)
+@@ -4390,9 +4418,12 @@ static void HandleTurnActionSelectionState(void)
                  gBattleStruct->aiMoveOrAction[battler] = BattleAI_ChooseMoveOrAction();
                  ModifySwitchAfterMoveScoring(battler);
                  AI_DATA->aiCalcInProgress = FALSE;
@@ -437,7 +525,7 @@ index 43cad76a64..72b7677dce 100644
              *(gBattleStruct->monToSwitchIntoId + battler) = PARTY_SIZE;
              if (gBattleTypeFlags & BATTLE_TYPE_MULTI
                  || (position & BIT_FLANK) == B_FLANK_LEFT
-@@ -4485,6 +4510,7 @@ static void HandleTurnActionSelectionState(void)
+@@ -4485,6 +4516,7 @@ static void HandleTurnActionSelectionState(void)
                  case B_ACTION_USE_ITEM:
                      if (gBattleTypeFlags & BATTLE_TYPE_TRAINER && VarGet(VAR_GAME_SETTING_DIFFICULTY_MODE) != GAME_SETTING_DIFFICULTY_EASY_MODE)
                      {
@@ -446,7 +534,7 @@ index 43cad76a64..72b7677dce 100644
                          gSelectionBattleScripts[battler] = BattleScript_ActionSelectionItemsCantBeUsed;
                          gBattleCommunication[battler] = STATE_SELECTION_SCRIPT;
 diff --git a/src/battle_script_commands.c b/src/battle_script_commands.c
-index 39cc0803bb..c987de6f3d 100644
+index 39cc0803bb..616b28f981 100644
 --- a/src/battle_script_commands.c
 +++ b/src/battle_script_commands.c
 @@ -2,6 +2,9 @@
@@ -487,7 +575,20 @@ index 39cc0803bb..c987de6f3d 100644
      gPotentialItemEffectBattler = gBattlerAttacker;
  
      if (gBattleTypeFlags & (BATTLE_TYPE_WALLY_TUTORIAL | BATTLE_TYPE_FIRST_BATTLE))
-@@ -6968,6 +6985,12 @@ static void Cmd_getswitchedmondata(void)
+@@ -5463,6 +5480,12 @@ static void Cmd_endselectionscript(void)
+ 
+ static void PlayAnimation(u32 battler, u8 animId, const u16 *argPtr, const u8 *nextInstr)
+ {
++#ifdef SIDEDEX_NATIVE
++    // Many scripts pass a NULL argPtr; the GBA reads BIOS open bus there. The argument only feeds presentation.
++    static const u16 sZero = 0;
++    if (!argPtr)
++        argPtr = &sZero;
++#endif
+     if (B_TERRAIN_BG_CHANGE == FALSE && animId == B_ANIM_RESTORE_BG)
+     {
+         // workaround for .if not working
+@@ -6968,6 +6991,12 @@ static void Cmd_getswitchedmondata(void)
      if (gBattleControllerExecFlags)
          return;
  
@@ -500,7 +601,7 @@ index 39cc0803bb..c987de6f3d 100644
      gBattlerPartyIndexes[battler] = gBattleStruct->monToSwitchIntoId[battler];
  
      BtlController_EmitGetMonData(battler, BUFFER_A, REQUEST_ALL_BATTLE, 1u << gBattlerPartyIndexes[battler]);
-@@ -7054,6 +7077,7 @@ static void Cmd_switchindataupdate(void)
+@@ -7054,6 +7083,7 @@ static void Cmd_switchindataupdate(void)
      }
  
      SwitchInClearSetData(battler);
@@ -508,6 +609,118 @@ index 39cc0803bb..c987de6f3d 100644
  
      if (gBattleTypeFlags & BATTLE_TYPE_PALACE
          && gBattleMons[battler].maxHP / 2 >= gBattleMons[battler].hp
+diff --git a/src/load_save.c b/src/load_save.c
+index 219f446bf1..0ab966ea9b 100644
+--- a/src/load_save.c
++++ b/src/load_save.c
+@@ -112,6 +112,13 @@ void MoveSaveBlocks_ResetHeap(void)
+ 
+     // backup the saves.
+     *saveBlock2Copy = *gSaveBlock2Ptr;
++#ifdef SIDEDEX_NATIVE
++    // First call: gSaveBlock1Ptr is still NULL; the GBA copies BIOS open-bus
++    // bytes here, which ClearSav1 wipes right after. Native has no page 0.
++    if (gSaveBlock1Ptr == NULL)
++        memset(saveBlock1Copy, 0, sizeof(*saveBlock1Copy));
++    else
++#endif
+     *saveBlock1Copy = *gSaveBlock1Ptr;
+     *pokemonStorageCopy = *gPokemonStoragePtr;
+ 
+diff --git a/src/main.c b/src/main.c
+index 2b96595bb4..bcc2efa3f9 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -145,9 +145,64 @@ void AgbMain()
+ #endif
+ 
+     gAgbMainLoop_sp = __builtin_frame_address(0);
++#ifdef SIDEDEX_NATIVE
++    // native/main.c drives NativeMainLoopIteration + NativeVBlankIntr per frame.
++    return;
++#endif
+     AgbMainLoop();
+ }
+ 
++#ifdef SIDEDEX_NATIVE
++static void VBlankIntr(void);
++
++// One AgbMainLoop iteration without the VBlank wait.
++void NativeMainLoopIteration(void)
++{
++    ReadKeys();
++
++    if (gSoftResetDisabled == FALSE
++     && JOY_HELD_RAW(A_BUTTON)
++     && JOY_HELD_RAW(B_START_SELECT) == B_START_SELECT)
++    {
++        rfu_REQ_stopMode();
++        rfu_waitREQComplete();
++        DoSoftReset();
++    }
++
++    if (Overworld_SendKeysToLinkIsRunning() == TRUE)
++    {
++        gLinkTransferringData = TRUE;
++        UpdateLinkAndCallCallbacks();
++        gLinkTransferringData = FALSE;
++    }
++    else
++    {
++        gLinkTransferringData = FALSE;
++        UpdateLinkAndCallCallbacks();
++
++        if (Overworld_RecvKeysFromLinkIsRunning() == TRUE)
++        {
++            gMain.newKeys = 0;
++            ClearSpriteCopyRequests();
++            gLinkTransferringData = TRUE;
++            UpdateLinkAndCallCallbacks();
++            gLinkTransferringData = FALSE;
++        }
++    }
++    if (SHOULD_RUN_RAM_CHECK)
++        CheckRamVersion();
++
++    PlayTimeCounter_Update();
++    MapMusicMain();
++    gMain.intrCheck &= ~INTR_FLAG_VBLANK; // WaitForVBlank's first statement
++}
++
++void NativeVBlankIntr(void)
++{
++    VBlankIntr();
++}
++#endif
++
+ void AgbMainLoop(void)
+ {
+     for (;;)
+diff --git a/src/random.c b/src/random.c
+index c0eea49263..9b7b65d8b4 100644
+--- a/src/random.c
++++ b/src/random.c
+@@ -30,6 +30,12 @@ static void SFC32_Seed(struct Sfc32State *state, u32 seed, u8 stream)
+ /*This ASM implementation uses some shortcuts and is generally faster on the GBA.
+ * It's not necessarily faster if inlined, or on other platforms.
+ * In addition, it's extremely non-portable. */
++#ifdef SIDEDEX_NATIVE
++u32 Random32(void)
++{
++    return _SFC32_Next_Stream(&gRngValue, STREAM1);
++}
++#else
+ u32 NAKED Random32(void)
+ {
+     asm(".thumb\n\
+@@ -57,6 +63,7 @@ u32 NAKED Random32(void)
+     .ltorg"
+     );
+ }
++#endif
+ 
+ u32 Random2_32(void)
+ {
 diff --git a/src/recorded_battle.c b/src/recorded_battle.c
 index c32e86b525..5ff613b36c 100644
 --- a/src/recorded_battle.c
@@ -560,6 +773,37 @@ index c32e86b525..5ff613b36c 100644
      if (gTestRunnerEnabled)
          TestRunner_Battle_CheckBattleRecordActionType(battlerId, sBattlerRecordSizes[battlerId], actionType);
  
+diff --git a/src/script.c b/src/script.c
+index e6e2aa264d..d5c76b554a 100644
+--- a/src/script.c
++++ b/src/script.c
+@@ -106,7 +106,11 @@ bool8 RunScriptCommand(struct ScriptContext *ctx)
+             if (ctx->scriptPtr == gNullScriptPtr)
+             {
+                 while (1)
++#ifdef SIDEDEX_NATIVE
++                    __builtin_trap(); // the GBA halts forever here
++#else
+                     asm("svc 2"); // HALT
++#endif
+             }
+ 
+             cmdCode = *(ctx->scriptPtr);
+diff --git a/src/test_runner_stub.c b/src/test_runner_stub.c
+index 9a9452ed21..989b4d9553 100644
+--- a/src/test_runner_stub.c
++++ b/src/test_runner_stub.c
+@@ -7,5 +7,10 @@ const bool8 gTestRunnerEnabled = FALSE;
+ // The Makefile patches gTestRunnerHeadless as part of make test.
+ // This allows us to open the ROM in an mgba with a UI and see the
+ // animations and messages play, which helps when debugging a test.
++#ifdef SIDEDEX_NATIVE
++// Native build = the patched headless oracle ELF (patchelf values, see build_oracle.sh).
++const bool8 gTestRunnerHeadless = TRUE;
++#else
+ const bool8 gTestRunnerHeadless = FALSE;
++#endif
+ const bool8 gTestRunnerSkipIsFail = FALSE;
 diff --git a/test/battle/ai/sidedex_dynamic.c b/test/battle/ai/sidedex_dynamic.c
 new file mode 100644
 index 0000000000..c723531a6c
@@ -689,7 +933,7 @@ index 0000000000..c723531a6c
 +    }
 +}
 diff --git a/test/test_runner.c b/test/test_runner.c
-index ced86196f0..20fe230e78 100644
+index ced86196f0..69535df368 100644
 --- a/test/test_runner.c
 +++ b/test/test_runner.c
 @@ -6,9 +6,13 @@
@@ -716,7 +960,7 @@ index ced86196f0..20fe230e78 100644
  
  enum {
      CURRENT_TEST_STATE_ESTIMATE,
-@@ -27,6 +34,189 @@ __attribute__((section(".persistent"))) static struct {
+@@ -27,6 +34,190 @@ __attribute__((section(".persistent"))) static struct {
      u32 state:1;
  } sCurrentTest = {0};
  
@@ -814,6 +1058,7 @@ index ced86196f0..20fe230e78 100644
 +     || request->mode > SIDEDEX_DYNAMIC_MODE_LOGIC_ONLY
 +     || request->criticalPolicy > SIDEDEX_DYNAMIC_CRIT_ITEM_ABILITY_ONLY
 +     || request->trainerItemCount > SIDEDEX_DYNAMIC_MAX_TRAINER_ITEMS
++     || request->trainerReserved > 5
 +     || gSidedexDynamicResult == NULL
 +     || request->resultAddress != (u32)gSidedexDynamicResult
 +     || request->resultCapacity != SIDEDEX_DYNAMIC_RESULT_BYTES
@@ -906,7 +1151,7 @@ index ced86196f0..20fe230e78 100644
  void TestRunner_Battle(const struct Test *);
  
  static bool32 MgbaOpen_(void);
-@@ -180,6 +370,48 @@ top:
+@@ -180,6 +371,48 @@ top:
              else
                  break;
          }
@@ -955,7 +1200,7 @@ index ced86196f0..20fe230e78 100644
  
          Test_MgbaPrintf(":N%s", gTestRunnerState.test->name);
          Test_MgbaPrintf(":L%s:%d", gTestRunnerState.test->filename);
-@@ -190,7 +422,8 @@ top:
+@@ -190,7 +423,8 @@ top:
              gTestRunnerState.timeoutSeconds = TIMEOUT_SECONDS;
          else
              gTestRunnerState.timeoutSeconds = UINT_MAX;
@@ -965,7 +1210,7 @@ index ced86196f0..20fe230e78 100644
          ResetTasks();
          EnableInterrupts(INTR_FLAG_TIMER2);
          REG_TM2CNT_L = UINT16_MAX - (274 * 60); // Approx. 1 second.
-@@ -379,7 +612,16 @@ top:
+@@ -379,7 +613,16 @@ top:
  
      case STATE_NEXT_TEST:
          gTestRunnerState.state = STATE_ASSIGN_TEST;
@@ -983,8 +1228,101 @@ index ced86196f0..20fe230e78 100644
          break;
  
      case STATE_EXIT:
+@@ -462,6 +705,14 @@ const struct TestRunner gAssumptionsRunner =
+  *
+  * WARNING: This could potentially be flaky because other global state
+  * will not be cleaned up, we may decide to Exit on a timeout instead. */
++#ifdef SIDEDEX_NATIVE
++// native/main.c: longjmp back to the top of the current main-loop iteration.
++void NativeJumpToAgbMainLoop(void) __attribute__((noreturn));
++static void JumpToAgbMainLoop(void)
++{
++    NativeJumpToAgbMainLoop();
++}
++#else
+ static NAKED void JumpToAgbMainLoop(void)
+ {
+     asm(".arm\n\
+@@ -472,6 +723,7 @@ static NAKED void JumpToAgbMainLoop(void)
+          bx r0\n\
+          .pool");
+ }
++#endif
+ 
+ void ReinitCallbacks(void)
+ {
+@@ -522,20 +774,39 @@ void Test_ExitWithResult(enum TestResult result, u32 stopLine, const char *fmt,
+ }
+ 
+ #define REG_DEBUG_ENABLE (*(vu16 *)0x4FFF780)
++#ifdef SIDEDEX_NATIVE
++// native/main.c: the flag write is mGBA's "print the debug string" trigger, so
++// the native driver takes the string first, then the store lands in a dummy.
++vu16 *NativeMgbaFlush(void);
++#define REG_DEBUG_FLAGS  (*NativeMgbaFlush())
++#else
+ #define REG_DEBUG_FLAGS  (*(vu16 *)0x4FFF700)
++#endif
+ #define REG_DEBUG_STRING ((char *)0x4FFF600)
+ 
+ static bool32 MgbaOpen_(void)
+ {
++#ifdef SIDEDEX_NATIVE
++    return TRUE;
++#else
+     REG_DEBUG_ENABLE = 0xC0DE;
+     return REG_DEBUG_ENABLE == 0x1DEA;
++#endif
+ }
+ 
++#ifdef SIDEDEX_NATIVE
++void NativeExit(u8 exitCode) __attribute__((noreturn));
++static void MgbaExit_(u8 exitCode)
++{
++    NativeExit(exitCode);
++}
++#else
+ static void MgbaExit_(u8 exitCode)
+ {
+     register u32 _exitCode asm("r0") = exitCode;
+     asm("swi 0x3" :: "r" (_exitCode));
+ }
++#endif
+ 
+ s32 Test_MgbaPrintf(const char *fmt, ...)
+ {
+@@ -694,6 +965,7 @@ static s32 MgbaVPrintf_(const char *fmt, va_list va)
+ /* Entry point for the Debugging and Control System. Handles illegal
+  * instructions, which are typically caused by branching to an invalid
+  * address. */
++#ifndef SIDEDEX_NATIVE
+ #if MODERN
+ __attribute__((naked, section(".dacs"), target("arm")))
+ #else
+@@ -705,6 +977,7 @@ void DACSEntry(void)
+          ldr r0, =(DACSHandle + 1)\n\
+          bx r0\n");
+ }
++#endif
+ 
+ #define DACS_LR (*(vu32 *)0x3007FEC)
+ 
+diff --git a/test/test_runner_args.c b/test/test_runner_args.c
+index 9c0bf2ee5c..522eceb0e3 100644
+--- a/test/test_runner_args.c
++++ b/test/test_runner_args.c
+@@ -5,4 +5,9 @@
+ const bool8 gTestRunnerEnabled = TRUE;
+ const u8 gTestRunnerN = 0;
+ const u8 gTestRunnerI = 0;
++#ifdef SIDEDEX_NATIVE
++// Native build = the ELF patched with TESTS="Sidedex oracle: dynamic AI singles request".
++const char gTestRunnerArgv[256] = "Sidedex oracle: dynamic AI singles request";
++#else
+ const char gTestRunnerArgv[256] = {'\0'};
++#endif
 diff --git a/test/test_runner_battle.c b/test/test_runner_battle.c
-index 4b4efed49f..e6323f4d6b 100644
+index 4b4efed49f..4a6a10680e 100644
 --- a/test/test_runner_battle.c
 +++ b/test/test_runner_battle.c
 @@ -9,12 +9,22 @@
@@ -1010,7 +1348,7 @@ index 4b4efed49f..e6323f4d6b 100644
  
  #if defined(__INTELLISENSE__)
  #undef TestRunner_Battle_RecordAbilityPopUp
-@@ -35,25 +45,2041 @@
+@@ -35,26 +45,1844 @@
  #define STATE gBattleTestRunnerState
  #define DATA gBattleTestRunnerState->data
  
@@ -2165,7 +2503,7 @@ index 4b4efed49f..e6323f4d6b 100644
 +    return sSidedexInjectPending && sSidedexInjectKind == SIDEDEX_DYNAMIC_AI
 +        && battler == GetBattlerAtPosition(B_POSITION_PLAYER_LEFT);
 +}
-+
+ 
 +static void SidedexPlayerAiEnter(struct SidedexAiRows *rows, u32 battler)
 +{
 +    struct AiLogicData *ai = AI_DATA;
@@ -2186,8 +2524,13 @@ index 4b4efed49f..e6323f4d6b 100644
 +                                         | AI_FLAG_SMART_SWITCHING | AI_FLAG_SMART_MON_CHOICES;
 +    sSidedexPlayerAiScope = TRUE;
 +    TestRunner_Battle_RefreshAiRows(battler);
-+}
-+
+ }
+-#undef Q_4_12
+-#define Q_4_12(n) (s32)((n) * 4096)
+ 
+-// Alias sBackupMapData to avoid using heap.
+-struct BattleTestRunnerState *const gBattleTestRunnerState = (void *)sBackupMapData;
+-STATIC_ASSERT(sizeof(struct BattleTestRunnerState) <= sizeof(sBackupMapData), sBackupMapDataSpace);
 +static void SidedexPlayerAiLeave(const struct SidedexAiRows *rows, u32 battler)
 +{
 +    struct AiLogicData *ai = AI_DATA;
@@ -2207,7 +2550,13 @@ index 4b4efed49f..e6323f4d6b 100644
 +    memcpy(ai->moveAccuracy[battler], rows->moveAccuracy, sizeof(rows->moveAccuracy));
 +    memcpy(ai->resistBerryAffected[battler], rows->resistBerryAffected, sizeof(rows->resistBerryAffected));
 +}
-+
+ 
+-static void CB2_BattleTest_NextParameter(void);
+-static void CB2_BattleTest_NextTrial(void);
+-static void PushBattlerAction(u32 sourceLine, s32 battlerId, u32 actionType, u32 byte);
+-static void PrintAiMoveLog(u32 battlerId, u32 moveSlot, u32 moveId, s32 totalScore);
+-static void ClearAiLog(u32 battlerId);
+-static const char *BattlerIdentifier(s32 battlerId);
 +// The turn-start AI scoring the opponent gets in HandleTurnActionSelectionState,
 +// run for the player battler (same calls, same order).
 +void TestRunner_Battle_PlayerAiScore(u32 battler)
@@ -2367,25 +2716,13 @@ index 4b4efed49f..e6323f4d6b 100644
 +enum
 +{
 +    SIDEDEX_QUERY_UNSUPPORTED = 1 << 0,
-+    SIDEDEX_QUERY_FOCUS_SASH = 1 << 1,
-+    SIDEDEX_QUERY_STURDY = 1 << 2,
 +    SIDEDEX_QUERY_MULTI_HIT_RANGE = 1 << 3,
-+    SIDEDEX_QUERY_MULTI_HIT_ENUMERATED = 1 << 4,
-+};
-+
-+enum
-+{
-+    SIDEDEX_HITS_STANDARD,
-+    SIDEDEX_HITS_LOADED_DICE,
-+    SIDEDEX_HITS_SKILL_LINK,
-+    SIDEDEX_HITS_BATTLE_BOND,
-+    SIDEDEX_HITS_FIXED,
 +};
 +
 +static bool32 sSidedexQueryRngActive;
 +static enum RandomTag sSidedexQueryRngTag;
 +static u32 sSidedexQueryRngValue;
- 
++
 +static s32 SidedexQueryDamage(u32 battlerAtk, u32 battlerDef, u32 move, bool32 critical, u32 roll)
 +{
 +    struct DamageCalculationData damageCalcData = {
@@ -2398,6 +2735,48 @@ index 4b4efed49f..e6323f4d6b 100644
 +        .updateFlags = FALSE,
 +    };
 +    s32 damage;
++    u32 abilityDef = GetBattlerAbility(battlerDef);
++    bool32 aiCalc = AI_DATA->aiCalcInProgress;
++
++    // Soundproof, Volt Absorb, Flash Fire, ... stop the move before damage
++    // (ABILITYEFFECT_MOVES_BLOCK / ABSORBING), outside CalculateMoveDamage.
++    // aiCalcInProgress makes Dazzling read the move priority, not the chosen action.
++    AI_DATA->aiCalcInProgress = TRUE;
++    damage = CanAbilityBlockMove(battlerAtk, battlerDef, move, abilityDef)
++          || CanAbilityAbsorbMove(battlerAtk, battlerDef, abilityDef, move, damageCalcData.moveType);
++    AI_DATA->aiCalcInProgress = aiCalc;
++    if (damage || DoesDisguiseBlockMove(battlerDef, move)
++     || (abilityDef == ABILITY_ICE_FACE && IS_MOVE_PHYSICAL(move) && gBattleMons[battlerDef].species == SPECIES_EISCUE))
++        return 0;
++
++    // Fixed-damage moves set gBattleMoveDamage in their own script command
++    // (dmgtolevel, psywavedamageeffect, ...) after typecalc, not in CalculateMoveDamage.
++    switch (gMovesInfo[move].effect)
++    {
++    case EFFECT_LEVEL_DAMAGE:
++    case EFFECT_PSYWAVE:
++    case EFFECT_FIXED_DAMAGE_ARG:
++    case EFFECT_SUPER_FANG:
++    case EFFECT_ENDEAVOR:
++    case EFFECT_FINAL_GAMBIT:
++        if (CalcTypeEffectivenessMultiplier(move, damageCalcData.moveType, battlerAtk, battlerDef, abilityDef, FALSE) == UQ_4_12(0.0))
++            return 0;
++        switch (gMovesInfo[move].effect)
++        {
++        case EFFECT_LEVEL_DAMAGE:
++            return gBattleMons[battlerAtk].level;
++        case EFFECT_PSYWAVE: // Cmd_psywavedamageeffect: level * (50..150)%; roll 0 is the high end
++            return gBattleMons[battlerAtk].level * (50 + 100 * (15 - roll) / 15) / 100;
++        case EFFECT_FIXED_DAMAGE_ARG:
++            return gMovesInfo[move].argument;
++        case EFFECT_SUPER_FANG:
++            return max(1, GetNonDynamaxHP(battlerDef) / 2);
++        case EFFECT_ENDEAVOR:
++            return max(0, (s32)gBattleMons[battlerDef].hp - (s32)gBattleMons[battlerAtk].hp);
++        default: // EFFECT_FINAL_GAMBIT
++            return gBattleMons[battlerAtk].hp;
++        }
++    }
 +
 +    sSidedexQueryRngActive = TRUE;
 +    sSidedexQueryRngTag = RNG_DAMAGE_MODIFIER;
@@ -2405,324 +2784,70 @@ index 4b4efed49f..e6323f4d6b 100644
 +    damage = CalculateMoveDamage(&damageCalcData, 0);
 +    sSidedexQueryRngActive = FALSE;
 +    return max(0, damage);
- }
--#undef Q_4_12
--#define Q_4_12(n) (s32)((n) * 4096)
- 
--// Alias sBackupMapData to avoid using heap.
--struct BattleTestRunnerState *const gBattleTestRunnerState = (void *)sBackupMapData;
--STATIC_ASSERT(sizeof(struct BattleTestRunnerState) <= sizeof(sBackupMapData), sBackupMapDataSpace);
-+// ---- Outcome-weight enumeration (contract phase 2, deliverable A2-3) -------
-+// The ROM enumerates the COMPLETE joint distribution over the target's
-+// remaining HP after the candidate move, so the Python layer only has to sum
-+// integers. Weights are parts-per-million (denominator 1000000) of the exact
-+// integer probability; the largest branch absorbs rounding, so every record's
-+// weights sum exactly to the reported denominator. Mechanics folded in-ROM:
-+// the engine damage roll spread (16 rolls via CalculateMoveDamage), the real
-+// crit odds (critDen), the composed accuracy percent (GetTotalAccuracy),
-+// per-hit crit/damage independence, the engine multi-hit count distribution
-+// (src/battle_util.c SetRandomMultiHitCounter: RandomWeighted 7/7/3/3 for
-+// 2/3/4/5, Loaded Dice 4..5, Skill Link 5), miss-terminates-the-sequence, and
-+// Focus Sash / Sturdy at full HP (single-hit moves only; a multi-hit move
-+// still KOs through them).
-+//
-+// Record spelling (also in tools/rom_oracle/README.md and Appendix A):
-+//   ROMTRACE|query|outcomes|<owner>|<move>|<flags>|<chunk>|<chunks>|<denom>
-+//          |<branches>|<hitsMode>|<minHits>|<maxHits>|<accuracy>
-+//          |<hp>|<weight>|...            (<= 8 pairs per record)
-+// flags bits: 1 multi-hit, 2 focus-sash folded in, 4 sturdy folded in,
-+//             8 accuracy<100, 16 enumeration refused (0 branches).
-+#define SDX_OUTCOME_DENOM 1000000
-+// Damage/HP axis bound. Scratch is deliberately small (IWRAM is nearly full in
-+// the test build): three s32 arrays of this size, reusing one for the HP fold.
-+// Fixtures have maxHP <= 155 and per-hit damage <= ~120, so 256 is exact for
-+// them; if a value clamps, flag bit 32 is set and the record says so.
-+#define SDX_OUTCOME_MAXSUM 256
-+#define SDX_OUTCOME_PER_RECORD 8
-+#define SDX_OUTCOME_REFUSED 16
-+#define SDX_OUTCOME_CLAMPED 32
-+
-+static s32 sSdxOutHitDmg[40];
-+static s32 sSdxOutHitW[40];
-+static s32 sSdxOutCur[SDX_OUTCOME_MAXSUM];
-+static s32 sSdxOutTmp[SDX_OUTCOME_MAXSUM];
-+static s32 sSdxOutAcc[SDX_OUTCOME_MAXSUM];
-+static u8 sSdxOutBuf[512];
-+
-+static s32 SidedexOutScale(s32 a, s32 b)
-+{
-+    if (a <= 0 || b <= 0)
-+        return 0;
-+    return (s32)(((s64)a * (s64)b + SDX_OUTCOME_DENOM / 2) / SDX_OUTCOME_DENOM);
-+}
- 
--static void CB2_BattleTest_NextParameter(void);
--static void CB2_BattleTest_NextTrial(void);
--static void PushBattlerAction(u32 sourceLine, s32 battlerId, u32 actionType, u32 byte);
--static void PrintAiMoveLog(u32 battlerId, u32 moveSlot, u32 moveId, s32 totalScore);
--static void ClearAiLog(u32 battlerId);
--static const char *BattlerIdentifier(s32 battlerId);
-+static u32 SidedexBufFieldInt(u8 *buf, u32 len, s32 v)
-+{
-+    u8 tmp[12];
-+    u32 n = 0, i;
-+    buf[len++] = '|';
-+    if (v < 0)
-+    {
-+        buf[len++] = '-';
-+        v = -v;
-+    }
-+    do
-+    {
-+        tmp[n++] = (u8)('0' + (v % 10));
-+        v /= 10;
-+    } while (v);
-+    for (i = 0; i < n; i++)
-+        buf[len++] = tmp[n - 1 - i];
-+    return len;
 +}
 +
-+static void SidedexEmitOutcomesRefused(u32 owner, u32 move, u32 flags)
++// Total damage of `hits` hits, each at its lowest (best FALSE) or highest roll,
++// with the per-hit state the battle script sets: gMultiHitCounter (Triple Kick
++// power), beatUpSlot, the Parental Bond / OraOraOraOra second hit. Hits land in
++// order, so the target's HP (Multiscale, Super Fang), a broken Disguise or Ice
++// Face, and Stamina / Weak Armor / Water Compaction apply to the later hits.
++static u32 SidedexQueryHits(u32 battlerAtk, u32 battlerDef, u32 move, u32 hits, bool32 best,
++                            u32 nonCritWeight, u32 critWeight)
 +{
-+    u32 len = 0;
-+    const char *head = "ROMTRACE|query|outcomes";
-+    while (*head)
-+        sSdxOutBuf[len++] = *head++;
-+    len = SidedexBufFieldInt(sSdxOutBuf, len, owner);
-+    len = SidedexBufFieldInt(sSdxOutBuf, len, move);
-+    len = SidedexBufFieldInt(sSdxOutBuf, len, (s32)(flags | SDX_OUTCOME_REFUSED));
-+    len = SidedexBufFieldInt(sSdxOutBuf, len, 0);
-+    len = SidedexBufFieldInt(sSdxOutBuf, len, 0);
-+    len = SidedexBufFieldInt(sSdxOutBuf, len, SDX_OUTCOME_DENOM);
-+    len = SidedexBufFieldInt(sSdxOutBuf, len, 0);
-+    len = SidedexBufFieldInt(sSdxOutBuf, len, 0);
-+    len = SidedexBufFieldInt(sSdxOutBuf, len, 1);
-+    len = SidedexBufFieldInt(sSdxOutBuf, len, 1);
-+    len = SidedexBufFieldInt(sSdxOutBuf, len, 0);
-+    sSdxOutBuf[len] = 0;
-+    Test_MgbaPrintf("%s", sSdxOutBuf);
-+}
++    struct BattlePokemon savedDef = gBattleMons[battlerDef];
++    u32 savedCounter = gMultiHitCounter, savedSlot = gBattleStruct->beatUpSlot;
++    u32 savedBond = gSpecialStatuses[battlerAtk].parentalBondState;
++    u32 savedOra = gSpecialStatuses[battlerAtk].oraoraoraoraState;
++    struct Pokemon *party = GetBattlerParty(battlerAtk);
++    bool32 crit = best ? critWeight != 0 : nonCritWeight == 0;
++    u32 abilityAtk = GetBattlerAbility(battlerAtk);
++    u32 hit, slot = 0, total = 0;
 +
-+static void SidedexEmitOutcomeWeights(u32 owner, u32 move, u32 battlerDef,
-+                                      const u32 rollDamage[2][16],
-+                                      u32 nonCritWeight, u32 critWeight,
-+                                      u32 accuracy, u32 minHits, u32 maxHits,
-+                                      u32 hitsMode, u32 flags)
-+{
-+    u32 i, j, k, idx, dmg;
-+    u32 nHit = 0, nHitCounts = 0, hitDen = 1;
-+    u32 hitCnt[8], hitWgt[8];
-+    u32 perHitDen, hp = gBattleMons[battlerDef].hp, maxHp = gBattleMons[battlerDef].maxHP;
-+    u32 outFlags = 0, branches = 0, chunks, chunk, curMax, newMax = 0, maxPerHit = 0;
-+    s32 accW, missW, sum = 0, best = 0;
-+    u32 multiHit = (flags & SIDEDEX_QUERY_MULTI_HIT_RANGE) != 0;
-+    u32 sash = (flags & SIDEDEX_QUERY_FOCUS_SASH) != 0;
-+    u32 sturdy = (flags & SIDEDEX_QUERY_STURDY) != 0;
-+
-+    perHitDen = 16 * (nonCritWeight + critWeight);
-+    if (hp == 0)
-+        return;
-+    if (accuracy > 100)
-+        accuracy = 100;
-+
-+    if (multiHit)
-+        outFlags |= 1;
-+    // Sash/sturdy are only *applied* (folded into the distribution) on a
-+    // single-hit move; a multi-hit move KOs through both, so the flag would lie.
-+    if (sash && !multiHit)
-+        outFlags |= 2;
-+    if (sturdy && !multiHit)
-+        outFlags |= 4;
-+    if (accuracy < 100)
-+        outFlags |= 8;
-+
-+    for (i = 0; i < SDX_OUTCOME_MAXSUM; i++)
-+        sSdxOutAcc[i] = 0;
-+
-+    if (gMovesInfo[move].category == DAMAGE_CATEGORY_STATUS)
++    for (hit = 0; hit < hits; hit++)
 +    {
-+        // A status move never changes HP: one certain branch.
-+        sSdxOutAcc[0] = SDX_OUTCOME_DENOM;
-+    }
-+    else
-+    {
-+        if (perHitDen == 0)
-+        {
-+            SidedexEmitOutcomesRefused(owner, move, outFlags);
-+            return;
-+        }
-+        // Per-hit distribution conditional on the hit landing, DENOM scale.
-+        for (i = 0; i < 16; i++)
-+        {
-+            if (nonCritWeight)
-+            {
-+                sSdxOutHitDmg[nHit] = (s32)rollDamage[0][i];
-+                sSdxOutHitW[nHit++] = (s32)(((s64)SDX_OUTCOME_DENOM * nonCritWeight + perHitDen / 2) / perHitDen);
-+            }
-+            if (critWeight)
-+            {
-+                sSdxOutHitDmg[nHit] = (s32)rollDamage[1][i];
-+                sSdxOutHitW[nHit++] = (s32)(((s64)SDX_OUTCOME_DENOM * critWeight + perHitDen / 2) / perHitDen);
-+            }
-+        }
-+        if (nHit == 0)
-+        {
-+            SidedexEmitOutcomesRefused(owner, move, outFlags);
-+            return;
-+        }
-+        for (i = 0; i < nHit; i++)
-+        {
-+            sum += sSdxOutHitW[i];
-+            if ((u32)sSdxOutHitDmg[i] > maxPerHit)
-+                maxPerHit = (u32)sSdxOutHitDmg[i];
-+        }
-+        sSdxOutHitW[0] += (s32)SDX_OUTCOME_DENOM - sum; // exact sum
++        u32 damage, abilityDef = GetBattlerAbility(battlerDef);
++        bool32 blocked = DoesDisguiseBlockMove(battlerDef, move)
++                      || (abilityDef == ABILITY_ICE_FACE && IS_MOVE_PHYSICAL(move)
++                       && gBattleMons[battlerDef].species == SPECIES_EISCUE);
 +
-+        switch (hitsMode)
++        gMultiHitCounter = hits - hit;
++        if (gMovesInfo[move].effect == EFFECT_BEAT_UP)
 +        {
-+        case SIDEDEX_HITS_STANDARD:
-+            hitCnt[0] = 2; hitWgt[0] = 7; hitCnt[1] = 3; hitWgt[1] = 7;
-+            hitCnt[2] = 4; hitWgt[2] = 3; hitCnt[3] = 5; hitWgt[3] = 3;
-+            nHitCounts = 4; hitDen = 20; break;
-+        case SIDEDEX_HITS_LOADED_DICE:
-+            hitCnt[0] = 4; hitWgt[0] = 1; hitCnt[1] = 5; hitWgt[1] = 1;
-+            nHitCounts = 2; hitDen = 2; break;
-+        case SIDEDEX_HITS_SKILL_LINK:
-+            hitCnt[0] = 5; hitWgt[0] = 1; nHitCounts = 1; hitDen = 1; break;
-+        case SIDEDEX_HITS_BATTLE_BOND:
-+            hitCnt[0] = 3; hitWgt[0] = 1; nHitCounts = 1; hitDen = 1; break;
-+        default:
-+            hitCnt[0] = minHits; hitWgt[0] = 1; nHitCounts = 1; hitDen = 1; break;
++            while (slot < PARTY_SIZE && !(GetMonData(&party[slot], MON_DATA_HP)
++                   && GetMonData(&party[slot], MON_DATA_SPECIES) != SPECIES_NONE
++                   && !GetMonData(&party[slot], MON_DATA_IS_EGG)
++                   && !GetMonData(&party[slot], MON_DATA_STATUS)))
++                slot++;
++            gBattleStruct->beatUpSlot = slot++;
 +        }
-+        if (maxHits < minHits)
-+            maxHits = minHits;
-+        if (maxHits == 0)
-+            maxHits = 1;
-+
-+        accW = (s32)(((s64)SDX_OUTCOME_DENOM * accuracy + 50) / 100);
-+        missW = (s32)SDX_OUTCOME_DENOM - accW;
-+
-+        for (idx = 0; idx < nHitCounts; idx++)
++        if (hits == 2 && abilityAtk == ABILITY_PARENTAL_BOND)
++            gSpecialStatuses[battlerAtk].parentalBondState = hit ? PARENTAL_BOND_2ND_HIT : PARENTAL_BOND_1ST_HIT;
++        if (hits == 2 && abilityAtk == ABILITY_ORAORAORAORA)
++            gSpecialStatuses[battlerAtk].oraoraoraoraState = hit ? ORAORAORAORA_2ND_HIT : ORAORAORAORA_1ST_HIT;
++        damage = SidedexQueryDamage(battlerAtk, battlerDef, move, crit, best ? 0 : 15);
++        total += damage;
++        if (blocked)
++            gBattleMons[battlerDef].species = gBattleMons[battlerDef].species == SPECIES_EISCUE
++                                            ? SPECIES_EISCUE_NOICE : SPECIES_MIMIKYU_BUSTED;
++        gBattleMons[battlerDef].hp = total < savedDef.hp ? savedDef.hp - total : 1;
++        if (damage)
 +        {
-+            s32 hn = (s32)(((s64)SDX_OUTCOME_DENOM * hitWgt[idx]) / hitDen);
-+            s32 runW = hn;
-+            for (i = 0; i < SDX_OUTCOME_MAXSUM; i++)
-+                sSdxOutCur[i] = 0;
-+            sSdxOutCur[0] = SDX_OUTCOME_DENOM;
-+            curMax = 0;
-+            for (k = 0; k <= hitCnt[idx]; k++)
-+            {
-+                s32 wSeq;
-+                if (k > 0)
-+                {
-+                    newMax = curMax + maxPerHit;
-+                    if (newMax > SDX_OUTCOME_MAXSUM - 1)
-+                        newMax = SDX_OUTCOME_MAXSUM - 1;
-+                    for (i = 0; i < SDX_OUTCOME_MAXSUM; i++)
-+                        sSdxOutTmp[i] = 0;
-+                    for (dmg = 0; dmg <= curMax; dmg++)
-+                    {
-+                        if (sSdxOutCur[dmg] == 0)
-+                            continue;
-+                        for (j = 0; j < nHit; j++)
-+                        {
-+                            u32 t = dmg + (u32)sSdxOutHitDmg[j];
-+                            if (t > newMax)
-+                                t = newMax;
-+                            sSdxOutTmp[t] += SidedexOutScale(sSdxOutCur[dmg], sSdxOutHitW[j]);
-+                        }
-+                    }
-+                    for (i = 0; i <= newMax; i++)
-+                        sSdxOutCur[i] = sSdxOutTmp[i];
-+                    curMax = newMax;
-+                    runW = SidedexOutScale(runW, accW); // reached k hits
-+                }
-+                // k < n: the next hit missed and ended the sequence.
-+                // k == n: every allowed hit landed.
-+                wSeq = (k < hitCnt[idx]) ? SidedexOutScale(runW, missW) : runW;
-+                for (i = 0; i <= curMax; i++)
-+                    if (sSdxOutCur[i])
-+                        sSdxOutAcc[i] += SidedexOutScale(sSdxOutCur[i], wSeq);
-+            }
++            s32 stage = gBattleMons[battlerDef].statStages[STAT_DEF];
++            if (abilityDef == ABILITY_STAMINA)
++                stage += 1;
++            else if (abilityDef == ABILITY_WEAK_ARMOR && IS_MOVE_PHYSICAL(move))
++                stage -= 1;
++            else if (abilityDef == ABILITY_WATER_COMPACTION && GetMoveType(move) == TYPE_WATER)
++                stage += 2;
++            gBattleMons[battlerDef].statStages[STAT_DEF] = max(MIN_STAT_STAGE, min(MAX_STAT_STAGE, stage));
 +        }
 +    }
-+
-+    // Fold damage into the target's remaining HP; sash/sturdy clamp full-HP KOs.
-+    // The convolution scratch is finished with, so reuse it for the HP buckets.
-+    for (i = 0; i < SDX_OUTCOME_MAXSUM; i++)
-+        sSdxOutCur[i] = 0;
-+    for (dmg = 0; dmg < SDX_OUTCOME_MAXSUM; dmg++)
-+    {
-+        s32 w = sSdxOutAcc[dmg];
-+        u32 finalHp;
-+        if (w == 0)
-+            continue;
-+        if (gMovesInfo[move].category != DAMAGE_CATEGORY_STATUS && dmg >= (s32)hp)
-+            finalHp = (!multiHit && (sash || sturdy) && hp == maxHp) ? 1 : 0;
-+        else
-+            finalHp = hp - dmg;
-+        if (finalHp >= SDX_OUTCOME_MAXSUM)
-+        {
-+            finalHp = SDX_OUTCOME_MAXSUM - 1;
-+            outFlags |= SDX_OUTCOME_CLAMPED;
-+        }
-+        sSdxOutCur[finalHp] += w;
-+    }
-+    {
-+        u32 hpLimit = min(hp + 1, (u32)SDX_OUTCOME_MAXSUM);
-+        branches = 0;
-+        sum = 0;
-+        best = -1;
-+        for (i = 0; i < hpLimit; i++)
-+        {
-+            if (sSdxOutCur[i] <= 0)
-+                continue;
-+            branches++;
-+            sum += sSdxOutCur[i];
-+            if (best < 0 || sSdxOutCur[i] > sSdxOutCur[best])
-+                best = (s32)i;
-+        }
-+        if (branches == 0)
-+        {
-+            SidedexEmitOutcomesRefused(owner, move, outFlags);
-+            return;
-+        }
-+        sSdxOutCur[best] += (s32)SDX_OUTCOME_DENOM - sum; // exact sum
-+    }
-+
-+    chunks = (branches + SDX_OUTCOME_PER_RECORD - 1) / SDX_OUTCOME_PER_RECORD;
-+    for (chunk = 0; chunk < chunks; chunk++)
-+    {
-+        u32 hpLimit = min(hp + 1, (u32)SDX_OUTCOME_MAXSUM);
-+        u32 seen = 0, emitted = 0;
-+        u32 len = 0;
-+        const char *head = "ROMTRACE|query|outcomes";
-+        while (*head)
-+            sSdxOutBuf[len++] = *head++;
-+        len = SidedexBufFieldInt(sSdxOutBuf, len, owner);
-+        len = SidedexBufFieldInt(sSdxOutBuf, len, move);
-+        len = SidedexBufFieldInt(sSdxOutBuf, len, (s32)outFlags);
-+        len = SidedexBufFieldInt(sSdxOutBuf, len, (s32)chunk);
-+        len = SidedexBufFieldInt(sSdxOutBuf, len, (s32)chunks);
-+        len = SidedexBufFieldInt(sSdxOutBuf, len, SDX_OUTCOME_DENOM);
-+        len = SidedexBufFieldInt(sSdxOutBuf, len, (s32)branches);
-+        len = SidedexBufFieldInt(sSdxOutBuf, len, (s32)hitsMode);
-+        len = SidedexBufFieldInt(sSdxOutBuf, len, (s32)minHits);
-+        len = SidedexBufFieldInt(sSdxOutBuf, len, (s32)maxHits);
-+        len = SidedexBufFieldInt(sSdxOutBuf, len, (s32)accuracy);
-+        for (i = 0; i < hpLimit && emitted < SDX_OUTCOME_PER_RECORD; i++)
-+        {
-+            if (sSdxOutCur[i] <= 0)
-+                continue;
-+            if (seen++ < chunk * SDX_OUTCOME_PER_RECORD)
-+                continue;
-+            len = SidedexBufFieldInt(sSdxOutBuf, len, (s32)i);
-+            len = SidedexBufFieldInt(sSdxOutBuf, len, sSdxOutCur[i]);
-+            emitted++;
-+        }
-+        sSdxOutBuf[len] = 0;
-+        Test_MgbaPrintf("%s", sSdxOutBuf);
-+    }
++    gBattleMons[battlerDef] = savedDef;
++    gMultiHitCounter = savedCounter;
++    gBattleStruct->beatUpSlot = savedSlot;
++    gSpecialStatuses[battlerAtk].parentalBondState = savedBond;
++    gSpecialStatuses[battlerAtk].oraoraoraoraState = savedOra;
++    return total;
 +}
 +
 +static void SidedexQueryMove(u32 owner, u32 battlerAtk, u32 battlerDef, u32 move)
@@ -2733,69 +2858,104 @@ index 4b4efed49f..e6323f4d6b 100644
 +    u32 holdEffectDef = GetBattlerHoldEffect(battlerDef, TRUE);
 +    u32 oldAttacker = gBattlerAttacker, oldTarget = gBattlerTarget;
 +    u32 oldMove = gCurrentMove;
-+    u32 flags = 0, roll, critDen = 1, accuracy, numerator = 0;
++    u32 flags = 0, roll, critDen = 1, accuracy;
 +    u32 minHits = 1, maxHits = 1;
-+    u32 hitsMode = SIDEDEX_HITS_FIXED;
-+    u32 rollDamage[2][16] = {{0}};
 +    u32 minimum = UINT_MAX, maximum = 0, nonCritWeight, critWeight;
-+    u32 denominator;
 +    s32 critChance, ordinaryCritChance;
++    struct BattlePokemon savedAtk;
++    struct Pokemon savedAtkMon;
++    u16 savedChangedSpecies;
 +
++    // Hit counts as CANCELLER_MULTIHIT_MOVES and Cmd_attackcanceler set them.
 +    if (gMovesInfo[move].effect == EFFECT_MULTI_HIT)
 +    {
-+        flags |= SIDEDEX_QUERY_MULTI_HIT_RANGE | SIDEDEX_QUERY_MULTI_HIT_ENUMERATED;
 +        minHits = 2;
 +        maxHits = 5;
-+        hitsMode = SIDEDEX_HITS_STANDARD;
 +        if (abilityAtk == ABILITY_SKILL_LINK)
-+        {
 +            minHits = 5;
-+            hitsMode = SIDEDEX_HITS_SKILL_LINK;
-+        }
-+        else if (holdEffectAtk == HOLD_EFFECT_LOADED_DICE)
-+        {
-+            minHits = 4;
-+            hitsMode = SIDEDEX_HITS_LOADED_DICE;
-+        }
 +        else if (abilityAtk == ABILITY_BATTLE_BOND && move == MOVE_WATER_SHURIKEN
 +              && gBattleMons[battlerAtk].species == SPECIES_GRENINJA_ASH)
-+        {
 +            minHits = maxHits = 3;
-+            hitsMode = SIDEDEX_HITS_BATTLE_BOND;
-+        }
++        else if (holdEffectAtk == HOLD_EFFECT_LOADED_DICE)
++            minHits = 4;
 +    }
-+    else if (gMovesInfo[move].strikeCount > 1 && gMovesInfo[move].effect == EFFECT_HIT)
++    else if (gMovesInfo[move].strikeCount > 1)
 +    {
-+        flags |= SIDEDEX_QUERY_MULTI_HIT_RANGE | SIDEDEX_QUERY_MULTI_HIT_ENUMERATED;
 +        minHits = maxHits = gMovesInfo[move].strikeCount;
-+        hitsMode = SIDEDEX_HITS_FIXED;
++        if (gMovesInfo[move].effect == EFFECT_POPULATION_BOMB && holdEffectAtk == HOLD_EFFECT_LOADED_DICE)
++            minHits = 4;
 +    }
-+    else if (gMovesInfo[move].strikeCount > 1 || gMovesInfo[move].effect == EFFECT_TRIPLE_KICK)
-+        flags |= SIDEDEX_QUERY_UNSUPPORTED;
-+    if (gMovesInfo[move].category != DAMAGE_CATEGORY_STATUS && gMovesInfo[move].power == 0)
-+        flags |= SIDEDEX_QUERY_UNSUPPORTED;
++    else if (B_BEAT_UP >= GEN_5 && gMovesInfo[move].effect == EFFECT_BEAT_UP)
++    {
++        struct Pokemon *party = GetBattlerParty(battlerAtk);
++        u32 i;
++        minHits = 0;
++        for (i = 0; i < PARTY_SIZE; i++)
++            if (GetMonData(&party[i], MON_DATA_HP) && GetMonData(&party[i], MON_DATA_SPECIES) != SPECIES_NONE
++             && !GetMonData(&party[i], MON_DATA_IS_EGG) && !GetMonData(&party[i], MON_DATA_STATUS))
++                minHits++;
++        maxHits = minHits;
++    }
++    else if ((abilityAtk == ABILITY_PARENTAL_BOND && IsMoveAffectedByParentalBond(move, battlerAtk))
++          || (abilityAtk == ABILITY_ORAORAORAORA && gMovesInfo[move].punchingMove))
++    {
++        minHits = maxHits = 2;
++    }
++    if (maxHits > 1)
++        flags |= SIDEDEX_QUERY_MULTI_HIT_RANGE;
++    switch (gMovesInfo[move].effect)
++    {
++    case EFFECT_COUNTER: case EFFECT_MIRROR_COAT: case EFFECT_METAL_BURST: case EFFECT_BIDE:
++        flags |= SIDEDEX_QUERY_UNSUPPORTED; // Damage depends on the hit taken this turn.
++        break;
++    case EFFECT_LEVEL_DAMAGE: case EFFECT_PSYWAVE: case EFFECT_FIXED_DAMAGE_ARG:
++    case EFFECT_SUPER_FANG: case EFFECT_ENDEAVOR: case EFFECT_FINAL_GAMBIT: case EFFECT_BEAT_UP:
++        break;
++    default:
++        if (gMovesInfo[move].category != DAMAGE_CATEGORY_STATUS && gMovesInfo[move].power == 0)
++            flags |= SIDEDEX_QUERY_UNSUPPORTED;
++        break;
++    }
 +
-+    if ((flags & SIDEDEX_QUERY_UNSUPPORTED) && !(flags & SIDEDEX_QUERY_MULTI_HIT_RANGE))
++    if (flags & SIDEDEX_QUERY_UNSUPPORTED)
 +    {
 +        Test_MgbaPrintf("ROMTRACE|query|damage|%d|%d|0|0|%d|0|0|0|0",
 +                        owner, move, flags);
-+        SidedexEmitOutcomesRefused(owner, move, flags);
 +        return;
 +    }
 +    if (gMovesInfo[move].category == DAMAGE_CATEGORY_STATUS)
 +    {
-+        Test_MgbaPrintf("ROMTRACE|query|damage|%d|%d|0|1600|0|0|0|0|1", owner, move);
-+        SidedexEmitOutcomeWeights(owner, move, battlerDef, rollDamage, 0, 0, 100,
-+                                  1, 1, SIDEDEX_HITS_FIXED, flags);
++        Test_MgbaPrintf("ROMTRACE|query|damage|%d|%d|0|0|0|0|0|0|1", owner, move);
 +        return;
 +    }
 +
 +    gBattlerAttacker = battlerAtk;
 +    gBattlerTarget = battlerDef;
 +    gCurrentMove = move;
++    // GetMoveType reads dynamicMoveType whenever it is set, so type each move
++    // (Weather Ball, -ate abilities, ...) and clear it after, like the AI calc.
++    SetTypeBeforeUsingMove(move, battlerAtk);
++    // Attacker changes the battle script makes before the hit; undone at the end.
++    savedAtk = gBattleMons[battlerAtk];
++    savedAtkMon = GetBattlerParty(battlerAtk)[gBattlerPartyIndexes[battlerAtk]];
++    savedChangedSpecies = gBattleStruct->changedSpecies[GetBattlerSide(battlerAtk)][gBattlerPartyIndexes[battlerAtk]];
++    ProteanTryChangeType(battlerAtk, abilityAtk, move, GetMoveType(move));
++    if (!TryBattleFormChange(battlerAtk, FORM_CHANGE_BATTLE_BEFORE_MOVE))
++        TryBattleFormChange(battlerAtk, FORM_CHANGE_BATTLE_BEFORE_MOVE_CATEGORY);
 +    accuracy = min(100, GetTotalAccuracy(battlerAtk, battlerDef, move,
 +                                         abilityAtk, abilityDef,
 +                                         holdEffectAtk, holdEffectDef));
++    // AccuracyCalcHelper's sure-hit rules; it jumps the battle script, so it can't be called here.
++    if (abilityAtk == ABILITY_NO_GUARD || abilityDef == ABILITY_NO_GUARD
++     || gMovesInfo[move].accuracy == 0
++     || (gStatuses3[battlerDef] & STATUS3_ALWAYS_HITS && gDisableStructs[battlerDef].battlerWithSureHit == battlerAtk)
++     || gStatuses4[battlerDef] & STATUS4_GLAIVE_RUSH
++     || (abilityAtk == ABILITY_FATAL_PRECISION
++      && CalcTypeEffectivenessMultiplier(move, gMovesInfo[move].type, battlerAtk, battlerDef, ABILITY_FATAL_PRECISION, FALSE) >= UQ_4_12(2.0))
++     || (gStatuses3[battlerDef] & STATUS3_TELEKINESIS && gMovesInfo[move].effect != EFFECT_OHKO)
++     || (B_MINIMIZE_DMG_ACC >= GEN_6 && gStatuses3[battlerDef] & STATUS3_MINIMIZED && gMovesInfo[move].minimizeDoubleDamage)
++     || (WEATHER_HAS_EFFECT && gBattleWeather & (B_WEATHER_HAIL | B_WEATHER_SNOW) && gMovesInfo[move].effect == EFFECT_BLIZZARD))
++        accuracy = 100;
 +    critChance = CalcCritChanceStage(battlerAtk, battlerDef, move, FALSE,
 +                                     abilityAtk, abilityDef, holdEffectAtk);
 +    if (gSidedexDynamicRequest.criticalPolicy == SIDEDEX_DYNAMIC_CRIT_ITEM_ABILITY_ONLY)
@@ -2816,12 +2976,15 @@ index 4b4efed49f..e6323f4d6b 100644
 +    critWeight = critChance == CRITICAL_HIT_ALWAYS ? 1
 +               : critChance == CRITICAL_HIT_BLOCKED ? 0 : 1;
 +
-+    if (holdEffectDef == HOLD_EFFECT_FOCUS_SASH
-+     && gBattleMons[battlerDef].hp == gBattleMons[battlerDef].maxHP)
-+        flags |= SIDEDEX_QUERY_FOCUS_SASH;
-+    if (B_STURDY >= GEN_5 && abilityDef == ABILITY_STURDY
-+     && gBattleMons[battlerDef].hp == gBattleMons[battlerDef].maxHP)
-+        flags |= SIDEDEX_QUERY_STURDY;
++    if (flags & SIDEDEX_QUERY_MULTI_HIT_RANGE)
++    {
++        // Every hit is computed with its own state.
++        minimum = SidedexQueryHits(battlerAtk, battlerDef, move, minHits, FALSE, nonCritWeight, critWeight);
++        maximum = SidedexQueryHits(battlerAtk, battlerDef, move, maxHits, TRUE, nonCritWeight, critWeight);
++        Test_MgbaPrintf("ROMTRACE|query|damage|%d|%d|0|0|%d|%d|%d|%d|%d",
++                        owner, move, flags, minimum, maximum, accuracy, critDen);
++        goto restore;
++    }
 +
 +    for (roll = 0; roll < 16; roll++)
 +    {
@@ -2829,68 +2992,32 @@ index 4b4efed49f..e6323f4d6b 100644
 +        if (nonCritWeight)
 +        {
 +            damage = SidedexQueryDamage(battlerAtk, battlerDef, move, FALSE, roll);
-+            rollDamage[0][roll] = damage;
 +            minimum = min(minimum, damage);
 +            maximum = max(maximum, damage);
-+            if (damage >= gBattleMons[battlerDef].hp)
-+                numerator += nonCritWeight;
 +        }
 +        if (critWeight)
 +        {
 +            damage = SidedexQueryDamage(battlerAtk, battlerDef, move, TRUE, roll);
-+            rollDamage[1][roll] = damage;
 +            minimum = min(minimum, damage);
 +            maximum = max(maximum, damage);
-+            if (damage >= gBattleMons[battlerDef].hp)
-+                numerator += critWeight;
 +        }
 +    }
 +
-+    if (flags & SIDEDEX_QUERY_MULTI_HIT_RANGE)
-+    {
-+        minimum *= minHits;
-+        maximum *= maxHits;
-+        numerator = denominator = 0;
-+    }
-+    else
-+    {
-+        if (flags & (SIDEDEX_QUERY_FOCUS_SASH | SIDEDEX_QUERY_STURDY)
-+         || gMovesInfo[move].effect == EFFECT_FALSE_SWIPE)
-+            numerator = 0;
-+        numerator *= accuracy;
-+        denominator = 100 * 16 * critDen;
-+    }
 +    if (minimum == UINT_MAX)
 +        minimum = 0;
-+    Test_MgbaPrintf("ROMTRACE|query|damage|%d|%d|%d|%d|%d|%d|%d|%d|%d",
-+                    owner, move, numerator, denominator, flags, minimum, maximum,
-+                    accuracy, critDen);
-+    if (flags & SIDEDEX_QUERY_MULTI_HIT_ENUMERATED)
-+    {
-+        Test_MgbaPrintf("ROMTRACE|query|hits|%d|%d|%d|%d|%d|%d|%d",
-+                        owner, move, hitsMode, minHits, maxHits, nonCritWeight, critWeight);
-+        Test_MgbaPrintf("ROMTRACE|query|hitroll|%d|%d|0|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
-+                        owner, move,
-+                        rollDamage[0][0], rollDamage[0][1], rollDamage[0][2], rollDamage[0][3],
-+                        rollDamage[0][4], rollDamage[0][5], rollDamage[0][6], rollDamage[0][7],
-+                        rollDamage[0][8], rollDamage[0][9], rollDamage[0][10], rollDamage[0][11],
-+                        rollDamage[0][12], rollDamage[0][13], rollDamage[0][14], rollDamage[0][15]);
-+        Test_MgbaPrintf("ROMTRACE|query|hitroll|%d|%d|1|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
-+                        owner, move,
-+                        rollDamage[1][0], rollDamage[1][1], rollDamage[1][2], rollDamage[1][3],
-+                        rollDamage[1][4], rollDamage[1][5], rollDamage[1][6], rollDamage[1][7],
-+                        rollDamage[1][8], rollDamage[1][9], rollDamage[1][10], rollDamage[1][11],
-+                        rollDamage[1][12], rollDamage[1][13], rollDamage[1][14], rollDamage[1][15]);
-+    }
-+    // Complete outcome-weight enumeration for this move (contract phase 2).
-+    SidedexEmitOutcomeWeights(owner, move, battlerDef, rollDamage, nonCritWeight,
-+                              critWeight, accuracy, minHits, maxHits, hitsMode, flags);
++    // num/den (cells 5-6) are reserved and always 0.
++    Test_MgbaPrintf("ROMTRACE|query|damage|%d|%d|0|0|%d|%d|%d|%d|%d",
++                    owner, move, flags, minimum, maximum, accuracy, critDen);
++restore:
++    gBattleMons[battlerAtk] = savedAtk;
++    GetBattlerParty(battlerAtk)[gBattlerPartyIndexes[battlerAtk]] = savedAtkMon;
++    gBattleStruct->changedSpecies[GetBattlerSide(battlerAtk)][gBattlerPartyIndexes[battlerAtk]] = savedChangedSpecies;
++    gBattleStruct->dynamicMoveType = 0;
 +    gBattlerAttacker = oldAttacker;
 +    gBattlerTarget = oldTarget;
 +    gCurrentMove = oldMove;
 +}
 +
-+// Complete outcome-weight enumeration (see SidedexEmitOutcomeWeights).
 +static u32 SidedexDynamicPartySlot(u32 battler)
 +{
 +    const volatile struct SidedexDynamicMon *party;
@@ -3011,7 +3138,7 @@ index 4b4efed49f..e6323f4d6b 100644
 +        Test_MgbaPrintf("ROMTRACE|blob|%d|%d|%d|%s|%d|%s", turn, owner, index, kind, offset / 32, hex);
 +    }
 +}
-+
+ 
 +static void SidedexOracleTraceSnapshot(const char *phase)
 +{
 +    u32 battler, side, slot;
@@ -3061,10 +3188,32 @@ index 4b4efed49f..e6323f4d6b 100644
 +                    turn, gRngValue.a, gRngValue.b, gRngValue.c, gRngValue.ctr,
 +                    gRng2Value.a, gRng2Value.b, gRng2Value.c, gRng2Value.ctr);
 +}
- 
++
++#ifdef SIDEDEX_NATIVE
++// Native: run on the host stack. Captured locals (HP_BAR etc.) do not survive the
++// return; the Sidedex dynamic test captures none.
++static void InvokeSingleTestFunctionWithStack(void *results, u32 i, struct BattlePokemon *player, struct BattlePokemon *opponent, SingleBattleTestFunction function, void *stack)
++{
++    function(results, i, player, opponent);
++}
++
++static void InvokeDoubleTestFunctionWithStack(void *results, u32 i, struct BattlePokemon *playerLeft, struct BattlePokemon *opponentLeft, struct BattlePokemon *playerRight, struct BattlePokemon *opponentRight, SingleBattleTestFunction function, void *stack)
++{
++    ((DoubleBattleTestFunction)function)(results, i, playerLeft, opponentLeft, playerRight, opponentRight);
++}
++#else
  NAKED static void InvokeSingleTestFunctionWithStack(void *results, u32 i, struct BattlePokemon *player, struct BattlePokemon *opponent, SingleBattleTestFunction function, void *stack)
  {
-@@ -353,6 +2379,11 @@ static void BattleTest_Run(void *data)
+     asm("push {r4-r6,lr}\n\
+@@ -98,6 +1926,7 @@ NAKED static void InvokeDoubleTestFunctionWithStack(void *results, u32 i, struct
+          bx r0\n\
+         .pool");
+ }
++#endif
+ 
+ // Calls test->function, but pointing its stack at DATA.stack so that
+ // local variables are live after the function returns (and so can be
+@@ -353,6 +2182,11 @@ static void BattleTest_Run(void *data)
  
  u32 RandomUniform(enum RandomTag tag, u32 lo, u32 hi)
  {
@@ -3076,7 +3225,7 @@ index 4b4efed49f..e6323f4d6b 100644
      const struct BattlerTurn *turn = NULL;
  
      if (gCurrentTurnActionNumber < gBattlersCount)
-@@ -384,7 +2415,9 @@ u32 RandomUniform(enum RandomTag tag, u32 lo, u32 hi)
+@@ -384,7 +2218,9 @@ u32 RandomUniform(enum RandomTag tag, u32 lo, u32 hi)
  }
  
  u32 RandomUniformExcept(enum RandomTag tag, u32 lo, u32 hi, bool32 (*reject)(u32))
@@ -3087,7 +3236,7 @@ index 4b4efed49f..e6323f4d6b 100644
      const struct BattlerTurn *turn = NULL;
      u32 default_;
  
-@@ -435,7 +2468,9 @@ u32 RandomUniformExcept(enum RandomTag tag, u32 lo, u32 hi, bool32 (*reject)(u32
+@@ -435,7 +2271,9 @@ u32 RandomUniformExcept(enum RandomTag tag, u32 lo, u32 hi, bool32 (*reject)(u32
  }
  
  u32 RandomWeightedArray(enum RandomTag tag, u32 sum, u32 n, const u8 *weights)
@@ -3098,7 +3247,7 @@ index 4b4efed49f..e6323f4d6b 100644
      const struct BattlerTurn *turn = NULL;
  
      if (sum == 0)
-@@ -501,7 +2536,9 @@ u32 RandomWeightedArray(enum RandomTag tag, u32 sum, u32 n, const u8 *weights)
+@@ -501,7 +2339,9 @@ u32 RandomWeightedArray(enum RandomTag tag, u32 sum, u32 n, const u8 *weights)
  }
  
  const void *RandomElementArray(enum RandomTag tag, const void *array, size_t size, size_t count)
@@ -3109,7 +3258,7 @@ index 4b4efed49f..e6323f4d6b 100644
      const struct BattlerTurn *turn = NULL;
      u32 index = count-1;
  
-@@ -561,6 +2598,15 @@ static s32 TryAbilityPopUp(s32 i, s32 n, u32 battlerId, u32 ability)
+@@ -561,6 +2401,15 @@ static s32 TryAbilityPopUp(s32 i, s32 n, u32 battlerId, u32 ability)
  
  void TestRunner_Battle_RecordAbilityPopUp(u32 battlerId, u32 ability)
  {
@@ -3125,7 +3274,7 @@ index 4b4efed49f..e6323f4d6b 100644
      s32 queuedEvent;
      s32 match;
      struct QueuedEvent *event;
-@@ -714,6 +2760,35 @@ static s32 TryHP(s32 i, s32 n, u32 battlerId, u32 oldHP, u32 newHP)
+@@ -714,6 +2563,35 @@ static s32 TryHP(s32 i, s32 n, u32 battlerId, u32 oldHP, u32 newHP)
  
  void TestRunner_Battle_RecordHP(u32 battlerId, u32 oldHP, u32 newHP)
  {
@@ -3161,7 +3310,7 @@ index 4b4efed49f..e6323f4d6b 100644
      s32 queuedEvent;
      s32 match;
      struct QueuedEvent *event;
-@@ -779,6 +2854,22 @@ static u32 CountAiExpectMoves(struct ExpectedAIAction *expectedAction, u32 battl
+@@ -779,6 +2657,22 @@ static u32 CountAiExpectMoves(struct ExpectedAIAction *expectedAction, u32 battl
  
  void TestRunner_Battle_CheckChosenMove(u32 battlerId, u32 moveId, u32 target)
  {
@@ -3184,7 +3333,7 @@ index 4b4efed49f..e6323f4d6b 100644
      const char *filename = gTestRunnerState.test->filename;
      u32 id = DATA.trial.aiActionsPlayed[battlerId];
      struct ExpectedAIAction *expectedAction = &DATA.expectedAiActions[battlerId][id];
-@@ -850,6 +2941,17 @@ void TestRunner_Battle_CheckChosenMove(u32 battlerId, u32 moveId, u32 target)
+@@ -850,6 +2744,17 @@ void TestRunner_Battle_CheckChosenMove(u32 battlerId, u32 moveId, u32 target)
  
  void TestRunner_Battle_CheckSwitch(u32 battlerId, u32 partyIndex)
  {
@@ -3202,7 +3351,7 @@ index 4b4efed49f..e6323f4d6b 100644
      const char *filename = gTestRunnerState.test->filename;
      u32 id = DATA.trial.aiActionsPlayed[battlerId];
      struct ExpectedAIAction *expectedAction = &DATA.expectedAiActions[battlerId][id];
-@@ -870,6 +2972,136 @@ void TestRunner_Battle_CheckSwitch(u32 battlerId, u32 partyIndex)
+@@ -870,6 +2775,152 @@ void TestRunner_Battle_CheckSwitch(u32 battlerId, u32 partyIndex)
      DATA.trial.aiActionsPlayed[battlerId]++;
  }
  
@@ -3281,6 +3430,21 @@ index 4b4efed49f..e6323f4d6b 100644
 +    gBattleResources->battleHistory->itemsNo = gSidedexDynamicRequest.trainerItemCount;
 +}
 +
++void TestRunner_Battle_ApplyWeather(void)
++{
++    // Battle-start weather from the request (trainerReserved: 0 none, 1 rain,
++    // 2 sun, 3 sandstorm, 4 hail, 5 snow), set as a five-turn temporary weather
++    // after BattleStartClearSetData resets it.
++    static const u16 sWeather[] = {B_WEATHER_NONE, B_WEATHER_RAIN_TEMPORARY, B_WEATHER_SUN_TEMPORARY,
++        B_WEATHER_SANDSTORM_TEMPORARY, B_WEATHER_HAIL_TEMPORARY, B_WEATHER_SNOW_TEMPORARY};
++    if (!SidedexDynamicTraceActive()
++     || gSidedexDynamicRequest.version != SIDEDEX_DYNAMIC_VERSION
++     || gSidedexDynamicRequest.trainerReserved == 0)
++        return;
++    gBattleWeather = sWeather[gSidedexDynamicRequest.trainerReserved];
++    gWishFutureKnock.weatherDuration = 5;
++}
++
 +void TestRunner_Battle_TraceChosenItem(u32 battlerId, u32 itemId)
 +{
 +    if (SidedexOracleTraceActive())
@@ -3311,7 +3475,8 @@ index 4b4efed49f..e6323f4d6b 100644
 +void TestRunner_Battle_ApplyDynamicStages(void)
 +{
 +    static bool32 applied;
-+    u32 battler;
++    static const u8 sStats[] = {STAT_ATK, STAT_DEF, STAT_SPEED, STAT_SPATK, STAT_SPDEF, STAT_ACC, STAT_EVASION};
++    u32 battler, i;
 +
 +    if (!SidedexDynamicTraceActive() || applied)
 +        return;
@@ -3326,20 +3491,20 @@ index 4b4efed49f..e6323f4d6b 100644
 +            mon = &gSidedexDynamicRequest.player[slot];
 +        else
 +            mon = &gSidedexDynamicRequest.opponent[slot];
-+        gBattleMons[battler].statStages[STAT_ATK] = mon->statStages[0];
-+        gBattleMons[battler].statStages[STAT_DEF] = mon->statStages[1];
-+        gBattleMons[battler].statStages[STAT_SPEED] = mon->statStages[2];
-+        gBattleMons[battler].statStages[STAT_SPATK] = mon->statStages[3];
-+        gBattleMons[battler].statStages[STAT_SPDEF] = mon->statStages[4];
-+        gBattleMons[battler].statStages[STAT_ACC] = mon->statStages[5];
-+        gBattleMons[battler].statStages[STAT_EVASION] = mon->statStages[6];
++        // Request stages are offsets from neutral, added to what switch-in
++        // abilities (Intimidate, Download, ...) already did.
++        for (i = 0; i < ARRAY_COUNT(sStats); i++)
++        {
++            s32 stage = gBattleMons[battler].statStages[sStats[i]] + mon->statStages[i] - DEFAULT_STAT_STAGE;
++            gBattleMons[battler].statStages[sStats[i]] = max(MIN_STAT_STAGE, min(MAX_STAT_STAGE, stage));
++        }
 +    }
 +}
 +
  void TestRunner_Battle_InvalidNoHPMon(u32 battlerId, u32 partyIndex)
  {
      Test_ExitWithResult(TEST_RESULT_INVALID, SourceLine(0), ":L%s: INVALID: %s trying to send out a mon(id: %d) with 0 HP.",
-@@ -1254,6 +3486,8 @@ static s32 TryStatus(s32 i, s32 n, u32 battlerId, u32 status1)
+@@ -1254,6 +3305,8 @@ static s32 TryStatus(s32 i, s32 n, u32 battlerId, u32 status1)
  
  void TestRunner_Battle_RecordStatus1(u32 battlerId, u32 status1)
  {
@@ -3348,7 +3513,7 @@ index 4b4efed49f..e6323f4d6b 100644
      s32 queuedEvent;
      s32 match;
      struct QueuedEvent *event;
-@@ -1309,7 +3543,39 @@ void TestRunner_Battle_AfterLastTurn(void)
+@@ -1309,7 +3362,39 @@ void TestRunner_Battle_AfterLastTurn(void)
  {
      const struct BattleTest *test = GetBattleTest();
  
@@ -3389,7 +3554,7 @@ index 4b4efed49f..e6323f4d6b 100644
      {
          const char *filename = gTestRunnerState.test->filename;
          Test_ExitWithResult(TEST_RESULT_FAIL, SourceLine(0), ":L%s:%d: %d TURNs specified, but %d ran", filename, SourceLine(0), DATA.turns, DATA.trial.lastActionTurn + 1);
-@@ -1871,6 +4137,16 @@ static void PushBattlerAction(u32 sourceLine, s32 battlerId, u32 actionType, u32
+@@ -1871,6 +3956,16 @@ static void PushBattlerAction(u32 sourceLine, s32 battlerId, u32 actionType, u32
  
  void TestRunner_Battle_CheckBattleRecordActionType(u32 battlerId, u32 recordIndex, u32 actionType)
  {

@@ -19,7 +19,8 @@ from calc_config_component import calc_config_picker
 from status_badge_component import STATUS_COLORS
 from matchup import matchup
 from pc_box_component import pc_box
-from sprite_assets import item_icon, nature_arrow_icon, party_indicator_icon, species_icon, species_portrait, trainer_icon
+from sprite_assets import (ASSET_ROOT, item_icon, nature_arrow_icon, party_indicator_icon, species_art_file,
+                           species_icon, species_portrait, trainer_icon)
 from trainer_progression import build_trainer_index
 
 
@@ -55,6 +56,10 @@ CALC_WEATHERS = {"Clear": None, "Rain": "WEATHER_RAIN", "Sun": "WEATHER_SUN",
                  "Sandstorm": "WEATHER_SANDSTORM", "Hail": "WEATHER_HAIL", "Snow": "WEATHER_SNOW"}
 CALC_ITEM_PREFIX = {"player": "calc_item_player_", "enemy": "calc_item_enemy_"}
 STAT_KEYS = tuple(key for key, _ in STAT_FIELDS)
+# Imperium's default settings enable Minimal Grinding Mode (FLAG_MIN_GRINDING_MODE):
+# obtainable Pokemon have perfect IVs and CALC_STAT ignores EVs for every mon (src/pokemon.c).
+# ponytail: assumes MGM is on; add a setting if MGM-off runs need EV/random-IV support.
+DEFAULT_IV = 31
 STAT_STAGE_FIELDS = (("attack", "Attack"), ("defense", "Defense"), ("sp_attack", "Sp. Atk"),
                      ("sp_defense", "Sp. Def"), ("speed", "Speed"),
                      ("accuracy", "Accuracy"), ("evasion", "Evasion"))
@@ -153,11 +158,11 @@ def matchup_indicator(selected, enemy, data):
     return f'<span class="sd-match-indicator {state}" role="img" aria-label="{esc(label)}" title="{esc(label)}">{glyph}</span>'
 
 
-def build_markup(ability, item, nature):
+def build_markup(ability, item, nature, data):
     item_art = icon(item_icon(item), human(item), "sd-icon-inline") if item and item_icon(item) else ""
-    return (f'<div class="sd-build"><b>Ability</b><span>{esc(human(ability))}</span>'
-            f'<b>Item</b><span class="sd-build-item">{item_art}{esc(human(item))}</span>'
-            f'<b>Nature</b><span>{esc(human(nature))}</span></div>')
+    return (f'<div class="sd-build"><b>Ability</b><span data-tip="{esc(ability_tip(data, ability))}">{esc(human(ability))}</span>'
+            f'<b>Item</b><span class="sd-build-item" data-tip="{esc(item_tip(data, item))}">{item_art}{esc(human(item))}</span>'
+            f'<b>Nature</b><span data-tip="{esc(nature_tip(nature))}">{esc(human(nature))}</span></div>')
 
 
 def roster(trainer, data, resolve_level, highest_level, selected=None):
@@ -166,7 +171,7 @@ def roster(trainer, data, resolve_level, highest_level, selected=None):
         sid = enemy.get("species")
         name = species_name(sid, data) if sid else "Unknown Pokémon"
         level = resolve_level(enemy.get("raw_level", enemy.get("level")), highest_level)
-        build = build_markup(enemy.get("ability"), enemy.get("item"), enemy.get("nature"))
+        build = build_markup(enemy.get("ability"), enemy.get("item"), enemy.get("nature"), data)
         indicator = matchup_indicator(selected, enemy, data) if selected else ""
         cards.append(f'<div class="sd-enemy-card">{indicator}<div class="sd-enemy-top">{pokemon_icon(sid, data)}<div><strong>{esc(name)}</strong><div class="sd-sub sd-level-types">Lv {esc(level)}<span class="sd-badges">{badges(data.get("species", {}).get(sid, {}).get("types"))}</span></div></div></div>{build}</div>')
     st.html(f'<div class="sd-roster">{"".join(cards)}</div>')
@@ -191,7 +196,7 @@ def party_grid(rows, data, selected_id, connect, save_entry):
             selected = row["id"] == selected_id
             slot_key = f"party_slot_selected_{row['id']}" if selected else f"party_slot_{row['id']}"
             with st.container(key=slot_key):
-                build = build_markup(row["ability"], row["item"], row["nature"])
+                build = build_markup(row["ability"], row["item"], row["nature"], data)
                 types = badges(data.get("species", {}).get(row["species"], {}).get("types"))
                 st.html(f'<div class="sd-enemy-card"><div class="sd-enemy-top">{pokemon_icon(row["species"], data)}<div><strong>{esc(name)}</strong><div class="sd-sub sd-level-types">Lv {esc(row["level"] or "?")}<span class="sd-badges">{types}</span></div></div></div>{build}</div>')
                 st.button(f"Select {name}", key=f"party_select_{row['id']}", width="stretch",
@@ -210,6 +215,8 @@ def box_grid(rows, selected_id, data, box_no, db, move_box_slot, *, select_on_cl
             "ability": human(row["ability"]), "nature": human(row["nature"]),
             "item": human(row["item"]) if row["item"] else "None",
             "item_icon_url": item_icon(row["item"]) or "",
+            "item_tip": item_tip(data, row["item"]), "nature_tip": nature_tip(row["nature"]),
+            "ability_tip": ability_tip(data, row["ability"]),
             "mini_url": species_icon(row["species"]),
             "portrait_url": species_portrait(row["species"]),
         })
@@ -249,6 +256,24 @@ def nature_effect(nature):
     return NATURES.get(human(nature).lower(), (None, None))
 
 
+def item_tip(data, item):
+    return (data.get("item_descriptions", {}).get(item) or "").replace("\n", " ")
+
+
+def ability_tip(data, ability):
+    return (data.get("abilities", {}).get(ability) or "").replace("\n", " ")
+
+
+def nature_tip(nature):
+    if not nature:
+        return ""
+    up, down = nature_effect(nature)
+    if not up:
+        return "Neutral: no stat is raised or lowered."
+    label = dict(STAT_FIELDS)
+    return f"Raises {label[up]}, lowers {label[down]}."
+
+
 def nature_option(value):
     if not value:
         return "Choose nature"
@@ -278,16 +303,16 @@ def save_focused_field(connect, save_entry, row, field, value):
 
 
 def calculate_stats(base_stats, level, nature, ivs=None, evs=None, apply_nature=True):
-    """Calculate generation III stats, treating unspecified IVs/EVs as zero."""
+    """Calculate stats under Minimal Grinding Mode: blank IVs are 31 and EVs do not count."""
     up, down = nature_effect(nature)
-    ivs, evs = ivs or {}, evs or {}
+    ivs = ivs or {}
     result = {}
     for key, base in base_stats.items():
         if not isinstance(base, (int, float)):
             continue
-        iv = max(0, min(31, int(ivs.get(key, 0) or 0)))
-        ev = max(0, min(255, int(evs.get(key, 0) or 0)))
-        value = ((2 * base + iv + ev // 4) * level) // 100
+        iv = ivs.get(key)
+        iv = max(0, min(31, DEFAULT_IV if iv is None else int(iv)))
+        value = ((2 * base + iv) * level) // 100
         if key == "hp":
             value += level + 10
         else:
@@ -388,13 +413,15 @@ def focused_fields(row, data, connect, save_entry):
                        "effect": nature_option(value).partition(" · ")[2]}
                       for value in nature_choices]
     item_options = [{"value": value, "label": human(value) if value else "None",
-                     "icon": item_icon(value) or ""}
+                     "icon": item_icon(value) or "",
+                     "tip": item_tip(data, value)}
                     for value in options_from_trainers(data, "item", row["item"])]
     result = focused_build(
         level=row["level"] or "?", nature=current_nature,
         nature_label=human(current_nature), nature_options=nature_options,
         item=row["item"] or "", item_label=human(row["item"]) if row["item"] else "None",
         item_options=item_options, item_icon_url=item_icon(row["item"]) or "",
+        item_tip=item_tip(data, row["item"]), nature_tip=nature_tip(current_nature),
         key=f"focused-build-{entry_id}",
     )
     changed = result.changed
@@ -526,6 +553,36 @@ def handle_delete(db, event, token_key):
             st.rerun()
 
 
+@st.cache_resource
+def _species_art_server():
+    """Serve species art on localhost so the dropdown can preview it on hover without embedding every sprite."""
+    import functools
+    import http.server
+    import threading
+
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def end_headers(self):
+            self.send_header("Access-Control-Allow-Origin", "*")
+            super().end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(
+        ("127.0.0.1", 0), functools.partial(Handler, directory=str(ASSET_ROOT / "pokemon")))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{server.server_port}/"
+
+
+def species_preview_script(species_ids, data):
+    files = {}
+    for sid in species_ids:
+        art = species_art_file(sid)
+        if art:
+            files.setdefault(species_name(sid, data), art)
+    return f"<script>window.sdSpeciesPreview={json.dumps({'base': _species_art_server(), 'files': files})};</script>"
+
+
 def edit_pokemon(connect, data, save_entry, entry_id=None, default_in_party=False, default_box=1):
     st.session_state.pop(f"pf_{entry_id or 'new'}", None)
     _edit_pokemon_dialog(connect, data, save_entry, entry_id, default_in_party, default_box)
@@ -575,16 +632,18 @@ def _edit_pokemon(db, data, save_entry, entry_id=None, default_in_party=False, d
     nature_choices = [f"NATURE_{name.upper()}" for name in NATURES]
     if draft["nature"] not in nature_choices:
         nature_choices.append(draft["nature"])
-    portrait_col.html(f'<div class="sd-form-portrait">{pokemon_icon(chosen, data, "sd-form-portrait-img") if chosen else "<span>?</span>"}</div>')
+    portrait_col.html(f'<div class="sd-form-portrait">{pokemon_icon(chosen, data, "sd-form-portrait-img") if chosen else "<span>?</span>"}</div>'
+                      + species_preview_script(species_ids, data), unsafe_allow_javascript=True)
     picked = bool(chosen)
     with name_col:
       change = focused_build(
         level=draft["level"], nature=draft["nature"], nature_label=human(draft["nature"]) if picked else "Nature",
         nature_options=[{"value": v, "label": human(v), "effect": nature_option(v).partition(" · ")[2]} for v in nature_choices],
         item=draft["item"], item_label=("Item" if not picked else human(draft["item"]) if draft["item"] else "None"),
-        item_options=[{"value": v, "label": human(v) if v else "None", "icon": item_icon(v) or ""}
+        item_options=[{"value": v, "label": human(v) if v else "None", "icon": item_icon(v) or "", "tip": item_tip(data, v)}
                       for v in options_from_trainers(data, "item", draft["item"])],
         item_icon_url=item_icon(draft["item"]) or "",
+        item_tip=item_tip(data, draft["item"]), nature_tip=nature_tip(draft["nature"]) if picked else "",
         ability=draft["ability"], ability_options=[{"value": v, "label": human(v)} for v in abilities], show_ability=True, ability_locked=not picked,
         owner=draft["owner"], owner_options=[{"value": "1", "label": "Owner 1"}, {"value": "2", "label": "Owner 2"}],
         pair=draft["pair"], pair_options=[{"value": n, "label": n} for n in dict.fromkeys(
@@ -631,8 +690,8 @@ def _edit_pokemon(db, data, save_entry, entry_id=None, default_in_party=False, d
             old_evs = json_dict(existing["evs"] if existing else "{}")
             st.caption("Individual values (IVs)")
             iv_columns = st.columns(3)
-            iv_inputs = {key: iv_columns[index % 3].number_input(f"{label} IV", 0, 31, int(old_ivs.get(key, 0)), key=f"iv_{entry_id}_{key}") for index, (key, label) in enumerate(STAT_FIELDS)}
-            st.caption("Effort values (EVs)")
+            iv_inputs = {key: iv_columns[index % 3].number_input(f"{label} IV", 0, 31, int(old_ivs.get(key, DEFAULT_IV)), key=f"iv_{entry_id}_{key}") for index, (key, label) in enumerate(STAT_FIELDS)}
+            st.caption("Effort values (EVs) — ignored under Minimal Grinding Mode")
             ev_columns = st.columns(3)
             ev_inputs = {key: ev_columns[index % 3].number_input(f"{label} EV", 0, 255, int(old_evs.get(key, 0)), key=f"ev_{entry_id}_{key}") for index, (key, label) in enumerate(STAT_FIELDS)}
         _, save_col = st.columns([3, 1])
@@ -643,7 +702,7 @@ def _edit_pokemon(db, data, save_entry, entry_id=None, default_in_party=False, d
                 raise ValueError("Choose a Pokémon before saving.")
             if any(move not in move_choices for move in moves):
                 raise ValueError("Choose only moves this Pokémon can learn.")
-            ivs = old_ivs | {key: value for key, value in iv_inputs.items() if value or key in old_ivs}
+            ivs = old_ivs | iv_inputs
             evs = old_evs | {key: value for key, value in ev_inputs.items() if value or key in old_evs}
             status = existing["status"] if existing else "alive"
             in_party = bool(existing["in_party"]) if existing else False
@@ -659,17 +718,37 @@ def _edit_pokemon(db, data, save_entry, entry_id=None, default_in_party=False, d
         except (ValueError, json.JSONDecodeError) as exc:
             st.error(str(exc))
     if existing:
-        with st.expander("Remove this Pokémon"):
-            confirmed = st.checkbox("I understand this permanently deletes the record", key=f"delete_confirm_{entry_id}")
-            if st.button("Delete Pokémon", disabled=not confirmed):
-                db.execute("DELETE FROM owned WHERE id=?", (entry_id,))
-                db.commit()
-                st.session_state.pop("selected_pokemon_id", None)
-                st.query_params.pop("pokemon", None)
-                st.rerun()
+        if st.button("Delete Pokémon"):
+            db.execute("DELETE FROM owned WHERE id=?", (entry_id,))
+            db.commit()
+            st.session_state.pop("selected_pokemon_id", None)
+            st.query_params.pop("pokemon", None)
+            st.rerun()
 
 
-def trainer_selection(trainer_rows, party, resolve_level, stacked=False, highest_level=None):
+def chapter_level_cap(group, data):
+    """ROM level cap in force for a Chapter (the next unmet milestone), or None."""
+    def cap(label):
+        return next((_coerce_int(c.get("level")) for c in data.get("level_caps") or []
+                     if isinstance(c, dict) and c.get("label") == label), None)
+    match = re.match(r"(Before Gym|Gym|After Gym) (\d)", group or "")
+    if match:
+        kind, number = match.group(1), int(match.group(2))
+        if kind == "After Gym":
+            number += 1
+        return cap(f"Badge0{number} Get") if number <= 8 else cap("Defeated Wally Victory Road")
+    if (group or "").startswith("Elite Four") or group == "Champion":
+        return cap("Is Champion")
+    return 100 if group in ("Gym rematches", "Postgame") else None
+
+
+def sync_cap_to_chapter(data):
+    cap = chapter_level_cap(st.session_state.get("sd_chapter"), data)
+    if cap is not None:
+        st.session_state["calc_level_cap"] = cap
+
+
+def trainer_selection(trainer_rows, party, resolve_level, stacked=False, highest_level=None, data=None):
     groups = list(dict.fromkeys(row["group"] for row in trainer_rows))
     all_groups = ["All trainers"] + groups
     requested_group = st.query_params.get("group")
@@ -682,7 +761,8 @@ def trainer_selection(trainer_rows, party, resolve_level, stacked=False, highest
     else:
         trainer_col, group_col = st.columns([2, 1], gap="medium")
     with group_col:
-        group = st.selectbox("Chapter", all_groups, key="sd_chapter", persist_state="session")
+        group = st.selectbox("Chapter", all_groups, key="sd_chapter", persist_state="session",
+                             on_change=sync_cap_to_chapter if data else None, args=(data,) if data else ())
     candidates = trainer_rows if group == "All trainers" else [row for row in trainer_rows if row["group"] == group]
     by_id = {row["trainer"]["id"]: row for row in candidates}
     options = list(by_id)
@@ -706,76 +786,6 @@ def trainer_selection(trainer_rows, party, resolve_level, stacked=False, highest
             1, 100, max((row["level"] or 1 for row in party), default=50),
             key="sd_highest_party_level", persist_state="session")
     return trainer_id, trainer, by_id[trainer_id]["group"], highest_level
-
-
-def render_pokedex(db, data, save_entry, resolve_level, connect, move_box_slot):
-    rows = db.execute("SELECT * FROM owned ORDER BY id").fetchall()
-    party = sorted((row for row in rows if row["in_party"]), key=lambda row: row["party_slot"] if row["party_slot"] is not None else 6)
-    trainer_rows = build_trainer_index(data.get("trainers", []))
-    with st.container(border=True, key="encounter-panel"):
-        trainer_id, trainer, trainer_group, highest_level = trainer_selection(trainer_rows, party, resolve_level)
-    if not trainer_id:
-        st.info("No trainers are available in this chapter.")
-        return
-    battle_format = "Doubles" if trainer.get("double_battle") == "TRUE" else "Singles"
-    selected_raw = st.session_state.get("selected_pokemon_id", st.query_params.get("pokemon"))
-    try:
-        selected_id = int(selected_raw) if selected_raw else (party[0]["id"] if party else rows[-1]["id"] if rows else None)
-    except ValueError:
-        selected_id = party[0]["id"] if party else rows[-1]["id"] if rows else None
-    selected = next((row for row in rows if row["id"] == selected_id), party[0] if party else rows[-1] if rows else None)
-    selected_id = selected["id"] if selected else None
-    st.session_state["selected_pokemon_id"] = selected_id
-    party_col, trainer_col = st.columns([1, 1], gap="large")
-    with party_col:
-        portrait = trainer_icon("brendan")
-        if portrait:
-            st.html(f'<div class="sd-trainer-head">{icon(portrait, "You")}<div><strong>You</strong><small>Player · {esc(battle_format)}</small></div>{party_balls(len(party))}</div>')
-        party_grid(party, data, selected_id, connect, save_entry)
-    with trainer_col:
-        portrait = trainer_icon(trainer_id, trainer.get("trainer_pic"))
-        st.html(f'<div class="sd-trainer-head">{icon(portrait, trainer.get("name") or "Trainer")}<div><strong>{esc(trainer.get("name") or human(trainer_id))}</strong><small>{esc(trainer_group)} · {esc(battle_format)}</small></div>{party_balls(len(trainer.get("party", [])))}</div>')
-        roster(trainer, data, resolve_level, highest_level, selected)
-    if selected:
-        with st.container(key="selected-card"):
-            with st.container(key="selected-heading"):
-                portrait_col, info_col = st.columns([1, 10], gap="small", vertical_alignment="center")
-                with portrait_col:
-                    st.html(pokemon_icon(selected["species"], data, "sd-focused-sprite"))
-                with info_col:
-                    st.html(detail_markup(selected, data))
-                    focused_fields(selected, data, connect, save_entry)
-            st.html('<div class="sd-detail-divider"></div>')
-            focused_profile_fields(selected, data, connect, save_entry)
-            with st.container(horizontal=True, key="selected-pokemon-actions"):
-                if st.button("Edit Pokémon", icon=":material/edit:", help="Edit Pokémon", key="edit_selected"):
-                    edit_pokemon(connect, data, save_entry, selected["id"])
-                new_party = not bool(selected["in_party"])
-                open_box_no = st.session_state.setdefault("pc_box_number", 1)
-                move_label = "Move to party" if new_party else f"Move to Box {open_box_no}"
-                if st.button(move_label, icon=":material/drive_file_move:", help=move_label, key="move_selected"):
-                    values = {key: selected[key] for key in ("species", "level", "ability", "item", "nature", "status", "owner", "pair_id", "box_no")}
-                    values.update({"moves": known_moves(selected, data), "ivs": json_dict(selected["ivs"]), "evs": json_dict(selected["evs"]), "in_party": new_party})
-                    if not new_party:
-                        values["box_no"] = open_box_no
-                    try:
-                        save_entry(db, values, selected["id"])
-                        st.rerun(scope="fragment")
-                    except ValueError as exc:
-                        st.error(str(exc))
-    with st.container(key="pc-box-card"):
-        box_no = st.session_state.setdefault("pc_box_number", 1)
-        box_grid([row for row in rows if not row["in_party"] and row["box_no"] == box_no], selected_id, data, box_no, db, move_box_slot)
-        if st.button("Add Pokémon to Box", icon=":material/add:", help="Add a Pokémon to your Box", key="add_box"):
-            st.session_state["new_pokemon_box_target"] = box_no
-            st.session_state["new_pokemon_dialog_id"] = st.session_state.get("new_pokemon_dialog_id", 0) + 1
-            edit_pokemon(connect, data, save_entry, default_box=box_no)
-    with st.expander("Game data and limitations"):
-        source = data.get("source", {})
-        st.caption(f"Source: {source.get('repo', 'unknown')} at {source.get('commit', 'unknown')}")
-        st.caption("Conditional parties, adjusted difficulty levels, damage, and AI decisions are not modeled.")
-        if data.get("warnings"):
-            st.caption(f"Extractor diagnostics: {len(data['warnings'])} unresolved fields")
 
 
 def _coerce_int(value):
@@ -850,7 +860,8 @@ def calc_player_build(row, data, state, flags):
     return {"slot_id": row["id"], "species": row["species"], "level": _coerce_int(row["level"]),
             "ability": row["ability"], "item": (row["item"] or "ITEM_NONE") if use_item else None,
             "nature": row["nature"],
-            "ivs": {stat: _coerce_int(ivs.get(stat)) or 0 for stat in STAT_KEYS},
+            "ivs": {stat: DEFAULT_IV if _coerce_int(ivs.get(stat)) is None else _coerce_int(ivs.get(stat))
+                    for stat in STAT_KEYS},
             "evs": {stat: _coerce_int(evs.get(stat)) or 0 for stat in STAT_KEYS},
             "moves": moves,
             "pp": {move_id: _coerce_int(pp.get(move_id)) for move_id in moves if move_id in pp},
@@ -939,7 +950,7 @@ def build_calc_snapshot(data, player_party, enemy_party, state, *, trainer_id, d
                         enemy_items=None, ai_flags=None, enemy_levels=None, source_sha=None):
     """Build the CALC_CONTRACT section 2 BattleSnapshot, or None when it cannot be built.
 
-    The build form's blank IV/EV entries mean zero. Unknown HP, PP, RNG, and
+    The build form's blank IVs mean 31 and blank EVs zero (Minimal Grinding Mode). Unknown HP, PP, RNG, and
     planned actions stay unknown until supplied by the battle state.
     """
     if not trainer_id or difficulty not in CALC_DIFFICULTIES:
@@ -1095,7 +1106,14 @@ def damage_percent_text(move, damage_range):
     return span_text(round(100 * low / max_hp), round(100 * high / max_hp), "%")
 
 
-def move_entry_row(move, pending=False):
+def move_type_style(move, data):
+    """--type custom property so a row takes its move's type colour."""
+    record = ((data or {}).get("moves") or {}).get(move.get("move_id")) or {}
+    color = TYPE_COLORS.get(human(record.get("type")).upper())
+    return f' style="--type:{color}"' if color else ""
+
+
+def move_entry_row(move, pending=False, data=None):
     """One gated move entry: an exact row, or that move's own unavailability."""
     name = move.get("move_name") or human(move.get("move_id"))
     if move.get("status") == "unavailable":
@@ -1103,7 +1121,7 @@ def move_entry_row(move, pending=False):
         damage_text = (damage_range_markup(move, damage_range)
                         if isinstance(damage_range, dict) and damage_range.get("min") is not None
                         and damage_range.get("max") not in (None, 0) else "")
-        return (f'<li class="sd-calc-prob-row sd-calc-move-row sd-calc-entry-unavailable">'
+        return (f'<li class="sd-calc-prob-row sd-calc-move-row sd-calc-entry-unavailable"{move_type_style(move, data)}>'
                 f'<span class="sd-calc-prob-name">{esc(name)}</span>'
                 f'{damage_text}<small class="sd-calc-percent">Unavailable</small>'
                 f'</li>')
@@ -1117,19 +1135,19 @@ def move_entry_row(move, pending=False):
     damage_text = (damage_range_markup(move, damage_range)
                    if has_damage_range and damage_range["max"] != 0 else "")
     return (
-        f'<li class="sd-calc-prob-row sd-calc-move-row{" sd-calc-move-pending" if row_pending else ""}"><span class="sd-calc-prob-name">{esc(name)}</span>'
+        f'<li class="sd-calc-prob-row sd-calc-move-row{" sd-calc-move-pending" if row_pending else ""}"{move_type_style(move, data)}><span class="sd-calc-prob-name">{esc(name)}</span>'
         f'<small class="sd-calc-percent">{esc(badge)}</small>'
         f'{damage_text}'
         + (calc_spinner() if row_pending else "") + "</li>")
 
 
-def move_card_body(card, move_names=None, pending=False):
+def move_card_body(card, move_names=None, pending=False, data=None):
     """Moves are gated per entry, so an unsupported move never hides its siblings."""
     card = card if isinstance(card, dict) else {}
     moves = [move for move in (card.get("moves") or []) if isinstance(move, dict)]
     rows = []
     for move in moves:
-        rows.append(move_entry_row(move, pending))
+        rows.append(move_entry_row(move, pending, data))
     known_names = {str(move.get("move_name") or human(move.get("move_id"))) for move in moves}
     for name in move_names or []:
         if name not in known_names:
@@ -1199,13 +1217,13 @@ def recommendation_card_body(card):
     return '<ol class="sd-calc-rows">' + "".join(rows) + "</ol>"
 
 
-def calc_card_body(kind, card, moves=None, pending=False):
+def calc_card_body(kind, card, moves=None, pending=False, data=None):
     if pending and kind in ("player_moves", "enemy_moves"):
-        return move_card_body(card, moves, pending=True)
+        return move_card_body(card, moves, pending=True, data=data)
     if not isinstance(card, dict) or not card.get("status"):
         names = list(moves or [])[:4]
         if kind in ("player_moves", "enemy_moves") and names:
-            return move_card_body(None, names, pending=pending)
+            return move_card_body(None, names, pending=pending, data=data)
         if pending:
             return '<div class="sd-calc-card-loading">' + calc_spinner() + '</div>'
         return ('<p class="sd-calc-unavailable">Not calculated. '
@@ -1225,7 +1243,7 @@ def calc_card_body(kind, card, moves=None, pending=False):
         return card_unavailable_markup({"reason": "incomplete-state",
                                        "detail": "No verified or estimated result is available yet."})
     if kind in ("player_moves", "enemy_moves"):
-        body = move_card_body(card)
+        body = move_card_body(card, data=data)
     elif kind == "ai_actions":
         body = ai_card_body(card)
     elif kind == "recommendation":
@@ -1237,7 +1255,7 @@ def calc_card_body(kind, card, moves=None, pending=False):
     return body
 
 
-def calc_result_card(title, kind=None, card=None, moves=None, pending=False):
+def calc_result_card(title, kind=None, card=None, moves=None, pending=False, data=None):
     modifier = {"recommendation": " sd-calc-recommendation-card",
                 "ai_actions": " sd-calc-ai-actions-card",
                 "player_moves": " sd-calc-ko-card", "enemy_moves": " sd-calc-ko-card"}.get(kind, "")
@@ -1250,12 +1268,21 @@ def calc_result_card(title, kind=None, card=None, moves=None, pending=False):
             title = "Player action preview"
         elif kind == "recommendation" and card.get("ranking_uncertain"):
             title = "Player action options"
-    heading = f'<strong>{esc(title)}</strong>'
+    body = calc_card_body(kind, card, moves, pending, data)
+    loader = '<div class="sd-calc-card-loading">' + calc_spinner() + '</div>'
+    heading = f'<span>{esc(title)}</span>'
+    if kind in ("recommendation", "ai_actions") and body.endswith(loader):
+        # Spinner sits beside the title.
+        heading += calc_spinner()
+        body = body[:-len(loader)]
+    css = "sd-calc-panel-heading"
     if kind == "recommendation" and sampled_recommendation(card):
-        heading = (f'<div class="sd-calc-rec-head">{heading}'
-                   + "".join(f'<small>{esc(label)}</small>' for label in RECOMMENDATION_COLUMNS) + '</div>')
+        # Column labels share the row grid so they sit over their cells.
+        css += " sd-calc-rec-head"
+        heading += "".join(f'<small>{esc(label)}</small>' for label in RECOMMENDATION_COLUMNS)
+    heading = f'<div class="{css}">{heading}</div>'
     return (f'<div class="sd-calc-result-card{modifier}">{heading}'
-            f'<div class="sd-calc-card-body">{calc_card_body(kind, card, moves, pending)}</div></div>')
+            f'<div class="sd-calc-card-body">{body}</div></div>')
 
 
 def calc_progress_markup(meta):
@@ -1313,6 +1340,8 @@ def calc_slot(row, data, level=None, focused=False):
             "ability": human(row["ability"]), "nature": human(row["nature"]),
             "item_icon_url": item_icon(row["item"]) or "",
             "item_label": human(row["item"]) if row["item"] else "",
+            "item_tip": item_tip(data, row["item"]), "nature_tip": nature_tip(row["nature"]),
+            "ability_tip": ability_tip(data, row["ability"]),
             "icon_url": species_icon(species_id), "focused": focused}
 
 
@@ -1405,8 +1434,17 @@ def level_cap_choices(data, current):
     return levels, labels
 
 
-def level_cap_widget():
-    """Set a level directly, matching the editable level badge in the focused panel."""
+def level_cap_widget(data):
+    """Set a level directly, snapped to the nearest ROM progression milestone."""
+    levels = [_coerce_int(cap.get("level")) for cap in data.get("level_caps") or [] if isinstance(cap, dict)]
+    levels = [level for level in levels if level is not None]
+    if "calc_level_cap" not in st.session_state:  # first load: start at the Chapter's cap
+        chapter = st.session_state.get("sd_chapter") or st.query_params.get("group") or "Gym 1"
+        st.session_state["calc_level_cap"] = chapter_level_cap(chapter, data) or 100
+    current = _coerce_int(st.session_state.get("calc_level_cap"))
+    if levels and current is not None:
+        # Runs before the widget exists, so the key may still be assigned.
+        st.session_state["calc_level_cap"] = min(levels, key=lambda level: (abs(level - current), level))
     return st.number_input("Level cap", min_value=1, max_value=100, value=100,
                            step=1, key="calc_level_cap", persist_state="session")
 
@@ -1544,17 +1582,14 @@ def calc_save_config(connect, payload, name, selected_id=None):
     return saved_id
 
 
-@st.dialog("Delete team config")
-def calc_delete_dialog(connect, config_id, config_name):
-    st.write(f"Delete {config_name}?")
-    if st.button("Delete config", type="primary"):
-        with closing(connect()) as db:
-            db.execute("DELETE FROM team_configs WHERE id=?", (config_id,))
-            db.commit()
-        if st.session_state.get("calc_loaded_config_id") == config_id:
-            st.session_state["calc_loaded_config_id"] = None
-        st.session_state["calc_last_load_notice"] = f"Deleted config {config_name}."
-        st.rerun()
+def calc_delete_config(connect, config_id, config_name):
+    with closing(connect()) as db:
+        db.execute("DELETE FROM team_configs WHERE id=?", (config_id,))
+        db.commit()
+    if st.session_state.get("calc_loaded_config_id") == config_id:
+        st.session_state["calc_loaded_config_id"] = None
+    st.session_state["calc_last_load_notice"] = f"Deleted config {config_name}."
+    st.rerun()
 
 
 def calc_validate_state(payload):
@@ -1652,7 +1687,7 @@ def calc_focus_for_active_selection(party_slots, enemies, player_active, enemy_a
 
 
 def calc_default_max_hp(data, species, level, ivs, evs):
-    """Starting HP from the displayed build; missing HP IV/EV use the profile's zero default."""
+    """Starting HP from the displayed build; a missing HP IV is 31 (Minimal Grinding Mode)."""
     base = ((data.get("species", {}).get(species) or {}).get("stats") or {}).get("hp")
     level = _coerce_int(level)
     if type(base) is not int or level is None or not 1 <= level <= 100:
@@ -1803,6 +1838,7 @@ def calc_load_config(db, record, data, apply_party_slots, trainer_rows):
     st.session_state["calc_player_focus_id"] = player_focus
     st.session_state["calc_enemy_focus"] = enemy_focus
     st.session_state["calc_level_cap"] = level_cap
+    st.session_state["calc_level_cap_applied"] = level_cap
     st.session_state["calc_difficulty"] = difficulty
     st.session_state["calc_item_flags"] = flags
     for key in list(st.session_state):
@@ -1837,18 +1873,21 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
     party = [row for row in party_slots if row]
     trainer_rows = build_trainer_index(data.get("trainers", []))
     with st.container(key="calc_screen"):
-        result_area = st.container(key="calc_results")
         grid_area = st.container(key="calc_grid")
 
         with grid_area:
-            own_col, own_focus_col, enemy_focus_col, enemy_col = st.columns([0.67, 2, 2, 0.67], gap="small")
+            own_col, middle_col, enemy_col = st.columns([0.67, 4, 0.67], gap="small")
             with own_col:
                 player_trainer_area = st.container(key="calc_player_trainer_panel")
+            with middle_col:
+                own_focus_col, enemy_focus_col = st.columns(2, gap="small")
+                result_area = st.container(key="calc_results")
             with own_focus_col:
                 player_panel_area = st.container(key="calc_player_panel")
             with enemy_col:
                 enemy_roster_area = st.container()
                 trainer_settings_area = st.container(key="calc_trainer_settings")
+                trainer_picker_area = st.container(key="calc_trainer_picker")
 
         configs = db.execute("SELECT id,name,settings FROM team_configs ORDER BY name COLLATE NOCASE").fetchall()
         by_config = {row["id"]: row for row in configs}
@@ -1878,18 +1917,33 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
             st.session_state["calc_config_delete_token"] = delete_event["token"]
             record = by_config.get(delete_event.get("id"))
             if record:
-                calc_delete_dialog(connect, record["id"], record["name"])
+                calc_delete_config(connect, record["id"], record["name"])
         with trainer_settings_area:
-            st.markdown("**Settings**")
-            level_cap = level_cap_widget()
-            if level_cap_id_for(data, level_cap) is None:
-                st.caption(f"Level {level_cap} is not a ROM progression milestone; compiled battle calculations are unavailable at this cap.")
+            st.html('<div class="sd-calc-panel-heading">Settings</div>')
+            level_cap = level_cap_widget(data)
+            # A user-changed cap raises/lowers every party member to it (ROM raise-to-cap).
+            if st.session_state.setdefault("calc_level_cap_applied", level_cap) != level_cap:
+                st.session_state["calc_level_cap_applied"] = level_cap
+                scenario = st.session_state.get("calc_battle_state")
+                if isinstance(scenario, dict):  # max HP changes with level: restart at full HP
+                    for side in ("player", "enemy"):
+                        for entry in (scenario.get(side) or {}).values():
+                            if isinstance(entry, dict):
+                                entry.pop("hp", None)
+                    scenario["state_origin"] = "battle-start"
+                stale = [row for row in party if row["level"] != level_cap]
+                for row in stale:
+                    save_focused_field(connect, save_entry, row, "level", level_cap)
+                if stale:
+                    st.rerun()
             difficulty_widget()
             simulated_level = simulate_highest_level(party, level_cap, data)
-            trainer_id, trainer, trainer_group, highest_level = trainer_selection(
-                trainer_rows, party, resolve_level, stacked=True, highest_level=simulated_level)
             weather = st.selectbox("Weather", list(CALC_WEATHERS), key="calc_weather",
                                    persist_state="session")
+        with trainer_picker_area:
+            st.html('<div class="sd-calc-panel-heading">Trainer</div>')
+            trainer_id, trainer, trainer_group, highest_level = trainer_selection(
+                trainer_rows, party, resolve_level, stacked=True, highest_level=simulated_level, data=data)
         previous_state = st.session_state.get("calc_battle_state")
         trainer_changed = not isinstance(previous_state, dict) or previous_state.get("_trainer_id") != trainer_id
         if trainer_changed:
@@ -1998,9 +2052,9 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
             with player_ko_col:
                 st.html(calc_result_card("Your moves · Damage", "player_moves",
                                          card_result(result, "player_moves"),
-                                         names["player_moves"], pending))
+                                         names["player_moves"], pending, data))
             with recommendation_col:
-                st.html(calc_result_card("Recommended player action", "recommendation",
+                st.html(calc_result_card("Recommended Action", "recommendation",
                                          card_result(result, "recommendation"), pending=pending))
             with trainer_action_col:
                 st.html(calc_result_card("Trainer predicted action", "ai_actions",
@@ -2008,7 +2062,7 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
             with trainer_ko_col:
                 st.html(calc_result_card("Trainer's moves · Damage", "enemy_moves",
                                          card_result(result, "enemy_moves"),
-                                         names["enemy_moves"], pending))
+                                         names["enemy_moves"], pending, data))
             if pending:
                 calc_wait_for_result(snapshot, calc_result_marker(result))
 
@@ -2109,13 +2163,13 @@ def render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, app
                         item_key = f"calc_item_enemy_{trainer_id}_{enemy_focus}"
                         with st.container(horizontal=True, key="calc_enemy_item_row"):
                             st.html(f'<span class="sd-calc-item-badge">Level {esc(enemy_level)}</span>')
-                            st.html(f'<span class="sd-calc-item-badge">{esc(human(enemy.get("nature")) if enemy.get("nature") else "Unknown")}</span>')
+                            st.html(f'<span class="sd-calc-item-badge" data-tip="{esc(nature_tip(enemy.get("nature")))}">{esc(human(enemy.get("nature")) if enemy.get("nature") else "Unknown")}</span>')
                             held_item = enemy.get("item")
                             held_item_icon = item_icon(held_item) if held_item else None
                             held_item_name = human(held_item) if held_item else "None"
                             held_item_icon_markup = (f'<img class="sd-calc-held-item" src="{esc(held_item_icon)}" '
                                                      f'alt="" aria-hidden="true">' if held_item_icon else "")
-                            st.html(f'<span class="sd-calc-item-badge sd-calc-held-item-badge">'
+                            st.html(f'<span class="sd-calc-item-badge sd-calc-held-item-badge" data-tip="{esc(item_tip(data, held_item))}">'
                                     f'{held_item_icon_markup}{esc(held_item_name)}</span>')
                             active = st.toggle("Use Item", value=flags.get(item_key, True),
                                                key=item_key, persist_state="session",
@@ -2157,34 +2211,111 @@ if (!window.sdSelectboxDismiss) {
     if (event.target.closest?.('[data-testid="stSelectboxVirtualDropdown"]')) return;
     for (const input of document.querySelectorAll('[data-testid="stSelectbox"] input[aria-expanded="true"]')) {
       if (input.closest('[data-testid="stSelectbox"]').contains(event.target)) continue;
-      input.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+      input.blur();
     }
   }, true);
+}
+/* Preview the hovered species (portrait + name) in the Add Pokémon dialog. */
+if (!window.sdSpeciesHover) {
+  window.sdSpeciesHover = true;
+  let saved = null, label = null;
+  const restore = () => {
+    if (saved && saved.box.isConnected) saved.box.innerHTML = saved.html;
+    saved = null;
+    label?.remove();
+    label = null;
+  };
+  document.addEventListener("pointerover", event => {
+    const preview = window.sdSpeciesPreview;
+    const box = document.querySelector('[data-testid="stDialog"] .sd-form-portrait');
+    const option = event.target.closest?.('[data-testid="stSelectboxVirtualDropdown"] [role="option"]');
+    const file = preview && box && option && preview.files[option.textContent.trim()];
+    if (!file) return restore();
+    if (!saved) saved = {box, html: box.innerHTML};
+    const art = Object.assign(document.createElement("img"), {className: "sd-form-portrait-img", src: preview.base + file, alt: ""});
+    box.replaceChildren(art);
+    const input = document.querySelector('[data-testid="stDialog"] [data-testid="stSelectbox"] input');
+    if (!input) return;
+    const rect = input.parentElement.getBoundingClientRect();
+    label ||= Object.assign(document.createElement("div"), {className: "sd-species-hover-label"});
+    label.textContent = option.textContent.trim();
+    Object.assign(label.style, {left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px`});
+    document.body.append(label);
+  }, true);
+  document.addEventListener("pointerdown", event => {
+    if (event.target.closest?.('[data-testid="stSelectboxVirtualDropdown"] [role="option"]')) saved = null;
+    restore();
+  }, true);
+}
+/* Mouse wheel steps a focused number field; the level cap jumps between ROM milestones. */
+if (!window.sdWheelStep) {
+  window.sdWheelStep = true;
+  let enterTimer;
+  document.addEventListener("wheel", event => {
+    const input = event.target;
+    const streamlit = input.closest?.('[data-testid="stNumberInput"]');
+    if (input.tagName !== "INPUT" || input !== document.activeElement || !(streamlit || input.type === "number")) return;
+    event.preventDefault();
+    const up = event.deltaY < 0, current = Number(input.value) || 0;
+    let next;
+    if (input.getAttribute("aria-label") === "Level cap" && window.sdLevelCaps?.length) {
+      const caps = window.sdLevelCaps;
+      next = up ? caps.find(cap => cap > current) : [...caps].reverse().find(cap => cap < current);
+      if (next === undefined) return;
+    } else {
+      next = current + (up ? 1 : -1);
+      if (input.min !== "") next = Math.max(next, Number(input.min));
+      if (input.max !== "") next = Math.min(next, Number(input.max));
+    }
+    if (next === current) return;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, String(next));
+    input.dispatchEvent(new Event("input", {bubbles: true}));
+    if (streamlit) { /* Streamlit commits number inputs on Enter */
+      clearTimeout(enterTimer);
+      enterTimer = setTimeout(() => input.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", code: "Enter", keyCode: 13, bubbles: true})), 800);
+    }
+  }, {passive: false, capture: true});
+}
+/* Select the whole value when a number field is focused. */
+if (!window.sdSelectOnFocus) {
+  window.sdSelectOnFocus = true;
+  document.addEventListener("focusin", event => {
+    if (event.target.closest?.('[data-testid="stNumberInput"]') && event.target.tagName === "INPUT") event.target.select();
+  });
+}
+/* Hover tooltip for any element carrying data-tip, styled like the context menu. */
+if (!window.sdTip) {
+  const tip = window.sdTip = document.createElement("div");
+  tip.className = "sd-context-menu sd-tip";
+  tip.hidden = true;
+  document.body.append(tip);
+  const hide = () => { tip.hidden = true; };
+  document.addEventListener("pointerover", event => {
+    const source = (event.composedPath?.() || [event.target]).find(node => node.dataset?.tip);
+    if (!source) return hide();
+    tip.textContent = source.dataset.tip;
+    tip.hidden = false;
+    const box = source.getBoundingClientRect();
+    tip.style.left = `${Math.max(4, Math.min(box.left, innerWidth - tip.offsetWidth - 4))}px`;
+    const below = box.bottom + 6;
+    tip.style.top = `${below + tip.offsetHeight > innerHeight ? box.top - tip.offsetHeight - 6 : below}px`;
+  }, true);
+  document.addEventListener("pointerdown", hide, true);
+  window.addEventListener("scroll", hide, true);
 }
 </script>"""
 
 
 def render_page(db, data, save_entry, resolve_level, connect, move_box_slot, apply_party_slots,
                 move_party_to_box):
-    active = st.session_state.setdefault("active_tab", "Calc")
     with st.container(key="sd_header"):
-        brand_col, nav_col = st.columns([2, 1], vertical_alignment="center")
-        with brand_col:
-            st.html('<div class="sd-wordmark">Sidedex</div>' + _SELECTBOX_DISMISS_JS,
-                    unsafe_allow_javascript=True)
-        with nav_col:
-            with st.container(horizontal=True, horizontal_alignment="right"):
-                if st.button("Pokedex", key=f"nav_pokedex_{active.lower()}"):
-                    st.session_state["active_tab"] = "Pokedex"
-                    st.rerun()
-                if st.button("Calc", key=f"nav_calc_{active.lower()}"):
-                    st.session_state["active_tab"] = "Calc"
-                    st.rerun()
-    if active == "Calc":
-        render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, apply_party_slots,
-                    move_party_to_box)
-    else:
-        render_pokedex(db, data, save_entry, resolve_level, connect, move_box_slot)
+        caps = sorted({c for c in (_coerce_int(cap.get("level")) for cap in data.get("level_caps") or []
+                                   if isinstance(cap, dict)) if c is not None})
+        st.html('<div class="sd-wordmark">Sidedex</div>'
+                + _SELECTBOX_DISMISS_JS.replace("<script>", f"<script>window.sdLevelCaps={json.dumps(caps)};", 1),
+                unsafe_allow_javascript=True)
+    render_calc(db, data, save_entry, resolve_level, connect, move_box_slot, apply_party_slots,
+                move_party_to_box)
 
 
 if __name__ == "__main__":

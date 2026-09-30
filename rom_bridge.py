@@ -686,7 +686,7 @@ class RomWorkerClient:
         try:
             reply = self._request(
                 "batch_turns",
-                _timeout=min(self._timeout, remaining),
+                _timeout=min(self._timeout, remaining + 2.0),  # grace: let the engine answer its own budget instead of killing the worker
                 **fields,
             )
         except WorkerResponseError as exc:
@@ -729,7 +729,7 @@ class RomWorkerClient:
         if remaining <= 0:
             raise WorkerTimeoutError("rollout deadline has expired")
         reply = self._request(
-            "rollout", _timeout=min(self._timeout, remaining), handle=self._validate_handle(handle), items=items,
+            "rollout", _timeout=min(self._timeout, remaining + 2.0), handle=self._validate_handle(handle), items=items,
             address=address, result_address=result_address, result_capacity=result_capacity,
             mailbox_bytes=mailbox_bytes, budget_ms=max(1, int(remaining * 1000)), max_frames=max_frames,
             request_id=request_id, request_token=request_token, source_sha=SOURCE_SHA,
@@ -796,7 +796,7 @@ class RomWorkerClient:
         }
         if handle is not None:
             fields["handle"] = handle
-        reply = self._request("batch_turns_v3", _timeout=min(self._timeout, remaining), **fields)
+        reply = self._request("batch_turns_v3", _timeout=min(self._timeout, remaining + 2.0), **fields)  # grace: let the engine answer its own budget instead of killing the worker
         expected = {"request_id": request_id, "source_sha": SOURCE_SHA,
                     "engine_elf_sha256": engine_sha, "worker_sha256": self.worker_sha256}
         for key, value in expected.items():

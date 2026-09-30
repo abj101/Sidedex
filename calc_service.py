@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 BUDGET_SECONDS = 2.0
+ROM_BUDGET_SECONDS = 30.0
 DEBOUNCE_SECONDS = 0.35
 CACHE_LIMIT = 32
 MAX_WORKERS = 2
@@ -267,7 +268,7 @@ def _run(key, snapshot, game_data, generation=None):
                 if evaluate is None:
                     raise RuntimeError("compiled-engine turn evaluator is not implemented")
                 result = evaluate(
-                    snapshot, game_data, deadline=started + 10.0,
+                    snapshot, game_data, deadline=started + ROM_BUDGET_SECONDS,
                     cancelled=lambda: _CURRENT["key"] != key,
                     publish=publish,
                 )
@@ -301,7 +302,11 @@ def _run(key, snapshot, game_data, generation=None):
     elapsed_ms = int((time.monotonic() - started) * 1000)
     with _LOCK:
         _PARTIAL.pop(key, None)
-        if _GENERATION["value"] == generation:
+        # A run cancelled by navigation must not cache its timeout cards.
+        timed_out = _CURRENT["key"] != key and any(
+            result.get(kind, {}).get("reason") == "timeout"
+            for kind in ("player_moves", "enemy_moves", "ai_actions", "recommendation"))
+        if _GENERATION["value"] == generation and not timed_out:
             _CACHE[key] = result
             # Engine faults must not outlive a restart; only snapshot-inherent reasons may persist.
             if snapshot.get("schema_version") == 2 and all(

@@ -156,15 +156,17 @@ def _mon(mon, game_data, origin):
             raise ValueError(f"incomplete-state: missing PP for {move_id}")
     status = mon.get("status")
     status1 = "STATUS1_NONE" if status in (None, "none") else status
-    ivs, evs = mon.get("ivs") or {}, mon.get("evs") or {}
+    ivs = mon.get("ivs") or {}
     return {"species": mon["species"], "level": mon["level"],
             "ability": mon["ability"], "item": mon.get("item") or "ITEM_NONE",
             "held_item_enabled": mon.get("held_item_enabled", mon.get("item_enabled", True)),
             "nature": mon["nature"], "hp": mon["hp"], "max_hp": mon["max_hp"],
             "status1": status1, "moves": moves, "pp": pp,
             "stat_stages": _stage_values(mon),
-            "ivs": [ivs.get(stat, 0) for stat in _STATS],
-            "evs": [evs.get(stat, 0) for stat in _STATS]}
+            "ivs": [ivs.get(stat, 31) for stat in _STATS],
+            # Minimal Grinding Mode (Imperium default) drops EVs from CALC_STAT, but the
+            # engine never sets FLAG_MIN_GRINDING_MODE, so zero EVs reproduce MGM stats.
+            "evs": [0] * len(_STATS)}
 
 
 def _request(snapshot, game_data, action, seed, *, second=None, replay_turns=None,
@@ -469,7 +471,7 @@ def _recommend(snapshot, game_data, action, seed, known, deadline, cancelled, em
             card = _card(snap, game_data, snapshot, known)
             if not snap["done"]:
                 emit(card)
-    except TimeoutError:
+    except (TimeoutError, rom_bridge.WorkerTimeoutError):  # a batch overran the deadline: keep the last partial card
         if card is None:
             raise
     return card

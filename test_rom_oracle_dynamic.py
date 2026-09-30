@@ -215,7 +215,7 @@ def test_invalid_state_fails_closed():
 
 def test_unknown_field_and_unsupported_history_fail_closed():
     request = json.loads((ROOT / "tools/rom_oracle/dynamic_sample.json").read_text(encoding="utf-8"))
-    request["field"]["weather"] = "WEATHER_RAIN"
+    request["field"]["terrain"] = "TERRAIN_ELECTRIC"  # battle-start weather is supported; terrain is not
     try:
         RUNNER.encode_request(request, result_buffer=BUF)
     except ValueError as error:

@@ -29,6 +29,18 @@ class PartialResultTest(unittest.TestCase):
             self.assertIs(calc_service._run(key, snapshot, game_data, old_generation), final)
         self.assertIsNone(calc_service.cached(snapshot))
 
+    def test_cancelled_timeout_is_not_cached(self):
+        snapshot = {"schema_version": 2, "source_sha": "source"}
+        game_data = {"source": {"commit": "source"}}
+        key = calc_service.snapshot_key(snapshot)
+        timeout = {"status": "unavailable", "reason": "timeout"}
+        result = {kind: timeout for kind in rom_eval._CARDS}
+        calc_service.invalidate()
+        calc_service._CURRENT["key"] = None  # navigated away mid-run
+        with mock.patch.object(rom_eval, "evaluate", lambda *_a, **_k: result):
+            calc_service._run(key, snapshot, game_data)
+        self.assertIsNone(calc_service.cached(snapshot))
+
     def test_two_result_disk_cache_survives_memory_reset(self):
         with tempfile.TemporaryDirectory() as directory, mock.patch.object(
             calc_service, "_DISK_PATH", Path(directory) / "cache.json"

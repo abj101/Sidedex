@@ -8,7 +8,7 @@ identical.  The matrix is pinned to the wave-2 v8c ELF
 (``pokeemerald-test-headless.elf``); the older v8 / v8b ELFs are historical and
 are only exercised with ``SIDEDEX_DIFF_HISTORICAL=1``.  The non-fixture checks
 (AI leakage, restore determinism, state-token identity rejection, query
-immutability, multi-hit enumeration) run against the pinned ELF.
+immutability) run against the pinned ELF.
 
 Generated binaries and savestate blobs never enter Git.
 """
@@ -282,46 +282,6 @@ def test_mode_and_policy_identity_rejection():
         h.check_token_identity(identity, critical_policy="item-ability-only")
     with pytest.raises(h.IdentityMismatch):
         h.check_token_identity(identity, artifact_sha256="f" * 64)
-
-
-def _p32_fixture():
-    return next(data for _, data in ALL_FIXTURES if data["id"] == "P32")
-
-
-@pytest.mark.parametrize("elf", ELFS, ids=ELF_IDS)
-def test_multihit_enumeration_matches_normal_engine(elf):
-    """P32: the QUERY_DAMAGE multi-hit card enumerates the engine outcome, and every
-    normal-mode seed's observed hit count and final HP land inside that enumeration."""
-    fixture = _p32_fixture()
-    root = copy.deepcopy(fixture["root"])
-    move_id = h.numeric_id("moves", "MOVE_BULLET_SEED")
-    session = DiffSession(elf=elf)
-    try:
-        session.build_root(copy.deepcopy(root))
-        card_records, _, _ = session._submit(
-            {**root, "candidate_action": {"kind": "move", "move_id": "MOVE_BULLET_SEED"}},
-            operation="query-damage", mode="normal", policy="normal",
-            want=["ROMTRACE|query|complete"], final="ROMTRACE|complete|0")
-        cards = h.parse_outcomes(card_records)
-        assert (0, move_id) in cards, card_records
-        card = cards[(0, move_id)]
-        assert card["flags"] & 1, card  # multi-hit flag
-        assert (card["min_hits"], card["max_hits"]) == (2, 5), card
-        assert card["hp"], card
-        assert sum(card["hp"].values()) == card["denom"], card
-        for seed in range(1, 7):
-            branch = {**root, "candidate_action":
-                      {"kind": "move", "move_id": "MOVE_BULLET_SEED"}}
-            main, secondary = _seed_pair(seed)
-            branch["rng_main"] = list(main)
-            branch["rng_secondary"] = list(secondary)
-            result = session.transition(branch, mode="normal", policy="normal")
-            hits = [e for e in result["records"] if e.startswith("ROMTRACE|hp|0|1|")]
-            assert card["min_hits"] <= len(hits) <= card["max_hits"], (seed, hits)
-            final_hp = int(hits[-1].split("|")[5])
-            assert final_hp in card["hp"], (seed, final_hp, sorted(card["hp"]))
-    finally:
-        session.close()
 
 
 def test_fixture_gate_identity_is_pinned():

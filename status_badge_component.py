@@ -14,6 +14,16 @@ STATUS_COLORS = {
     "STATUS1_FROSTBITE": "#45a5bd",
 }
 
+STATUS_TIPS = {
+    "STATUS1_POISON": "Loses 1/8 max HP each turn.",
+    "STATUS1_TOXIC_POISON": "Loses more HP each turn: 1/16 max HP, then 2/16, 3/16, and so on.",
+    "STATUS1_BURN": "Loses 1/16 max HP each turn. Physical damage is halved.",
+    "STATUS1_PARALYSIS": "Speed is halved. 25% chance to be unable to move.",
+    "STATUS1_SLEEP": "Cannot move for 1-3 turns.",
+    "STATUS1_FREEZE": "Cannot move. 20% chance to thaw each turn.",
+    "STATUS1_FROSTBITE": "Loses 1/16 max HP each turn. Special damage is halved.",
+}
+
 _STATUS_BADGE = st.components.v2.component(
     "sidedex_status_badge",
     html="""<div class="sd-status-control">
@@ -53,6 +63,7 @@ export default function ({data, parentElement, setTriggerValue}) {
       option.type = "button";
       option.className = "sd-picker-option sd-status-option";
       option.setAttribute("role", "option");
+      if (choice.tip) option.dataset.tip = choice.tip;
       option.setAttribute("aria-selected", String(choice.value === current.value));
       const text = document.createElement("span");
       text.textContent = choice.label;
@@ -79,6 +90,7 @@ export default function ({data, parentElement, setTriggerValue}) {
     icon.hidden = false;
   } else icon.hidden = true;
   label.textContent = current.icon ? "" : current.label;
+  badge.dataset.tip = current.tip || "";
   badge.setAttribute("aria-label", `Status: ${current.label}. Change status`);
   const toggle = () => {
     const opening = badge.getAttribute("aria-expanded") !== "true";
@@ -141,7 +153,7 @@ def status_badge(*, status, key):
 
     statuses = [
         {"value": value, "label": label, "icon": status_icon(icon_name),
-         "color": STATUS_COLORS[value]}
+         "color": STATUS_COLORS[value], "tip": STATUS_TIPS.get(value, "")}
         for value, label, icon_name in _STATUS_OPTIONS
     ]
     return _STATUS_BADGE(

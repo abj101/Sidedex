@@ -1,6 +1,6 @@
 # Sidedex
 
-Local Emerald Imperium Box and type-coverage planner with Pokedex and Calc tabs.
+Local Emerald Imperium Box and type-coverage planner with a Calc page.
 
 The current local plan for ROM-backed predictions and recommendations is in
 [`CALC_PRODUCTION_PLAN.md`](CALC_PRODUCTION_PLAN.md); the evaluator request and

@@ -89,7 +89,7 @@ class SnapshotTest(unittest.TestCase):
         self.assertEqual(player["pp"], {"MOVE_TACKLE": 30})
         self.assertEqual(player["status"], "STATUS1_BURN")
         self.assertEqual(player["stat_stages"], {"attack": 1})
-        self.assertEqual(player["ivs"], {key: {"hp": 31, "attack": 5}.get(key, 0) for key in STAT_KEYS})
+        self.assertEqual(player["ivs"], {key: {"hp": 31, "attack": 5}.get(key, 31) for key in STAT_KEYS})
         self.assertEqual(player["evs"], {key: {"speed": 4}.get(key, 0) for key in STAT_KEYS})
         self.assertEqual(player["moves"], ["MOVE_TACKLE"])
         self.assertIsNone(player["item"])
@@ -159,7 +159,7 @@ class SnapshotTest(unittest.TestCase):
         self.assertIsNone(blank["enemy"]["party"][1]["hp"])
         self.assertIsNone(blank["enemy"]["party"][1]["status"])
 
-    def test_unknown_hp_stays_none_and_form_stat_defaults_are_zero(self):
+    def test_unknown_hp_stays_none_and_form_stat_defaults_follow_min_grinding_mode(self):
         state = {"player_active_slot": 0, "enemy_active_index": 0}
         snapshot = build_calc_snapshot(DATA, [player_row()], [enemy_member()], state,
                                       trainer_id="TRAINER_TEST", difficulty="Normal")
@@ -167,7 +167,7 @@ class SnapshotTest(unittest.TestCase):
         self.assertIsNone(player["hp"])
         self.assertIsNone(player["max_hp"])
         self.assertEqual(player["pp"], {})
-        self.assertEqual(player["ivs"], dict.fromkeys(STAT_KEYS, 0))
+        self.assertEqual(player["ivs"], dict.fromkeys(STAT_KEYS, 31))
         self.assertEqual(player["evs"], dict.fromkeys(STAT_KEYS, 0))
         self.assertEqual(player["stat_stages"], {})
         self.assertIsNone(player["status"])
@@ -590,7 +590,7 @@ class CardTest(unittest.TestCase):
         markup = calc_result_card("Recommendation", "recommendation", {
             "status": "estimated", "ranking_uncertain": True, "actions": actions})
         self.assertIn("Player action options", markup)
-        self.assertIn('<div class="sd-calc-rec-head"><strong>Player action options</strong>'
+        self.assertIn('<div class="sd-calc-panel-heading sd-calc-rec-head"><span>Player action options</span>'
                       '<small>Win</small><small>Faints</small><small>n</small></div>', markup)
         cell = '<small class="sd-calc-percent">{}</small>'.format
         for cells in (("62%", "0.2", "32"), ("58%", "–", "32"), ("20%", "2.0", "32")):
@@ -605,7 +605,7 @@ class CardTest(unittest.TestCase):
             "status": "estimated", "ranking_uncertain": False, "actions": actions})
         self.assertEqual(resolved.count("sd-calc-recommended"), 1)
         self.assertNotIn("Player action options", resolved)
-        self.assertIn("<strong>Recommendation</strong><small>Win</small>", resolved)
+        self.assertIn("<small>Win</small><small>Faints</small>", resolved)
         certain = calc_result_card("Recommendation", "recommendation", {"status": "estimated", "actions": [
             {"id": "MOVE_TACKLE", "label": "Tackle", "p_win": 1.0, "half_width": 0.0, "samples": 8}]})
         self.assertIn(cell("100%") + cell("–") + cell("8"), certain)
@@ -701,6 +701,9 @@ class CardTest(unittest.TestCase):
         self.assertNotIn("33%", card)
 
 
+ZERO_IVS = dict.fromkeys(STAT_KEYS, 0)
+
+
 class PresentationTest(unittest.TestCase):
     def test_percentages_come_from_the_exact_fraction(self):
         self.assertEqual(percent_text({"num": 1, "den": 3}), "33%")
@@ -711,26 +714,26 @@ class PresentationTest(unittest.TestCase):
 
     def test_status_adjusts_stats_and_uses_status_ability_overrides(self):
         base_stats = {key: 100 for key in STAT_KEYS}
-        burned = stat_bars_markup(base_stats, 50, "NATURE_SERIOUS", status="STATUS1_BURN")
+        burned = stat_bars_markup(base_stats, 50, "NATURE_SERIOUS", ZERO_IVS, status="STATUS1_BURN")
         self.assertIn('style="--status-color:#e66d39"', burned)
         self.assertIn('<div><i style="width:35%;background:#67b985"></i></div><b><span>52</span><small class="sd-stat-delta">-53</small>', burned)
         self.assertNotIn('sd-status-arrow', burned)
         self.assertIn("105", burned)  # Unaffected rows keep their ordinary stat value.
-        ordinary = stat_bars_markup(base_stats, 50, "NATURE_SERIOUS")
+        ordinary = stat_bars_markup(base_stats, 50, "NATURE_SERIOUS", ZERO_IVS)
         self.assertEqual(ordinary.split('class="sd-stat sd-stat-total"')[1].split('</div>')[0],
                          burned.split('class="sd-stat sd-stat-total"')[1].split('</div>')[0])
 
-        guts = stat_bars_markup(base_stats, 50, "NATURE_SERIOUS", status="STATUS1_BURN",
+        guts = stat_bars_markup(base_stats, 50, "NATURE_SERIOUS", ZERO_IVS, status="STATUS1_BURN",
                                 ability="ABILITY_GUTS")
         self.assertIn('157</span><small class="sd-stat-delta">+52', guts)
 
-        paralyzed = stat_bars_markup(base_stats, 50, "NATURE_SERIOUS", status="STATUS1_PARALYSIS")
+        paralyzed = stat_bars_markup(base_stats, 50, "NATURE_SERIOUS", ZERO_IVS, status="STATUS1_PARALYSIS")
         self.assertIn('52</span><small class="sd-stat-delta">-53', paralyzed)
-        quick_feet = stat_bars_markup(base_stats, 50, "NATURE_SERIOUS", status="STATUS1_PARALYSIS",
+        quick_feet = stat_bars_markup(base_stats, 50, "NATURE_SERIOUS", ZERO_IVS, status="STATUS1_PARALYSIS",
                                      ability="ABILITY_QUICK_FEET")
         self.assertIn('210</span><small class="sd-stat-delta">+105', quick_feet)
 
-        frostbitten = stat_bars_markup(base_stats, 50, "NATURE_SERIOUS", status="STATUS1_FROSTBITE")
+        frostbitten = stat_bars_markup(base_stats, 50, "NATURE_SERIOUS", ZERO_IVS, status="STATUS1_FROSTBITE")
         self.assertIn('52</span><small class="sd-stat-delta">-53', frostbitten)
         widths = lambda markup: re.findall(r'<i style="width:(\d+)%', markup)
         for markup in (burned, guts, paralyzed, quick_feet, frostbitten):

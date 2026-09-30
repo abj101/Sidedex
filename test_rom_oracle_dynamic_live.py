@@ -160,7 +160,8 @@ def test_live_ability_and_active_stage_effects_change_damage():
     )["max"]
     stages = [line.split("|") for line in attack_up
               if line.startswith("ROMTRACE|query|active|")]
-    assert [int(value) for value in stages[0][8:15]] == [8, 6, 6, 6, 6, 6, 6]
+    # +2 Attack, then the opposing Gyarados's switch-in Intimidate takes one stage.
+    assert [int(value) for value in stages[0][8:15]] == [7, 6, 6, 6, 6, 6, 6]
 
 
 def test_live_crit_policy_omits_ordinary_crits_and_keeps_item_or_ability_changes():
@@ -271,17 +272,18 @@ def test_live_v8_unsupported_mechanic_fails_closed():
     if target is None:
         pytest.skip("staged v8 test ELF is not installed")
     elf, sha, version = target
-    request = _v8_request(["MOVE_TRIPLE_KICK", "MOVE_TACKLE", "MOVE_NONE", "MOVE_NONE"],
-                          [10, 35, 0, 0])
+    # Counter's damage depends on the hit taken this turn, so the query cannot price it.
+    request = _v8_request(["MOVE_COUNTER", "MOVE_TACKLE", "MOVE_NONE", "MOVE_NONE"],
+                          [20, 35, 0, 0])
     request["query"] = True
     trace = run_dynamic.run_turn(elf, sha, request, protocol_version=version)
     cards = rom_query.parse_damage(trace, rom_query.snapshot_from_request(request), DATA)
     row = cards["player_moves"]["moves"][0]
-    assert row["move_id"] == "MOVE_TRIPLE_KICK"
+    assert row["move_id"] == "MOVE_COUNTER"
     assert row["status"] == "unavailable"
     assert row["reason"] == "unsupported-mechanic"
     assert row["detail"]
-    assert cards["unsupported"][0]["move_id"] == "MOVE_TRIPLE_KICK"
+    assert cards["unsupported"][0]["move_id"] == "MOVE_COUNTER"
 
 
 def test_live_v8_item_query_is_labeled_and_leaves_the_token_unchanged():

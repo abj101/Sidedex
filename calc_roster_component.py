@@ -172,10 +172,10 @@ export default function (component) {
       const detail = document.createElement("span");
       detail.className = "sd-calc-slot-detail";
       text(detail, "span", "sd-calc-slot-level", slotData.level == null ? "Lv ?" : `Lv ${slotData.level}`);
-      text(detail, "span", "sd-calc-slot-ability", slotData.ability || "Unknown");
-      text(detail, "span", "sd-calc-slot-nature", slotData.nature || "Unknown");
+      text(detail, "span", "sd-calc-slot-ability", slotData.ability || "Unknown").dataset.tip = slotData.ability_tip || "";
+      text(detail, "span", "sd-calc-slot-nature", slotData.nature || "Unknown").dataset.tip = slotData.nature_tip || "";
       const heldItem = icon(detail, slotData.item_icon_url, slotData.item_label, "sd-calc-slot-item");
-      if (heldItem) heldItem.title = slotData.item_label;
+      if (heldItem) heldItem.dataset.tip = slotData.item_tip || slotData.item_label;
       info.append(title, detail);
       trigger.append(info);
     } else {

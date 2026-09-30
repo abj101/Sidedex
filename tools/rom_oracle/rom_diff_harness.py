@@ -544,35 +544,6 @@ def event_list(records):
     return [r for r in records if any(r.startswith(m) for m in EVENT_MARKERS)]
 
 
-def parse_outcomes(records):
-    """Parse ROMTRACE|query|outcomes cards into a per-(owner,move) dict.
-
-    Card spelling (contract Appendix A / README):
-      ROMTRACE|query|outcomes|<owner>|<move>|<flags>|<chunk>|<chunks>|<denom>
-             |<branches>|<hitsMode>|<minHits>|<maxHits>|<accuracy>
-             |<hp>|<weight>|...            (<= 8 pairs per record)
-    Returns {(owner, move): {"flags", "denom", "branches", "hits_mode", "min_hits",
-    "max_hits", "accuracy", "hp": {finalHp: weight}}}
-    """
-    cards = {}
-    for record in records:
-        if not record.startswith("ROMTRACE|query|outcomes|"):
-            continue
-        f = record.split("|")
-        owner, move = int(f[3]), int(f[4])
-        card = cards.setdefault((owner, move), {
-            "flags": int(f[5]), "denom": int(f[8]), "branches": int(f[9]),
-            "hits_mode": int(f[10]), "min_hits": int(f[11]), "max_hits": int(f[12]),
-            "accuracy": int(f[13]), "hp": {}})
-        for i in range(14, len(f) - 1, 2):
-            if not f[i]:
-                continue
-            hp, weight = int(f[i]), int(f[i + 1])
-            if weight:
-                card["hp"][hp] = card["hp"].get(hp, 0) + weight
-    return cards
-
-
 def projection(records):
     """Decoded projection + RNG records; requestId is excluded by name."""
     out = []

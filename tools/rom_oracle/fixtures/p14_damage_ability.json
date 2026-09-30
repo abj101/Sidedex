@@ -209,16 +209,16 @@
       "expect": {
         "stop": "boundary",
         "boundary_kind": "player-choice",
-        "target_damage_min": 18
+        "target_damage_min": 12
       }
     }
   ],
   "evidence": {
     "observed": {
-      "target_damage": 22,
-      "control_thick_fat_damage": 12,
+      "target_damage": 15,
+      "control_thick_fat_damage": 8,
       "seed": 2
     },
-    "note": ""
+    "note": "Re-measured on engine 174b474209: the foe's switch-in Intimidate now applies (-1 Atk)."
   }
 }

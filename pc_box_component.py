@@ -95,10 +95,11 @@ function renderDetail(target, row, compact) {
   info.className = "sd-pc-info";
   addText(info, "strong", "", row.name || "Unknown Pokémon");
   addText(info, "span", "", `Lv ${row.level || "?"}`);
-  addText(info, "small", "", `Ability: ${row.ability || "Unknown"}`);
-  addText(info, "small", "", `Nature: ${row.nature || "Unknown"}`);
+  addText(info, "small", "", `Ability: ${row.ability || "Unknown"}`).dataset.tip = row.ability_tip || "";
+  addText(info, "small", "", `Nature: ${row.nature || "Unknown"}`).dataset.tip = row.nature_tip || "";
   const item = document.createElement("small");
   item.className = "sd-pc-item";
+  item.dataset.tip = row.item_tip || "";
   item.append(document.createTextNode("Item: "));
   if (row.item_icon_url) {
     const itemIcon = document.createElement("img");
@@ -331,6 +332,8 @@ def pc_box(rows, selected_id=None, hovered_id=None, *, box_no=1, key="pc-box", c
             "nature": row.get("nature"),
             "item": row.get("item"),
             "item_icon_url": row.get("item_icon_url"),
+            "item_tip": row.get("item_tip"), "nature_tip": row.get("nature_tip"),
+            "ability_tip": row.get("ability_tip"),
             "mini_url": row.get("mini_url"),
             "portrait_url": row.get("portrait_url"),
         })

@@ -39,6 +39,15 @@ def species_icon(species_id):
     return None
 
 
+@lru_cache(maxsize=4096)
+def species_art_file(species_id):
+    """File name under assets/pokemon that species_portrait would use, or None."""
+    slug = _slug(species_id, "species_")
+    parts = slug.split("_")
+    names = [f"{slug}_portrait", *("_".join(parts[:end]) for end in range(len(parts), 0, -1))]
+    return next((f"{name}.png" for name in names if slug and (ASSET_ROOT / "pokemon" / f"{name}.png").is_file()), None)
+
+
 def species_portrait(species_id):
     """Return the exact portrait, or the best species icon without borrowing base art."""
     slug = _slug(species_id, "species_")

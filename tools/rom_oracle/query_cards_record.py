@@ -1,9 +1,9 @@
-"""Record the query-card outputs (damage, KO, AI action) for every green fixture row.
+"""Record the query-card outputs (damage, AI action) for every green fixture row.
 
 `python tools/rom_oracle/query_cards_record.py [elf [protocol]] > out.json` runs `run_dynamic.run_turn` on
 the root of each row for both query operations and hashes the ROMTRACE query trace and the
-parsed cards. The v9 hook adds `state|clegal` records; the trace hash ignores those. The committed `query_cards_expected.json` was recorded on the v8c ELF, so
-`test_rom_query_cards_live.py` proves the v9 migration left every card unchanged.
+parsed cards. The v9 hook adds `state|clegal` records; the trace hash ignores those. The committed `query_cards_expected.json` was recorded on the pinned v9 ELF
+(engine 174b474209); `test_rom_query_cards_live.py` checks mGBA and native against it.
 """
 import hashlib
 import json

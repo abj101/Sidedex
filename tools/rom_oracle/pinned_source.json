@@ -18,10 +18,10 @@
   "raw_trace_sha256": "e4051f1eb74a2dc61089c0bf15cf98a5472ad3b985a19f178235dfb98ae38034",
   "dynamic_oracle": {
     "protocol_version": 9,
-    "wsl_branch": "sidedex/native",
-    "wsl_commit": "8be1722bbd",
+    "wsl_branch": "sidedex/native-port",
+    "wsl_commit": "174b474209",
     "patch": "tools/rom_oracle/dynamic_request.patch",
-    "headless_elf_sha256": "2186323f7fb9f6279e6868f96dc76942ec8ecb1e425538052651daac20ca5cb7",
+    "headless_elf_sha256": "8c68945ba58cb41a5e65118f7089489f1c725abff4d57d3b42143d7136a512a2",
     "release_neutral_sha256": "0CCAAAD0878A9CBFB36FBEFFF800E9B6DD66055924B7595038EDE1E8771EC5A2",
     "recipe": [
       "apply dynamic_request.patch to the pinned source (git diff 2576d0f3f4 of WSL sidedex/native; it already contains the trace hooks)",

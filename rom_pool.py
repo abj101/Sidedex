@@ -265,6 +265,7 @@ class EnginePool:
             self._condition.notify()
         if discard:
             worker[0].close()
+            self.prewarm()
 
     # ---------------------------------------------------------------- jobs
     def run_jobs(

@@ -222,25 +222,26 @@
 }
 .st-key-sd_header .stButton button:hover,
 .st-key-sd_header .stButton button:focus-visible { color:#f7d85b !important; background:transparent !important; border-color:transparent !important; }
-.st-key-nav_pokedex_pokedex .stButton button,
 .st-key-nav_calc_calc .stButton button { color:#f7d85b !important; background:transparent !important; font-weight:900; text-decoration:underline; text-underline-offset:5px; }
 
 .st-key-calc_screen { min-width:0; color:#17303a; }
 .st-key-calc_screen [data-testid="stVerticalBlock"] { min-width:0; }
 .st-key-calc_results [data-testid="stHorizontalBlock"] {
-  display:flex; flex-direction:row; align-items:flex-start; gap:14px;
+  display:flex; flex-direction:row; align-items:stretch; gap:14px; height:100%;
 }
+.st-key-calc_results { margin-top:0; flex:1; min-height:0; }
+.st-key-calc_grid [data-testid="column"] > [data-testid="stVerticalBlock"] { height:100%; }
 .st-key-calc_results .sd-calc-result-card {
-  box-sizing:border-box; display:flex; flex-direction:column; flex:none; width:100%; height:180px; min-height:180px; max-height:180px; overflow:hidden;
+  box-sizing:border-box; display:flex; flex-direction:column; flex:none; width:100%; height:auto; overflow:hidden;
 }
 .st-key-calc_player_panel,
 .st-key-calc_enemy_panel,
 .sd-calc-result-card {
-  box-sizing:border-box; min-width:0; height:100%; padding:13px;
+  box-sizing:border-box; min-width:0; padding:13px;
   color:#17303a; background:#e9eedb; border:3px solid #a7d6c5;
   box-shadow:inset 0 0 0 2px #fff,0 4px 0 #071d24;
 }
-.sd-calc-result-card { min-height:0; }
+.sd-calc-result-card { min-height:0; height:100%; }
 .st-key-calc_player_panel .sd-calc-result-card,
 .st-key-calc_enemy_panel .sd-calc-result-card { min-height:0; margin-top:8px; }
 .st-key-calc_player_panel { position:relative; }
@@ -291,7 +292,7 @@
 .sd-calc-dragging { position:fixed; width:34px; height:34px; object-fit:contain; image-rendering:pixelated; pointer-events:none; z-index:9999; }
 .sd-calc-slot-info { display:block; min-width:0; overflow:hidden; }
 .sd-calc-slot-title { display:flex; align-items:center; gap:4px; min-width:0; }
-.sd-calc-slot-name { flex:1 1 auto; min-width:0; overflow:hidden; color:#17303a; font:800 10px/1.2 monospace; text-overflow:ellipsis; white-space:nowrap; }
+.sd-calc-slot-name { flex:0 1 auto; min-width:0; overflow:hidden; color:#17303a; font:800 10px/1.2 monospace; text-overflow:ellipsis; white-space:nowrap; }
 .sd-calc-slot-detail { display:flex; align-items:center; flex-wrap:wrap; gap:2px 6px; margin-top:4px; color:#49616a; font:700 9px/1.2 monospace; }
 .sd-calc-slot-types { display:inline-flex; flex:none; align-items:center; gap:2px; }
 .sd-calc-slot-item { display:block; width:14px; height:14px; object-fit:contain; image-rendering:pixelated; }
@@ -333,35 +334,26 @@
 .sd-calc-focused-title .sd-calc-meta-types { gap:3px; }
 .sd-calc-focused-title .sd-calc-meta-types .sd-type { padding:2px 4px; font-size:9px; }
 .sd-calc-focused-title small { flex:none; margin-left:auto; color:#49616a; font:700 10px/1.2 monospace; }
-.sd-calc-result-card > strong { display:block; margin-bottom:8px; color:#17303a; font:800 12px/1.3 monospace; }
-.sd-calc-card-body { flex:1 1 auto; min-height:0; overflow-y:auto; scrollbar-gutter:stable; }
+.sd-calc-card-body { flex:none; height:283px; min-height:0; overflow-y:auto; scrollbar-width:none; }
 .sd-calc-card-body > p { margin:0; }
 .sd-calc-result-card ol { display:flex; flex-direction:column; gap:5px; margin:0; padding:0; list-style:none; }
 .sd-calc-result-card li { display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:3px 10px; min-width:0; padding:5px 7px; background:#d9e3d5; border-left:3px solid #9bb0a4; font:700 10px/1.3 monospace; }
 .sd-calc-result-card li > span { min-width:0; overflow-wrap:anywhere; color:#17303a; }
 .sd-calc-result-card li > small { flex:none; color:#526b68; font:700 9px/1.3 monospace; }
 .st-key-calc_results .sd-calc-prob-row,
-.st-key-calc_results .sd-calc-unknown { box-sizing:border-box; min-height:26px; }
-.sd-calc-recommendation-card .sd-calc-prob-row,
-.sd-calc-rec-head {
-  box-sizing:border-box; display:grid; grid-template-columns:minmax(0,1fr) 30px 36px 28px;
-  align-items:center; column-gap:6px; min-height:26px;
+.st-key-calc_results .sd-calc-unknown { box-sizing:border-box; min-height:67px; max-height:67px; font-size:13px !important; }
+.sd-calc-recommendation-card .sd-calc-prob-row {
+  box-sizing:border-box; display:grid; grid-template-columns:minmax(0,1fr) repeat(3,40px);
+  align-items:center; column-gap:0; min-height:67px; max-height:67px;
 }
 .sd-calc-recommendation-card .sd-calc-prob-name {
   grid-column:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
 .sd-calc-recommendation-card .sd-calc-prob-name:only-child { grid-column:1/-1; }
 .sd-calc-recommendation-card .sd-calc-percent { white-space:nowrap; text-align:right; }
-/* the header reserves the same scrollbar gutter as the card body so its labels line up with the row cells */
-.sd-calc-rec-head {
-  flex:none; align-items:end; min-height:0; margin-bottom:8px; padding-right:7px;
-  overflow:hidden; scrollbar-gutter:stable;
-}
-.sd-calc-rec-head > strong { min-width:0; overflow-wrap:anywhere; color:#17303a; font:800 12px/1.3 monospace; }
-.sd-calc-rec-head > small { color:#526b68; font:700 9px/1.3 monospace; text-align:right; white-space:nowrap; }
 .sd-calc-ai-actions-card .sd-calc-prob-row {
   box-sizing:border-box; display:grid; grid-template-columns:minmax(0,1fr) auto;
-  align-items:center; min-height:26px;
+  align-items:center; min-height:67px; max-height:67px;
 }
 .sd-calc-result-card > p { margin:0; color:#526b68; font:700 10px/1.4 monospace; }
 .sd-calc-card-loading { display:flex; flex:1 1 auto; align-items:center; justify-content:center; min-height:36px; }
@@ -370,6 +362,9 @@
   border:3px solid #a7c2b4; border-top-color:#2e7264; border-radius:50%;
   animation:sd-calc-spin .8s linear infinite;
 }
+.sd-calc-title-row { display:flex; align-items:center; gap:6px; min-width:0; }
+.sd-calc-title-row > strong { min-width:0; overflow-wrap:anywhere; color:#17303a; font:800 12px/1.3 monospace; }
+.sd-calc-title-row > .sd-calc-spinner { width:12px; height:12px; border-width:2px; }
 @keyframes sd-calc-spin { to { transform:rotate(360deg); } }
 .sd-calc-row-pending,.sd-calc-move-pending { grid-template-columns:minmax(0,1fr) minmax(0,max-content) auto 16px !important; }
 .sd-calc-move-row > .sd-calc-spinner { grid-column:4; grid-row:1; align-self:center; width:14px; height:14px; border-width:2px; }
@@ -404,7 +399,7 @@
 :is(.st-key-calc_player_item_row,.st-key-calc_enemy_item_row) [data-testid="stCheckbox"] label > div:first-of-type > div { width:9px; height:9px; margin:1px; border-radius:0; background:#fff5d8; box-shadow:none; }
 :is(.st-key-calc_player_item_row,.st-key-calc_enemy_item_row) [data-testid="stCheckbox"][data-selected="true"] label > div:first-of-type > div { transform:translateX(10px); }
 :is(.st-key-calc_player_item_row,.st-key-calc_enemy_item_row) [data-testid="stCheckbox"] button[aria-label^="Help"] { display:none; }
-:is(.st-key-calc_player_item_row,.st-key-calc_enemy_item_row) [data-testid="stCheckbox"] label { gap:6px; white-space:nowrap; }
+:is(.st-key-calc_player_item_row,.st-key-calc_enemy_item_row) [data-testid="stCheckbox"] label { gap:6px; white-space:nowrap; position:relative; top:-1.3px; }
 .sd-calc-enemy-profile h4 { margin:12px 0 7px; padding-bottom:4px; border-bottom:1px solid #c5d6c5; color:#244855; font:800 11px monospace; text-transform:uppercase; }
 .sd-calc-enemy-move { cursor:default !important; }
 .sd-calc-enemy-move:hover { background:#e9eedb !important; }
@@ -424,42 +419,43 @@
 .sd-calc-panel-heading { margin-bottom:4px; }
 .st-key-calc_grid { min-width:0; }
 .st-key-calc_grid > [data-testid="stHorizontalBlock"] {
-  display:grid; grid-template-columns:minmax(117px,.67fr) minmax(300px,2fr) minmax(300px,2fr) minmax(117px,.67fr); align-items:stretch; gap:12px;
+  display:grid; grid-template-columns:minmax(96px,.5fr) minmax(600px,4fr) minmax(96px,.5fr); align-items:stretch; gap:12px;
 }
 .st-key-calc_grid > [data-testid="stHorizontalBlock"] > [data-testid="column"] { width:auto !important; min-width:0; }
 .st-key-calc_grid [data-testid="column"]:is(:has(.sd-status-menu.is-open),:focus-within) { position:relative; z-index:100; }
-.st-key-calc_grid [data-testid="stLayoutWrapper"]:has(> :is(.st-key-calc_player_panel,.st-key-calc_enemy_panel,.st-key-calc_trainer_settings,.st-key-pc-box-card)) { flex:1; min-height:0; }
-.st-key-calc_trainer_settings {
-  box-sizing:border-box; width:100%; height:100%; min-width:0; padding:10px 12px 15px;
+.st-key-calc_grid [data-testid="stLayoutWrapper"]:has(> :is(.st-key-calc_player_panel,.st-key-calc_enemy_panel,.st-key-calc_trainer_settings,.st-key-calc_trainer_picker,.st-key-pc-box-card,.st-key-calc_results)) { flex:1; min-height:0; }
+.st-key-calc_results :is([data-testid="stColumn"],[data-testid="stVerticalBlock"],[data-testid="stElementContainer"],[data-testid="stHtml"]) { height:100%; }
+.st-key-calc_trainer_settings,.st-key-calc_trainer_picker {
+  box-sizing:border-box; width:100%; height:100%; min-width:0; padding:8px 12px 10px; justify-content:space-evenly; gap:4px !important;
   color:#17303a; background:#e9eedb; border:3px solid #a7d6c5;
   box-shadow:inset 0 0 0 2px #fff,0 4px 0 #071d24;
 }
 [data-testid="stSelectbox"] label,[data-testid="stMultiSelect"] label,
-.st-key-calc_trainer_settings [data-testid="stNumberInput"] label { color:#17303a !important; }
+:is(.st-key-calc_trainer_settings,.st-key-calc_trainer_picker) [data-testid="stNumberInput"] label { color:#17303a !important; }
 [data-testid="stSelectbox"] .react-aria-ComboBox > div:has(> input),
-.st-key-calc_trainer_settings [data-testid="stNumberInputContainer"] {
+:is(.st-key-calc_trainer_settings,.st-key-calc_trainer_picker) [data-testid="stNumberInputContainer"] {
   min-height:23px; color:#17303a !important; background:#e9eedb !important;
   border:1px solid #9bb0a4 !important; border-radius:0;
   box-shadow:none !important; font:700 11px/1.2 monospace;
 }
-.st-key-calc_trainer_settings :is([data-testid="stSelectbox"] .react-aria-ComboBox > div:has(> input),[data-testid="stNumberInputContainer"]) {
+:is(.st-key-calc_trainer_settings,.st-key-calc_trainer_picker) :is([data-testid="stSelectbox"] .react-aria-ComboBox > div:has(> input),[data-testid="stNumberInputContainer"]) {
   box-sizing:border-box; height:30px; min-height:30px;
 }
 [data-testid="stSelectbox"] .react-aria-ComboBox > div:has(> input):is(:hover,:focus-within),
 [data-testid="stMultiSelect"] .react-aria-ComboBox > div:has(> input):is(:hover,:focus-within),
-.st-key-calc_trainer_settings [data-testid="stNumberInputContainer"]:is(:hover,:focus-within) {
+:is(.st-key-calc_trainer_settings,.st-key-calc_trainer_picker) [data-testid="stNumberInputContainer"]:is(:hover,:focus-within) {
   color:#17303a !important; background:#e9eedb !important;
   border-color:#9bb0a4 !important; outline:1px solid #17303a; outline-offset:1px;
 }
 [data-testid="stSelectbox"] input[role="combobox"],[data-testid="stMultiSelect"] input[role="combobox"],
-.st-key-calc_trainer_settings :is([data-testid="stNumberInputField"],button[aria-label="Open"],[data-testid^="stNumberInputStep"]) {
+:is(.st-key-calc_trainer_settings,.st-key-calc_trainer_picker) :is([data-testid="stNumberInputField"],button[aria-label="Open"],[data-testid^="stNumberInputStep"]) {
   color:#17303a !important; font:800 10px monospace;
 }
 [data-testid="stSelectbox"] input[role="combobox"],[data-testid="stMultiSelect"] input[role="combobox"] {
   background:transparent !important; border:0 !important;
 }
-.st-key-calc_trainer_settings [data-testid="stSelectbox"] input[role="combobox"],
-.st-key-calc_trainer_settings [data-testid="stSelectbox"] button[aria-label="Open"] {
+:is(.st-key-calc_trainer_settings,.st-key-calc_trainer_picker) [data-testid="stSelectbox"] input[role="combobox"],
+:is(.st-key-calc_trainer_settings,.st-key-calc_trainer_picker) [data-testid="stSelectbox"] button[aria-label="Open"] {
   box-sizing:border-box; height:28px; min-height:0; padding-block:0;
 }
 [data-testid="stSelectboxVirtualDropdown"] {
@@ -475,8 +471,8 @@
 [data-testid="stSelectboxVirtualDropdown"] [role="option"]:is(:hover,[data-hovered],[data-focused],[data-focus-visible],[aria-selected="true"]) {
   background:#d8e5dc !important; outline:none;
 }
-.st-key-calc_trainer_settings [data-testid^="stNumberInputStep"] { display:none; }
-.st-key-calc_player_trainer_panel .st-key-calc-config-picker { position:absolute; z-index:40; top:7px; right:7px; width:auto; }
+:is(.st-key-calc_trainer_settings,.st-key-calc_trainer_picker) [data-testid^="stNumberInputStep"] { display:none; }
+.st-key-calc_player_trainer_panel .st-key-calc-config-picker { position:absolute; z-index:40; top:0; bottom:0; right:7px; width:auto; height:auto !important;  display:flex; align-items:center; }
 .sd-config-picker { position:relative; font-family:monospace; }
 .sd-config-trigger {
   display:grid; place-items:center; width:32px; height:32px; padding:4px;
@@ -506,6 +502,8 @@
   box-shadow:inset 0 0 0 2px #fff,0 4px 0 #071d24;
 }
 .st-key-calc_screen .st-key-pc-box-card [class*="st-key-pc-box-calc"] { flex:1 1 auto; min-height:0; }
+.st-key-calc_screen .st-key-pc-box-card [class*="st-key-pc-box-calc"] :is(.stBidiComponent,.stBidiComponent > div,.stBidiComponent > div > div,.stBidiComponent > div > div > div,.stBidiComponent > div > div > div > div) { display:flex; flex-direction:column; flex:1 1 auto; min-height:0; }
+.st-key-calc_screen .st-key-pc-box-card [class*="st-key-pc-box-calc"] { display:flex; flex-direction:column; }
 .st-key-calc_screen .st-key-pc-box-card [class*="st-key-add_box"] { position:static; width:100% !important; flex:none; margin:0; }
 .st-key-calc_screen .st-key-pc-box-card [class*="st-key-add_box"] button {
   display:flex; align-items:center; justify-content:center; width:100%; height:34px; min-height:34px;
@@ -536,7 +534,7 @@
 .sd-pc-compact .sd-pc-info span,.sd-pc-compact .sd-pc-info small { font:700 9px/1.2 monospace; overflow-wrap:anywhere; }
 .sd-pc-compact .sd-pc-item-icon { width:12px; height:12px; }
 .sd-pc-compact .sd-pc-empty { position:static; display:grid; place-items:center; width:100%; color:#526b68; font:700 10px monospace; }
-.sd-pc-compact .sd-pc-right { position:static; display:flex; flex-direction:column; gap:4px; background:none; }
+.sd-pc-compact .sd-pc-right { position:static; display:flex; flex:1; min-height:0; flex-direction:column; gap:4px; background:none; }
 .sd-pc-compact .sd-pc-title {
   position:static; width:100%; height:32px; gap:4px; color:#17303a; text-shadow:none;
   background:transparent; border:0; font:900 12px monospace;
@@ -549,8 +547,8 @@
 .sd-pc-compact .sd-pc-arrow img { width:12px; height:24px; }
 .sd-pc-compact .sd-pc-grid {
   position:static; display:grid; grid-template-columns:repeat(6,minmax(0,1fr));
-  grid-template-rows:repeat(5,minmax(0,1fr)); width:100%; height:auto; min-height:0;
-  aspect-ratio:1/1; padding:2px; box-sizing:border-box;
+  grid-template-rows:repeat(5,minmax(0,1fr)); width:100%; flex:1; min-height:0;
+  padding:2px; box-sizing:border-box;
   background:var(--pc-wallpaper) center bottom/111.11% 120% no-repeat; border:1px solid #598d83;
 }
 .sd-pc-compact .sd-pc-tile { width:100%; height:100%; min-width:0; min-height:0; }
@@ -559,7 +557,7 @@
 .sd-pc-dragging-compact { width:32px; height:32px; }
 .st-key-calc_screen .sd-profile-body { grid-template-columns:1fr; gap:10px; }
 .st-key-calc_screen .sd-profile-moves { padding-top:10px; border-top:1px solid #c5d6c5; }
-.st-key-calc_screen .sd-moves { grid-template-columns:1fr; }
+.st-key-calc_screen .sd-moves { grid-template-columns:repeat(2,minmax(0,1fr)); }
 
 @media (max-width:900px) {
   .st-key-calc_grid > [data-testid="stHorizontalBlock"] { grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -735,9 +733,55 @@ dialog [data-testid="stMarkdownContainer"] p, dialog strong { color:#17303a; }
 [data-testid="stDialog"] { display:flex !important; align-items:center !important; justify-content:center !important; }
 [data-testid="stDialog"] > div { margin:auto !important; top:auto !important; transform:none !important; background:transparent !important; box-shadow:none !important; }
 [data-testid="stDialog"] [role="dialog"] { width:100% !important; max-width:none !important; box-sizing:border-box; }
+[data-testid="stDialog"] > div { overflow:visible !important; }
 [data-testid="stDialog"] .sd-profile-moves { margin:6px 0 0; padding:0; border:0; }
 [data-testid="stDialog"] .sd-profile-moves > strong { display:none; }
 [data-testid="stDialog"] [data-testid="stSelectbox"] :is(button,[data-testid*="Clear"],[aria-label*="lear"]) { display:none !important; }
+.sd-species-hover-label { position:fixed; z-index:100001; box-sizing:border-box; display:flex; align-items:center; padding:0 12px; color:#17303a; background:#f5f3e7; font:700 11px monospace; pointer-events:none; }
+[data-testid="stDialog"] [data-stale="true"] { opacity:1 !important; transition:none !important; }
+.sd-tip { max-width:260px; padding:6px 8px; color:#17303a; font:700 11px/1.35 monospace; pointer-events:none; }
 .sd-context-menu { position:fixed; z-index:100000; box-sizing:border-box; min-width:110px; padding:4px; background:#e9eedb; border:1px solid #9bb0a4; box-shadow:0 3px 0 #071d24; }
-.st-key-calc_results .sd-calc-ko-card { height:auto; max-height:none; overflow:visible; }
-.st-key-calc_results .sd-calc-ko-card .sd-calc-card-body { overflow:visible; }
+.st-key-calc_results .sd-calc-ko-card { height:auto; }
+
+[data-testid="stMainBlockContainer"]:has(.st-key-calc_screen) { padding-bottom:16px !important; }
+
+/* Hide the text caret everywhere except editable fields; selection still works. */
+* { caret-color: transparent; }
+input, textarea, [contenteditable="true"] { caret-color: auto; }
+
+.st-key-calc_grid [data-testid="stLayoutWrapper"]:has(> :is(.st-key-calc_trainer_settings,.st-key-calc_trainer_picker)) { flex:1 1 auto; min-height:min-content; }
+.st-key-calc_grid [data-testid="stLayoutWrapper"]:has(> .st-key-calc_trainer_settings) { flex-grow:1; }
+.st-key-calc_grid [data-testid="stLayoutWrapper"]:has(> .st-key-calc_trainer_picker) { flex-grow:1; }
+
+/* result-box headers: same look as the focus panels' heading, one fixed height so all four align */
+.sd-calc-result-card > .sd-calc-panel-heading {
+  box-sizing:border-box; flex:none; height:44px !important; min-height:44px !important; max-height:44px !important; margin:0 0 8px; padding-bottom:6px;
+  align-items:center; overflow:hidden; font-size:14px; line-height:1.2;
+}
+.sd-calc-panel-heading > .sd-calc-spinner { width:12px; height:12px; border-width:2px; }
+
+.sd-calc-result-card > .sd-calc-panel-heading.sd-calc-rec-head {
+  display:grid; grid-template-columns:minmax(0,1fr) repeat(3,40px); column-gap:0;
+  padding-right:7px; text-transform:none; letter-spacing:0;
+}
+.sd-calc-rec-head > span { min-width:0; text-transform:uppercase; letter-spacing:.06em; }
+.sd-calc-rec-head > small { align-self:end; padding-bottom:1px; color:#526b68; font:700 9px/1.3 monospace; text-align:right; text-transform:uppercase; }
+.sd-calc-recommendation-card .sd-calc-percent { text-align:right; }
+/* damage rows: type-coloured bar and move name only */
+.sd-calc-result-card li.sd-calc-move-row { border-left-color:var(--type,#9bb0a4); }
+.sd-calc-move-row > .sd-calc-prob-name { color:var(--type,#17303a); }
+/* settings / trainer cards use the same monospace type as the other cards */
+:is(.st-key-calc_trainer_settings,.st-key-calc_trainer_picker) :is(label,[data-testid="stWidgetLabel"],[data-testid="stWidgetLabel"] p) { font:700 11px monospace !important; color:#17303a; }
+:is(.st-key-calc_trainer_settings,.st-key-calc_trainer_picker) > .sd-calc-panel-heading { margin:0; }
+
+/* result rows sit directly on the card */
+.sd-calc-result-card li.sd-calc-prob-row:not(.sd-calc-recommended):not(.sd-calc-top) { background:transparent; }
+
+.st-key-calc_player_trainer_panel .st-key-calc-config-picker .sd-config-picker { position:absolute; top:50%; right:0; transform:translateY(-50%); }
+.sd-calc-trainer { border:3px solid #a7d6c5; box-shadow:inset 0 0 0 2px #fff,0 4px 0 #071d24; }
+.sd-calc-result-card li.sd-calc-prob-row:hover { background:#d9e3d5; }
+.sd-calc-result-card li.sd-calc-prob-row:is(.sd-calc-recommended,.sd-calc-top):hover { background:#f7e9a8; }
+.sd-calc-result-card li.sd-calc-prob-row:not(.sd-calc-recommended):not(.sd-calc-top):hover { background:#d9e3d5; }
+.sd-calc-trainer { background:#e9eedb; }
+.sd-calc-result-card li .sd-calc-percent,
+.sd-calc-result-card li .sd-calc-damage-range { font-size:12px !important; }

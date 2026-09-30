@@ -88,7 +88,7 @@ export default function (component) {
       sizeLevel();
     }
   };
-  levelEdit.oninput = () => { sizeLevel(); clearTimeout(levelTimer); levelTimer = setTimeout(commitLevel, 450); };
+  levelEdit.oninput = () => { sizeLevel(); clearTimeout(levelTimer); levelTimer = setTimeout(commitLevel, 800); };
   levelEdit.onkeydown = event => {
     if (event.key === "Enter") { event.preventDefault(); commitLevel(); levelEdit.blur(); }
     if (event.key === "Escape") { clearTimeout(levelTimer); levelEdit.value = data.level ?? ""; sizeLevel(); levelEdit.blur(); }
@@ -129,6 +129,7 @@ export default function (component) {
     const list = combo.querySelector(".sd-build-options");
     if (field === "ability") trigger.disabled = Boolean(data.ability_locked);
     trigger.querySelector(".sd-build-value").textContent = data[`${field}_label`];
+    trigger.dataset.tip = data[`${field}_tip`] || "";
 
     const commit = value => {
       closeAll();
@@ -155,6 +156,7 @@ export default function (component) {
           effect.textContent = choice.effect;
           option.append(effect);
         }
+        if (choice.tip) option.dataset.tip = choice.tip;
         if (field === "item") {
           option.onpointerenter = () => previewItem(choice);
           option.onfocus = () => previewItem(choice);
@@ -224,13 +226,14 @@ _FOCUSED_BUILD = st.components.v2.component(
 )
 
 
-def focused_build(*, level, nature, nature_label, nature_options, item, item_label, item_options, item_icon_url, key,
+def focused_build(*, level, nature, nature_label, nature_options, item, item_label, item_options, item_icon_url, key, item_tip="", nature_tip="",
                   ability="", ability_options=(), show_ability=None, ability_locked=False, owner="", owner_options=(), pair="", pair_options=None):
     return _FOCUSED_BUILD(
         key=key,
         data={"level": level, "nature": nature, "nature_label": nature_label,
               "nature_options": nature_options, "item": item, "item_label": item_label,
               "item_options": item_options, "item_icon": item_icon_url,
+              "item_tip": item_tip, "nature_tip": nature_tip,
               "ability": ability, "ability_label": next((o["label"] for o in ability_options if o["value"] == ability), "Ability"),
               "ability_options": list(ability_options),
               "show_ability": bool(ability_options) if show_ability is None else show_ability,
